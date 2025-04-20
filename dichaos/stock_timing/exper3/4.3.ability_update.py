@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from dotenv import load_dotenv
 from alphacopilot.calendars.api import advanceDateByCalendar
 
-sys.path.insert(0, os.path.abspath('../../..'))
+#sys.path.insert(0, os.path.abspath('../../..'))
 
 load_dotenv()
 
@@ -26,7 +26,7 @@ def load_data(begin_date, end_date, code):
 
 def main():
     method = 'aicso2'
-    end_date = datetime.datetime(2025, 4, 16)
+    end_date = datetime.datetime(2025, 4, 17)
     begin_date =  advanceDateByCalendar('china.sse', end_date, '-10b')
     code = 'IF'
     pdb.set_trace()
