@@ -22,7 +22,9 @@ codes = instruments_codes[os.environ['INSTRUMENTS']]
 CONT_MULTNUM_MAPPING = {'RB': 10, 'IF': 300, 'IM': 200}
 
 ### 手续费
-COST_MAPPING = {'IF': 0.000023}
+COST_MAPPING = {'IF': 0.000023, 'IM': 0.000023}
 
 ### 滑点
-SLIPPAGE_MAPPING = {'IF': 0.0001}
+SLIPPAGE_MAPPING = {'IF': 0.0001, 'IM': 0.0001}
+
+INDEX_MAPPING = {"IF": 100001, 'IM': 100002}

@@ -3,6 +3,7 @@ from sqlalchemy.ext.automap import automap_base
 import sqlalchemy.orm as orm
 import math
 import numpy as np
+import pandas as pd
 
 
 class DataAdapter(object):
