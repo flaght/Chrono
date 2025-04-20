@@ -90,6 +90,7 @@ class Conor(object):
 
         data['exchange'] = data['exchange'].value
         data['datetime'] = data['datetime'].strftime('%Y-%m-%d %H:%M:%S')
+        insert_request = [InsertOne(data)]
 
         cache_bar = self.bars[event.data.symbol]
 
@@ -109,10 +110,12 @@ class Conor(object):
                 ## vwap
                 current_time = datetime.datetime.strptime(
                     cache_bar.bar.datetime, '%Y-%m-%d %H:%M:%S')
+                #_ = self._mongo_client['neutron']['market_bar'].bulk_write(
+                ##    insert_request, bypass_document_validation=True)
                 data['vwap'] = data['value'] / data['volume'] / int(
                     CONT_MULTNUM_MAPPING[
                         self.code]) if data['volume'] != 0.0 else 0
-                self.update_bar(data=data, table_name='market_bar')
+                #self.update_bar(data=data, table_name='market_bar')
                 self.qubit.run(trade_time=current_time)
             bar = BarData()
             bar.vt_symbol = tick.vt_symbol

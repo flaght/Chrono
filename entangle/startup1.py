@@ -4,13 +4,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from connor import Conor
-from plugin.atlex.engine import Engine as AtlexEngine
+from connor1 import Conor
+from plugin.chaos.engine import Engine as ChaosEngine
 
 
 def main():
     code = 'RB'
-    atlex_qubit = AtlexEngine(code=code)
+    atlex_qubit = ChaosEngine(code=code)
     conor = Conor(name='ctp', code=code,qubit=atlex_qubit)
     conor.start(
         account_id=os.environ['CTP_ACCOUNT_ID'],
