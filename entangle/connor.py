@@ -11,7 +11,7 @@ from macro.contract import *
 
 class Conor(object):
 
-    def __init__(self, qubit, code, name='ctp'):
+    def __init__(self, qubits, code, name='ctp'):
         self.name = name
         self._mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
         self.event_engine = EventEngine()
@@ -36,7 +36,7 @@ class Conor(object):
         self.bars = {}
         for symbol in self._subscribe:
             self.bars[symbol] = CacheBar(symbol=symbol)
-        self.qubit = qubit
+        self.qubits = qubits
 
     def update_bar(self, data, table_name):
         insert_request = [
@@ -112,8 +112,10 @@ class Conor(object):
                 data['vwap'] = data['value'] / data['volume'] / int(
                     CONT_MULTNUM_MAPPING[
                         self.code]) if data['volume'] != 0.0 else 0
-                self.update_bar(data=data, table_name='market_bar')
-                self.qubit.run(trade_time=current_time)
+                #self.update_bar(data=data, table_name='market_bar')
+                for qubit in self.qubits:
+                    qubit.run(trade_time=current_time)
+                    
             bar = BarData()
             bar.vt_symbol = tick.vt_symbol
             bar.symbol = tick.symbol
