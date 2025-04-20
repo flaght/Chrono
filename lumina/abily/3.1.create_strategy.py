@@ -3,6 +3,7 @@ import sqlalchemy as sa
 import os, pdb, sys, json
 from ultron.factor.genetic.geneticist.operators import *
 from dotenv import load_dotenv
+## 批量创建策略信号
 
 load_dotenv()
 os.environ['INSTRUMENTS'] = 'ifs'

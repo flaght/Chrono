@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-os.environ['INSTRUMENTS'] = 'ifs'
+os.environ['INSTRUMENTS'] = 'ims'
 g_instruments = os.environ['INSTRUMENTS']
 
 from alphacopilot.api.calendars import advanceDateByCalendar
@@ -153,4 +153,4 @@ def merge(method):
                      'test_data.feather'))
 
 
-merge('aicso1')
+merge('aicso2')

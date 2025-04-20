@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-os.environ['INSTRUMENTS'] = 'ifs'
+os.environ['INSTRUMENTS'] = 'ims'
 g_instruments = os.environ['INSTRUMENTS']
 
 sys.path.insert(0, os.path.abspath('../../'))
@@ -16,13 +16,12 @@ from kdutils.callback import callback_fitness, callback_models
 from lumina.genetic.motor import Motor
 
 
-def train(rootid, method):
-    pdb.set_trace()
+def train(method):
     filename = os.path.join(base_path, method, g_instruments, 'merge',
                             "train_data.feather")
     factors_data = pd.read_feather(filename).sort_values(
         by=['trade_time', 'code'])
-    pdb.set_trace()
+    rootid = INDEX_MAPPING[instruments_codes[g_instruments][0]]
     factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
     factors_data = factors_data.set_index('trade_time')
     factor_columns = [
@@ -32,8 +31,8 @@ def train(rootid, method):
         ]
     ]
 
-    population_size = 10
-    tournament_size = 5
+    population_size = 50
+    tournament_size = 20
     strategy_settings = {
         'capital': 10000000,
         'commission': COST_MAPPING[instruments_codes[g_instruments][0]],
@@ -42,16 +41,17 @@ def train(rootid, method):
     }
     pdb.set_trace()
     configure = {
-        'n_jobs': 1,
+        'n_jobs': 4,
         'population_size': population_size,
         'tournament_size': tournament_size,
-        'init_depth': 3,
+        'init_depth': 4,
         'rootid': rootid,
+        'generations':15,
         'custom_params': {
             'g_instruments': g_instruments,
             'dethod': method,
             'tournament_size': tournament_size,
-            'standard_score': 1,
+            'standard_score': 2,
             'strategy_settings': strategy_settings
         }
     }
@@ -68,6 +68,6 @@ def train(rootid, method):
 
 if __name__ == '__main__':
     # rootid = datetime.datetime.now().strftime("%Y%m%d")
-    rootid = '20250415'
-    method = 'aicso1'
-    train(rootid, method)
+    ### IF：20250415001
+    method = 'aicso2'
+    train(method)
