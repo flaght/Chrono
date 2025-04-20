@@ -22,6 +22,19 @@ class Factorx(object):
         data = pd.DataFrame(rt)
         return data.sort_values(by='datetime')
 
+    def update_impluse(self, data, table_name):
+        insert_request = [
+            InsertOne(data) for data in data.to_dict(orient='records')
+        ]
+
+        delete_request = [
+            DeleteOne(data)
+            for data in data[['datetime', 'symbol', 'name']].to_dict(
+                orient='records')
+        ]
+        _ = self._mongo_client['neutron'][table_name].bulk_write(
+            delete_request + insert_request, bypass_document_validation=True)
+
     def impluse_run(self, trade_time):
 
         def _format(data, impluse_max):
@@ -32,7 +45,7 @@ class Factorx(object):
             data = data.loc[impluse_max - 1:]
             return data.reset_index(drop=True)
 
-        impluse_max = 120#self.formual_client.impulse.max_window()
+        impluse_max = 120  #self.formual_client.impulse.max_window()
         bar_data = self.fetch_bar(trade_time=trade_time, pos=impluse_max)
         if bar_data.shape[0] < impluse_max:
             print(
@@ -49,7 +62,7 @@ class Factorx(object):
         for col in cols:
             if col not in bar_data.columns:
                 continue
-            res[col] = bar_data[col].unstack()
+            res[col] = bar_data[col].unstack().fillna(method='ffill')
         #impluse_data = self.formual_client.impulse.batch(data=res)
         impluse_data = self._iactuator.calculate(total_data=res)
         impluse_data = _format(impluse_data.stack(), impluse_max)
