@@ -14,7 +14,6 @@ class Engine(object):
         self._mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
 
     def fetch_bar(self, begin_time, end_time):
-        pdb.set_trace()
         rt = self._mongo_client['neutron']['market_bar'].find({
             'symbol': self.symbol,
             "datetime": {
