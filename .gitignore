@@ -177,3 +177,5 @@ cython_debug/
 *.pkl
 *.feather
 records*
+
+bak/
