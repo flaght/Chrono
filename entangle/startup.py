@@ -1,20 +1,19 @@
-import os
+import os, argparse, setproctitle
 import pandas as pd
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from connor import Conor
-from plugin.chaos.engine import Engine as ChaosEngine
 from plugin.atlex.engine import Engine as AtlexEngine
 
 
 def main():
-    code = 'RB'
-    chaos_qubit = ChaosEngine(code=code)
-    atlex_qubit = AtlexEngine(code=code)
-    qubits = [atlex_qubit, chaos_qubit]
-    conor = Conor(name='ctp', code=code, qubits=qubits)
+    codes = ['IF','M','IM','RB']
+    setproctitle.setproctitle("entangle")
+    atlex_qubit = AtlexEngine(codes=codes)
+    qubits = [atlex_qubit]
+    conor = Conor(name='ctp', codes=codes, qubits=qubits)
     conor.start(
         account_id=os.environ['CTP_ACCOUNT_ID'],
         password=os.environ['CTP_PASSWORD'],

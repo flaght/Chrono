@@ -11,7 +11,7 @@ from macro.contract import *
 
 class Conor(object):
 
-    def __init__(self, qubits, code, name='ctp'):
+    def __init__(self, qubits, codes, name='ctp'):
         self.name = name
         self._mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
         self.event_engine = EventEngine()
@@ -30,8 +30,11 @@ class Conor(object):
             raise (str(e))
         self.main_engine.add_gateway(getway_module)
         self._state_list = {STATE.INIT}  ##  状态机
-        self.code = code
-        self._subscribe = [MAIN_CONTRACT_MAPPING[code]]
+        self.codes = codes
+        self._subscribe  = []
+        for code in codes:
+            if code in MAIN_CONTRACT_MAPPING:
+                self._subscribe.append(MAIN_CONTRACT_MAPPING[code])
         self.contracts = {}
         self.bars = {}
         for symbol in self._subscribe:
@@ -71,6 +74,7 @@ class Conor(object):
                 req = SubscribeRequest(symbol=contract.symbol,
                                        exchange=contract.exchange)
                 #print(req)
+                pdb.set_trace()
                 self.main_engine.subscribe(req, contract.getway_name)
 
     def process_contract(self, event):
@@ -110,12 +114,12 @@ class Conor(object):
                 current_time = datetime.datetime.strptime(
                     cache_bar.bar.datetime, '%Y-%m-%d %H:%M:%S')
                 data['vwap'] = data['value'] / data['volume'] / int(
-                    CONT_MULTNUM_MAPPING[
-                        self.code]) if data['volume'] != 0.0 else 0
-                #self.update_bar(data=data, table_name='market_bar')
+                    CONT_MULTNUM_MAPPING[SYMBOL_CONTRANCT_MAPPING[
+                        data['symbol']]]) if data['volume'] != 0.0 else 0
+                self.update_bar(data=data, table_name='market_bar')
                 for qubit in self.qubits:
-                    qubit.run(trade_time=current_time)
-                    
+                    qubit.run(symbol=data['symbol'], trade_time=current_time)
+
             bar = BarData()
             bar.vt_symbol = tick.vt_symbol
             bar.symbol = tick.symbol
