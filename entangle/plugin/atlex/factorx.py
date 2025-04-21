@@ -1,4 +1,5 @@
 import os, pdb
+import warnings
 import pandas as pd
 from pymongo import InsertOne, DeleteOne
 from kdutil.mongodb import MongoDBManager
@@ -44,7 +45,6 @@ class Factorx(object):
             data.index = data['datetime'].factorize()[0]
             data = data.loc[impluse_max - 1:]
             return data.reset_index(drop=True)
-
         impluse_max = 120  #self.formual_client.impulse.max_window()
         bar_data = self.fetch_bar(trade_time=trade_time, pos=impluse_max)
         if bar_data.shape[0] < impluse_max:
@@ -63,8 +63,10 @@ class Factorx(object):
             if col not in bar_data.columns:
                 continue
             res[col] = bar_data[col].unstack().fillna(method='ffill')
-        #impluse_data = self.formual_client.impulse.batch(data=res)
-        impluse_data = self._iactuator.calculate(total_data=res)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning)  # 
+            warnings.filterwarnings("ignore", message="invalid value encountered in log")
+            impluse_data = self._iactuator.calculate(total_data=res)
         impluse_data = _format(impluse_data.stack(), impluse_max)
         self.update_impluse(data=impluse_data, table_name='impluse_factors')
         return impluse_data
