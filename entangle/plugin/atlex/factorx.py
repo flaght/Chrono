@@ -63,10 +63,7 @@ class Factorx(object):
             if col not in bar_data.columns:
                 continue
             res[col] = bar_data[col].unstack().fillna(method='ffill')
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=RuntimeWarning)  # 
-            warnings.filterwarnings("ignore", message="invalid value encountered in log")
-            impluse_data = self._iactuator.calculate(total_data=res)
+        impluse_data = self._iactuator.calculate(total_data=res)
         impluse_data = _format(impluse_data.stack(), impluse_max)
         self.update_impluse(data=impluse_data, table_name='impluse_factors')
         return impluse_data

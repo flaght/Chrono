@@ -5,8 +5,8 @@ from vnpy.trader.engine import MainEngine
 from vnpy.trader.object import SubscribeRequest
 from vnpy.trader.event import EVENT_LOG, EVENT_CONTRACT, EVENT_TICK, EVENT_ACCOUNT
 from kdutil.mongodb import MongoDBManager
-from const import STATE, CacheBar, ContractTuple, BarData
-from macro.contract import *
+from toolix.const import STATE, CacheBar, ContractTuple, BarData
+from toolix.macro.contract import *
 
 
 class Conor(object):
@@ -31,7 +31,7 @@ class Conor(object):
         self.main_engine.add_gateway(getway_module)
         self._state_list = {STATE.INIT}  ##  状态机
         self.codes = codes
-        self._subscribe  = []
+        self._subscribe = []
         for code in codes:
             if code in MAIN_CONTRACT_MAPPING:
                 self._subscribe.append(MAIN_CONTRACT_MAPPING[code])
@@ -74,7 +74,6 @@ class Conor(object):
                 req = SubscribeRequest(symbol=contract.symbol,
                                        exchange=contract.exchange)
                 #print(req)
-                pdb.set_trace()
                 self.main_engine.subscribe(req, contract.getway_name)
 
     def process_contract(self, event):
@@ -139,6 +138,8 @@ class Conor(object):
             cache_bar.bar = bar
             cache_bar.minute = tickMinute
         else:
+            if cache_bar.bar is None:
+                return
             bar = cache_bar.bar
             bar.high = max(bar.high, tick.last_price)
             bar.low = min(bar.low, tick.last_price)

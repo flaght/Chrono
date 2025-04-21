@@ -9,7 +9,7 @@ from plugin.atlex.engine import Engine as AtlexEngine
 
 
 def main():
-    codes = ['IF','M','IM','RB']
+    codes = ['IF', 'M', 'IM', 'RB', 'AU']
     setproctitle.setproctitle("entangle")
     atlex_qubit = AtlexEngine(codes=codes)
     qubits = [atlex_qubit]
