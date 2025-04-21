@@ -4,7 +4,7 @@ import pandas as pd
 from ultron.ump.metrics.score import WrsmScorer, BaseScorer
 from ultron.ump.metrics.metrics_base import MetricsBase
 
-score_tuple_array = load_pickle('score_tuple_array.pkl')
+score_tuple_array = load_pickle('rbb_score_tuple.pkl')
 
 pdb.set_trace()
 scorer = WrsmScorer(score_tuple_array)
