@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath('../../'))
 
 from kdutils.macro import *
 
-from lumina.genetic.actuator import Actuator, StrategyTuple
+from lumina.genetic import Actuator, StrategyTuple
 
 
 def fetch_strategy(task_id):

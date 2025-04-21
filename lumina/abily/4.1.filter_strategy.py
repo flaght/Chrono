@@ -10,6 +10,7 @@ g_instruments = os.environ['INSTRUMENTS']
 
 from lumina.genetic import Thruster
 from lumina.genetic import StrategyTuple
+from lumina.genetic import Actuator
 
 from kdutils.macro import *
 
@@ -46,12 +47,13 @@ strategy_settings = {
     'size': CONT_MULTNUM_MAPPING[instruments_codes[g_instruments][0]]
 }
 
-thruster = Thruster(k_split=1)
+thruster = Thruster(k_split=4)
 
+pdb.set_trace()
 results = thruster.calculate(strategies_infos=strategies_dt,
                              strategy_setting=strategy_settings,
                              total_data=val_data)
-dts = [{
+metrics_dt = [{
     'name': r1.name,
     'annual_return': r1.annual_return,
     'annual_volatility': r1.annual_volatility,
@@ -59,6 +61,14 @@ dts = [{
     'sharpe': r1.sharpe,
     'max_drawdown': r1.max_drawdown,
     'sortino': r1.sortino
-} for r1 in results]
-pdb.set_trace()
-print(dts)
+} for r1 in results if r1.sharpe > 1 and r1.calmar > 1]
+
+
+metrics_names = {item['name'] for item in metrics_dt}
+filter_strategies = [s for s in strategies_dt if s.name in metrics_names]
+
+actuator = Actuator(k_split=4)
+
+positions = actuator.calculate(strategies_infos=filter_strategies,
+                               total_data=val_data)
+print(positions)

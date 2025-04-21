@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath('../../'))
 from kdutils.macro import *
 from kdutils.operators_sets import operators_sets
 from kdutils.callback import callback_fitness, callback_models
-from lumina.genetic.motor import Motor
+from lumina.genetic import Motor
 
 
 def train(method):
