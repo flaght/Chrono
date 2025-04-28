@@ -12,6 +12,7 @@ g_instruments = os.environ['INSTRUMENTS']
 sys.path.insert(0, os.path.abspath('../../'))
 
 from kdutils.macro import *
+from kdutils.file import fetch_file_data
 from lumina.genetic.signal.method import *
 from lumina.genetic.strategy.method import *
 
@@ -43,30 +44,13 @@ def fetch_strategy(task_id):
     return dt
 
 
-def fetch_data(datasets):
-    res = []
-
-    def fet(name):
-        filename = os.path.join(base_path, method, g_instruments, 'merge',
-                                "{0}.feather".format(name))
-        factors_data = pd.read_feather(filename).sort_values(
-            by=['trade_time', 'code'])
-        factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
-        return factors_data
-
-    for n in datasets:
-        dt = fet(n)
-        res.append(dt)
-    res = pd.concat(res, axis=0)
-    factors_data = res.sort_values(by=['trade_time', 'code'])
-    factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
-    return factors_data
-
-
 task_id = '100002'
 method = 'aicso2'
 strategies_dt = fetch_strategy(task_id)
-factors_data = fetch_data(datasets=['train_data', 'val_data'])
+factors_data = fetch_file_data(base_path=base_path,
+                          method=method,
+                          g_instruments=g_instruments,
+                          datasets=['train_data', 'val_data'])
 for row in strategies_dt.itertuples():
     dt = create_position(total_data=factors_data, strategy=row)
     print(dt)

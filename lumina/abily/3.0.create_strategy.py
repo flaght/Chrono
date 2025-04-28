@@ -11,6 +11,7 @@ g_instruments = os.environ['INSTRUMENTS']
 sys.path.insert(0, os.path.abspath('../../'))
 
 from kdutils.macro import *
+from kdutils.file import fetch_file_data
 
 from lumina.genetic import Actuator, StrategyTuple
 
@@ -35,31 +36,14 @@ def fetch_strategy(task_id):
     return strategies_data
 
 
-def fetch_data(datasets):
-    res = []
-
-    def fet(name):
-        filename = os.path.join(base_path, method, g_instruments, 'merge',
-                                "{0}.feather".format(name))
-        factors_data = pd.read_feather(filename).sort_values(
-            by=['trade_time', 'code'])
-        factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
-        return factors_data
-
-    for n in datasets:
-        dt = fet(n)
-        res.append(dt)
-    res = pd.concat(res, axis=0)
-    factors_data = res.sort_values(by=['trade_time', 'code'])
-    factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
-    return factors_data
-
-
 task_id = '20250414'
 method = 'aicso1'
 strategies_data = fetch_strategy(task_id)
 actuator = Actuator(k_split=4)
-factors_data = fetch_data(datasets=['train_data', 'val_data'])
+factors_data = fetch_file_data(base_path=base_path,
+                          method=method,
+                          g_instruments=g_instruments,
+                          datasets=['train_data', 'val_data'])
 strategies_data = actuator.calculate(strategies_infos=strategies_data[:16],
                                      total_data=factors_data)
 print(strategies_data)
