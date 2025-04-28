@@ -276,7 +276,7 @@ def build_factors(method1='aicso1',
 
 
 if __name__ == '__main__':
-    #evolution_factors(method='aicso2', categories='o2o', horizon=1)
+    evolution_factors(method='aicso2', categories='o2o', horizon=1)
     ### method1: 基于挖掘数据产生的因子表达式
     ### method2: 生成因子值
     build_factors(
