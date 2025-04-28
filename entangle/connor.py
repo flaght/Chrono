@@ -1,4 +1,4 @@
-import os, importlib, datetime, pdb
+import os, importlib, datetime, pdb,time
 from pymongo import InsertOne, DeleteOne
 from vnpy.event import EventEngine
 from vnpy.trader.engine import MainEngine
@@ -69,6 +69,7 @@ class Conor(object):
             self._state_list.add(STATE.LOGIN_ON)
             print("account {0} {1} login on".format(event.data.gateway_name,
                                                     event.data.accountid))
+            time.sleep(2)
             for symbol in self._subscribe:
                 contract = self.contracts[symbol]
                 req = SubscribeRequest(symbol=contract.symbol,
