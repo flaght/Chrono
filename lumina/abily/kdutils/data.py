@@ -13,9 +13,7 @@ def fetch_basic(begin_date, end_date, codes):
     basic_info = DBAPI.CustomizeFactory(kd_engine).custom(
         name=name,
         clause_list=clause_list,
-        columns=[
-            'contractObject', 'contMultNum','listDate'
-        ])
+        columns=['contractObject', 'contMultNum', 'listDate'])
     basic_info = basic_info.sort_values(by='listDate',
                                         ascending=False).drop_duplicates(
                                             subset='contractObject',
