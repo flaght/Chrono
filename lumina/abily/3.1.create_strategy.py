@@ -3,10 +3,10 @@ import sqlalchemy as sa
 import os, pdb, sys, json
 from ultron.factor.genetic.geneticist.operators import *
 from dotenv import load_dotenv
-## 批量创建策略信号
+## 循环创建策略信号
 
 load_dotenv()
-os.environ['INSTRUMENTS'] = 'ifs'
+os.environ['INSTRUMENTS'] = 'ims'
 g_instruments = os.environ['INSTRUMENTS']
 
 sys.path.insert(0, os.path.abspath('../../'))
@@ -43,12 +43,30 @@ def fetch_strategy(task_id):
     return dt
 
 
-task_id = '20250414'
-method = 'aicso1'
+def fetch_data(datasets):
+    res = []
+
+    def fet(name):
+        filename = os.path.join(base_path, method, g_instruments, 'merge',
+                                "{0}.feather".format(name))
+        factors_data = pd.read_feather(filename).sort_values(
+            by=['trade_time', 'code'])
+        factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
+        return factors_data
+
+    for n in datasets:
+        dt = fet(n)
+        res.append(dt)
+    res = pd.concat(res, axis=0)
+    factors_data = res.sort_values(by=['trade_time', 'code'])
+    factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
+    return factors_data
+
+
+task_id = '100002'
+method = 'aicso2'
 strategies_dt = fetch_strategy(task_id)
-filename = os.path.join(base_path, method, g_instruments, 'merge',
-                        "val_data.feather")
-factors_data = pd.read_feather(filename).sort_values(by=['trade_time', 'code'])
-factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
+factors_data = fetch_data(datasets=['train_data', 'val_data'])
 for row in strategies_dt.itertuples():
-    create_position(total_data=factors_data, strategy=row)
+    dt = create_position(total_data=factors_data, strategy=row)
+    print(dt)

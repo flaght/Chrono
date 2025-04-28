@@ -1,3 +1,4 @@
+### 批量多进程计算寻优策略的信号值
 import pandas as pd
 import sqlalchemy as sa
 import os, pdb, sys, json
@@ -34,14 +35,31 @@ def fetch_strategy(task_id):
     return strategies_data
 
 
+def fetch_data(datasets):
+    res = []
+
+    def fet(name):
+        filename = os.path.join(base_path, method, g_instruments, 'merge',
+                                "{0}.feather".format(name))
+        factors_data = pd.read_feather(filename).sort_values(
+            by=['trade_time', 'code'])
+        factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
+        return factors_data
+
+    for n in datasets:
+        dt = fet(n)
+        res.append(dt)
+    res = pd.concat(res, axis=0)
+    factors_data = res.sort_values(by=['trade_time', 'code'])
+    factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
+    return factors_data
+
+
 task_id = '20250414'
 method = 'aicso1'
 strategies_data = fetch_strategy(task_id)
-pdb.set_trace()
 actuator = Actuator(k_split=4)
-filename = os.path.join(base_path, method, g_instruments, 'merge',
-                        "val_data.feather")
-factors_data = pd.read_feather(filename).sort_values(by=['trade_time', 'code'])
-factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
-
-actuator.calculate(strategies_infos=strategies_data[:16], total_data=factors_data)
+factors_data = fetch_data(datasets=['train_data', 'val_data'])
+strategies_data = actuator.calculate(strategies_infos=strategies_data[:16],
+                                     total_data=factors_data)
+print(strategies_data)
