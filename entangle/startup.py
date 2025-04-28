@@ -6,13 +6,15 @@ load_dotenv()
 
 from connor import Conor
 from plugin.atlex.engine import Engine as AtlexEngine
+from plugin.chaos.engine import Engine as ChaosEngine
 
 
 def main():
     codes = ['IF', 'M', 'IM', 'RB', 'AU']
     setproctitle.setproctitle("entangle")
     atlex_qubit = AtlexEngine(codes=codes)
-    qubits = [atlex_qubit]
+    chaos_qubit = ChaosEngine(codes=['AU'])
+    qubits = [atlex_qubit,chaos_qubit]
     conor = Conor(name='ctp', codes=codes, qubits=qubits)
     conor.start(
         account_id=os.environ['CTP_ACCOUNT_ID'],
