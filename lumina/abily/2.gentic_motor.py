@@ -1,3 +1,4 @@
+### 通过寻优算法 挖掘策略
 import datetime, pdb, os, sys
 import pandas as pd
 import numpy as np
@@ -14,7 +15,6 @@ from kdutils.macro import *
 from kdutils.operators_sets import operators_sets
 from kdutils.callback import callback_fitness, callback_models
 from lumina.genetic import Motor
-
 
 def train(method):
     filename = os.path.join(base_path, method, g_instruments, 'merge',
@@ -39,14 +39,13 @@ def train(method):
         'slippage': SLIPPAGE_MAPPING[instruments_codes[g_instruments][0]],
         'size': CONT_MULTNUM_MAPPING[instruments_codes[g_instruments][0]]
     }
-    pdb.set_trace()
     configure = {
         'n_jobs': 4,
         'population_size': population_size,
         'tournament_size': tournament_size,
-        'init_depth': 4,
+        'init_depth': 8,
         'rootid': rootid,
-        'generations':15,
+        'generations': 10,
         'custom_params': {
             'g_instruments': g_instruments,
             'dethod': method,
@@ -67,7 +66,5 @@ def train(method):
 
 
 if __name__ == '__main__':
-    # rootid = datetime.datetime.now().strftime("%Y%m%d")
-    ### IF：20250415001
     method = 'aicso2'
     train(method)
