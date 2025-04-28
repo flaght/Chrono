@@ -2,16 +2,22 @@ import os, pdb
 import pandas as pd
 from pymongo import InsertOne, DeleteOne
 from kdutil.mongodb import MongoDBManager
-from chaosmind.timing.phecda0001.workflow import WorkFlow
+from chaosmind.timing.phecda0002.workflow import WorkFlow
 from toolix.macro.contract import MAIN_CONTRACT_MAPPING, CONT_MULTNUM_MAPPING
 
 
 class Signalor(object):
 
-    def __init__(self, code):
+    def __init__(self, id, code):
         self.code = code
+        self.id = id
         self.symbol = MAIN_CONTRACT_MAPPING[code]
-        self.workflow = WorkFlow(code=code, symbol=MAIN_CONTRACT_MAPPING[code])
+        self.workflow = WorkFlow(
+            code=code,
+            symbol=MAIN_CONTRACT_MAPPING[code],
+            base_path=os.environ['CHAOS_PHECDA_PATH'],
+            name=id,
+        )
         self._mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
 
     def fetch_bar(self, begin_time, end_time):
@@ -55,7 +61,7 @@ class Signalor(object):
              'name'])['value'].unstack().fillna(method='ffill').reset_index()
         return data
 
-    def update_impluse(self, data, table_name):
+    def update_signalor(self, data, table_name):
         insert_request = [
             InsertOne(data) for data in data.to_dict(orient='records')
         ]
@@ -86,20 +92,13 @@ class Signalor(object):
                         inplace=True)
         bar_data['trade_time'] = pd.to_datetime(bar_data['trade_time'])
         impluse_data = impluse_data.merge(bar_data, on=['trade_time', 'code'])
-
-        position = self.workflow.create_signals(trade_time=trade_time,
+        signal = self.workflow.create_signals(trade_time=trade_time,
                                                 data=impluse_data)
-        pdb.set_trace()
-        latest_bar = bar_data[bar_data.trade_time.isin([trade_time])]
-        trade_vol = 1000000 / latest_bar['close'].values[
-            0] / CONT_MULTNUM_MAPPING[self.code]
-        position = position * trade_vol
         results = {
             'trade_time': trade_time,
-            'position': position,
+            'signal': signal,
             'symbol': self.symbol,
-            'task_id': '11111'
+            'task_id': self.id
         }
-        print(results)
-        #self.update_impluse(data=pd.DataFrame([results]),
-        #                    table_name='impluse_position')
+        self.update_signalor(data=pd.DataFrame([results]),
+                             table_name='impluse_signal')
