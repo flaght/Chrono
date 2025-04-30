@@ -316,6 +316,6 @@ if __name__ == '__main__':
     parser.add_argument('--code', type=str, default='IM')  ## 代码
 
     args = parser.parse_args()
-    #train(vars(args))
-    predict(vars(args))
+    train(vars(args))
+    #predict(vars(args))
     #predict_all(vars(args))
