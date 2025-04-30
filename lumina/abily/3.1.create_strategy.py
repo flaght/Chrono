@@ -37,7 +37,7 @@ def create_position(total_data, strategy):
 
 def fetch_strategy(task_id):
     sql = """
-        select formual, signal_method, signal_params, strategy_method, strategy_params from genetic_strategy where task_id={0} order by fitness desc limit 80
+        select formual, signal_method, signal_params, strategy_method, strategy_params from genetic_strategy where task_id={0} order by fitness
     """.format(task_id)
     engine = sa.create_engine(os.environ['DB_URL'])
     dt = pd.read_sql(sql=sql, con=engine)
@@ -46,11 +46,13 @@ def fetch_strategy(task_id):
 
 task_id = '100002'
 method = 'aicso2'
+pdb.set_trace()
 strategies_dt = fetch_strategy(task_id)
 factors_data = fetch_file_data(base_path=base_path,
                           method=method,
                           g_instruments=g_instruments,
                           datasets=['train_data', 'val_data'])
+pdb.set_trace()
 for row in strategies_dt.itertuples():
     dt = create_position(total_data=factors_data, strategy=row)
     print(dt)
