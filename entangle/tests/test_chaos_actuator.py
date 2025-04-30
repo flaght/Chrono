@@ -7,7 +7,7 @@ load_dotenv()
 
 sys.path.insert(0, os.path.abspath('../'))
 
-from plugin.chaos.signalor import Signalor
+from plugin.phecda.signalor import Signalor
 
 
 def create_time(begin_time, end_time, freq='1T'):
