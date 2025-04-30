@@ -247,7 +247,7 @@ def build_factors(method1='aicso1',
                                 '{0}_{1}h.feather'.format(categories, horizon))
         formual_data = pd.read_feather(filename)
         formual_data = formual_data[formual_data['fitness'] >= 0.028]  #0.01
-
+    pdb.set_trace()
     basic_factors = fetch_data(method2, names=[])
     begin_time = basic_factors['trade_time'].min()
     start_time = advanceDateByCalendar('china.sse', begin_time,
@@ -276,7 +276,7 @@ def build_factors(method1='aicso1',
 
 
 if __name__ == '__main__':
-    evolution_factors(method='aicso2', categories='o2o', horizon=1)
+    #evolution_factors(method='aicso2', categories='o2o', horizon=1)
     ### method1: 基于挖掘数据产生的因子表达式
     ### method2: 生成因子值
     build_factors(
