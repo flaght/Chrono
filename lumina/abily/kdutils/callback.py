@@ -59,7 +59,8 @@ def callback_fitness(factor_data, total_data, signal_method, strategy_method,
                               strategy_settings=strategy_settings)
     ### 值有异常 绝对值大于1
     returns = df['ret']
-    fitness = empyrical.calmar_ratio(returns=returns, period=empyrical.DAILY)
+    #fitness = empyrical.calmar_ratio(returns=returns, period=empyrical.DAILY)
+    fitness = empyrical.sharpe_ratio(returns=returns, period=empyrical.DAILY)
     return fitness
 
 
