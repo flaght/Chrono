@@ -13,6 +13,7 @@ g_instruments = os.environ['INSTRUMENTS']
 
 import ultron.factor.empyrical as empyrical
 from lumina.genetic.metrics.ts_pnl import calculate_ful_ts_pnl
+from kdutils.file import fetch_file_data
 from lumina.genetic import Actuator
 from lumina.genetic.fusion import Rotor
 from lumina.genetic.process import *
@@ -36,14 +37,6 @@ def fetch_rotor(base_path, name, code):
                               name=name)
     return rotor
 
-
-## 提取数据
-def fetch_data(bath_path):
-    filename = os.path.join(bath_path, 'merge', "val_data.feather")
-    factors_data = pd.read_feather(filename).sort_values(
-        by=['trade_time', 'code'])
-    factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
-    return factors_data
 
 
 def create_postions(k_split, filter_strategies, total_data):
@@ -124,7 +117,7 @@ def run_metrics(target_column, positions_data, market_data, strategy_setting):
 if __name__ == '__main__':
     method = 'aicso2'
     k_split = 4
-    n_parts = 5
+    n_parts = 10
     base_path1 = os.path.join(base_path, method, g_instruments)
     groups1 = generate_intervals(n_parts=n_parts)
     strategy_setting = {
@@ -133,9 +126,13 @@ if __name__ == '__main__':
         'slippage': 0.0001,
         'size': 200
     }
-    total_data = fetch_data(bath_path=base_path1)
+    total_data = fetch_file_data(base_path=base_path,
+                                 method=method,
+                                 g_instruments=g_instruments,
+                                 datasets=['train_data','val_data','test_data'])
+    pdb.set_trace()
     basic_rotor = fetch_rotor(base_path=base_path1,
-                              name='1011713336',
+                              name='1046921830',
                               code=instruments_codes[g_instruments][0])
     strategies_data = create_postions(k_split=4,
                                       filter_strategies=basic_rotor.strategies,

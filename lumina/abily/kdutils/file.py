@@ -1,4 +1,4 @@
-import os
+import os, pdb
 import pandas as pd
 
 def fetch_file_data(base_path, method, g_instruments, datasets):
@@ -15,6 +15,7 @@ def fetch_file_data(base_path, method, g_instruments, datasets):
     for n in datasets:
         dt = fet(n)
         res.append(dt)
+    pdb.set_trace()
     res = pd.concat(res, axis=0)
     factors_data = res.sort_values(by=['trade_time', 'code'])
     factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])

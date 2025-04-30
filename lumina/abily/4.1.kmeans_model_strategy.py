@@ -22,11 +22,12 @@ from kdutils.file import fetch_file_data
 
 def fetch_strategy(task_id, threshold=1.0):
     sql = """
-        select name, formual, signal_method, signal_params, strategy_method, fitness, strategy_params from genetic_strategy where task_id={0} order by fitness desc limit 80
+        select name, formual, signal_method, signal_params, strategy_method, fitness, strategy_params from genetic_strategy where task_id={0} order by fitness desc
     """.format(task_id)
     engine = sa.create_engine(os.environ['DB_URL'])
     dt = pd.read_sql(sql=sql, con=engine)
-    dt = dt[(dt['fitness'] > threshold) & (dt['fitness'] < 6)]
+    dt = dt[(dt['fitness'] > threshold) & (dt['fitness'] < 10)]
+    pdb.set_trace()
     dt = [StrategyTuple(**d1) for d1 in dt.to_dict(orient='records')]
     dt = [d1 for d1 in dt if 'MPWMA' not in d1.formual]
     return dt
@@ -129,6 +130,7 @@ def save_metrics(path, metrics):
 if __name__ == '__main__':
     method = 'aicso2'
     k_split = 4
+    pdb.set_trace()
     task_id = INDEX_MAPPING[instruments_codes[g_instruments][0]]
     strategies_dt = fetch_strategy(task_id)
     total_data = fetch_file_data(base_path=base_path,
@@ -150,7 +152,7 @@ if __name__ == '__main__':
         strategies_dt=strategies_dt,
         strategy_settings=strategy_settings,
         total_data=total_data)
-
+    pdb.set_trace()
     ## 计算仓位
     strategies_data = create_postions(k_split=k_split,
                                       filter_strategies=filter_strategies,
