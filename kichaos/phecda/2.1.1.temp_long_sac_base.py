@@ -115,7 +115,6 @@ def fit(index, train_data, val_data, variant):
         buy_cost_pct=buy_cost_pct_sets,
         sell_cost_pct=sell_cost_pct_sets,
         ticker_dim=ticker_dimension,
-        direction=[variant['direction']],
         mode='train',
         cont_multnum=CONT_MULTNUM_MAPPING[variant['code']],
         initial_amount=initial_amount,
@@ -132,7 +131,6 @@ def fit(index, train_data, val_data, variant):
         buy_cost_pct=buy_cost_pct_sets,
         sell_cost_pct=sell_cost_pct_sets,
         ticker_dim=ticker_dimension,
-        direction=[variant['direction']],
         mode='eval',
         cont_multnum=CONT_MULTNUM_MAPPING[variant['code']],
         initial_amount=initial_amount,
@@ -198,7 +196,8 @@ def educate(index, test_data, model_index, variant):
         zip(test_data.code, [sell_cost_pct] * ticker_dimension))
 
     params = copy.deepcopy(variant)
-    del params['direction']
+    #del params['direction']
+    params['direction'] = 1 if variant['direction'] == 'long' else -1
     initial_amount = INIT_CASH_MAPPING[variant['code']]  #2000000.0  #60000
     pdb.set_trace()
     env_test_gym = HedgeTraderEnv(
@@ -209,7 +208,6 @@ def educate(index, test_data, model_index, variant):
         buy_cost_pct=buy_cost_pct_sets,
         sell_cost_pct=sell_cost_pct_sets,
         ticker_dim=ticker_dimension,
-        direction=[variant['direction']],
         mode='eval',
         cont_multnum=CONT_MULTNUM_MAPPING[variant['code']],
         initial_amount=initial_amount,
@@ -218,11 +216,13 @@ def educate(index, test_data, model_index, variant):
         **params)
 
     ## 要考虑参数序列化
+    '''
     filename = os.path.join(
         "records", "env_params",
         "{0}_{1}_{2}.pkl".format(variant['code'], variant['direction'],
                                   env_test_gym.name))
     params = env_test_gym.dumps(filename)
+    '''
 
     pdb.set_trace()
     env_test, _ = env_test_gym.get_env()
@@ -316,6 +316,6 @@ if __name__ == '__main__':
     parser.add_argument('--code', type=str, default='IM')  ## 代码
 
     args = parser.parse_args()
-    train(vars(args))
-    #predict(vars(args))
+    #train(vars(args))
+    predict(vars(args))
     #predict_all(vars(args))
