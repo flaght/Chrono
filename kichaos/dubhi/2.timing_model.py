@@ -16,17 +16,16 @@ from kichaos.utils.env import *
 
 
 def load_micro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
-    pdb.set_trace()
     train_filename = os.path.join(os.environ['BASE_PATH'], method,
                                   "train_model_normal.feather")
     train_data = pd.read_feather(train_filename).rename(
         columns={'trade_date': 'trade_time'})
-    pdb.set_trace()
     val_filename = os.path.join(os.environ['BASE_PATH'], method,
                                 "val_model_normal.feather")
     val_data = pd.read_feather(val_filename).rename(
         columns={'trade_date': 'trade_time'})
-
+    train_data = train_data.loc[0:int(len(train_data) * 0.1)]
+    val_data = val_data.loc[0:int(len(val_data) * 0.1)]
     nxt1_columns = train_data.filter(regex="^nxt1_").columns.to_list()
 
     columns = [
@@ -112,7 +111,9 @@ if __name__ == '__main__':
     parser.add_argument('--window', type=int, default=1)
     parser.add_argument('--horizon', type=int, default=5)
     parser.add_argument('--seq_cycle', type=int, default=10)
-    parser.add_argument('--universe', type=str, default=os.environ['DUMMY_NAME'])
+    parser.add_argument('--universe',
+                        type=str,
+                        default=os.environ['DUMMY_NAME'])
 
     args = parser.parse_args()
 
