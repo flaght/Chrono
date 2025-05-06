@@ -92,7 +92,7 @@ def load_micro(method,
         base_path, method, 'normal',
         "val_normal_{0}_{1}h.feather".format(categories, horizon))
     val_data = pd.read_feather(val_filename)
-
+    pdb.set_trace()
     features = [
         col for col in train_data.columns
         if col not in ['trade_time', 'code', 'nxt1_ret']
