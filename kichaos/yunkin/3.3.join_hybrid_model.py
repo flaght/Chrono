@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 from kdutils.macro import base_path
 from ultron.optimize.wisem import *
@@ -130,8 +130,8 @@ def nll_loss_with_two_models(pred, var, target):
 
 def train(variant):
 
-    writer = SummaryWriter(log_dir='runs/experiment')
-    batch_size = 16
+    writer = SummaryWriter(log_dir='runs/experiment1')
+    batch_size = 32
     train_dataset, val_dataset = load_micro(method=variant['method'],
                                             window=variant['window'],
                                             categories=variant['categories'],

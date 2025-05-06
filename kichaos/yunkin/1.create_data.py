@@ -144,7 +144,6 @@ def main(method):
     horizon_sets = [1, 2, 3, 5]
     begin_date, end_date = get_dates(method)
 
-    '''
     load_market(begin_date=begin_date,
                 end_date=end_date,
                 base_path=base_path,
@@ -153,7 +152,8 @@ def main(method):
     
     #build_yields(method=method, horizon_sets=horizon_sets, categories='o2o')
     normal_data(method=method, horizon=1, categories='o2o')
+    '''
     
 
 
-main('aicso1')
+main('aicso2')
