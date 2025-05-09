@@ -1,3 +1,3 @@
 import os
-base_path = os.path.join('/workspace/data/dev/kd/evolution/nn',
+base_path = os.path.join(os.environ['BAISC_PATH'],
                          os.environ['KICHAOS_BASE_NAME'])
