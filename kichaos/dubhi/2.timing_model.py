@@ -16,9 +16,9 @@ load_dotenv()
 def create_model(features, window):
     params = {
         'd_model': 256,
-        'n_heads': 8,
-        'e_layers': 8,
-        'd_layers': 8,
+        'n_heads': 4,
+        'e_layers': 4,
+        'd_layers': 4,
         'dropout': 0.25,
         'denc_dim': 1,
         'activation': 'gelu',
@@ -32,7 +32,6 @@ def create_model(features, window):
 
 
 def load_misro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
-    pdb.set_trace()
     val_filename = os.path.join(os.environ['BASE_PATH'], method,
                                 "val_model_normal.feather")
     val_data = pd.read_feather(val_filename).rename(
@@ -42,7 +41,6 @@ def load_misro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
         col for col in val_data.columns
         if col not in ['trade_time', 'code', 'dummy', 'nxt1_ret']
     ]
-    pdb.set_trace()
     val_dataset = CongniBasic10.generate(val_data,
                                          features=features,
                                          window=window,
@@ -61,8 +59,8 @@ def load_micro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
                                 "val_model_normal.feather")
     val_data = pd.read_feather(val_filename).rename(
         columns={'trade_date': 'trade_time'})
-    #train_data = train_data.loc[0:int(len(train_data) * 0.1)]
-    #val_data = val_data.loc[0:int(len(val_data) * 0.1)]
+    #train_data = train_data.loc[0:int(len(train_data) * 0.4)]
+    #val_data = val_data.loc[0:int(len(val_data) * 0.4)]
     nxt1_columns = train_data.filter(regex="^nxt1_").columns.to_list()
 
     columns = [
@@ -86,7 +84,6 @@ def load_micro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
         col for col in train_data.columns
         if col not in ['trade_time', 'code', 'dummy', 'nxt1_ret']
     ]
-    pdb.set_trace()
     train_dataset = CogniDataSet10.generate(train_data,
                                             seq_cycle=seq_cycle,
                                             features=features,
@@ -109,8 +106,7 @@ def load_micro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
 def train(variant):
     batch_size = 512
     task_id = int(time.time())
-    writer = SummaryWriter(
-        log_dir='runs/experiment/{0}'.format(task_id))
+    writer = SummaryWriter(log_dir='runs/experiment/{0}'.format(task_id))
 
     model_dir = os.path.join('runs/models/{0}'.format(task_id))
     if not os.path.exists(model_dir):
@@ -217,7 +213,6 @@ def train(variant):
         if best_val_loss is None:
             best_val_loss = avg_val_loss
             best_epoch = epoch
-
 
         ## 保存每个epoch的模型
         torch.save(model.state_dict(),
