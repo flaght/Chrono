@@ -86,7 +86,7 @@ engine = ddb.session()
 user, password, address, port = parser(url)
 engine.connect(host=address, port=port, userid=user, password=password)
 
-db_name = "dfs://min_bar"
+db_name = "dfs://min_factor"
 table_name = "min_snapshot_n_stats"
 
 for table_name in ['min_snapshot_money_flow',
@@ -94,10 +94,17 @@ for table_name in ['min_snapshot_money_flow',
         'min_snapshot_price_volume_corr',
         'min_snapshot_price_volume_imbalance', 'min_trade_active_buy_sell',
         'min_trade_different_price_classify', 'min_trade_order_numbers',
-        'min_trade_small_big_orders'
-][1:]:
+        'min_trade_small_big_orders','min_factor_15'
+][-1:]:
     for date in dates:
         print(table_name, date)
+        path1 = os.path.join("/workspace/data/data/dev/chaos/min_factors", table_name)
+        if not os.path.exists(path1):
+            os.makedirs(path1)
+        filename = os.path.join(path1, date.strftime('%Y-%m-%d') + '.feather')
+        if os.path.exists(filename):
+            continue
+
         clause_list1 = to_format('date', '>=',
                                  convert_date(date.strftime('%Y-%m-%d')))
         clause_list2 = to_format('date', '<=',
@@ -108,8 +115,4 @@ for table_name in ['min_snapshot_money_flow',
         if data.empty:
             print('没有数据')
             continue
-        path1 = os.path.join("/workspace/data/data/dev/chaos/min_factors", table_name)
-        if not os.path.exists(path1):
-            os.makedirs(path1)
-        filename = os.path.join(path1, date.strftime('%Y-%m-%d') + '.feather')
         data.to_feather(filename)
