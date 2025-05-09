@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from dotenv import load_dotenv
 from alphacopilot.calendars.api import advanceDateByCalendar
 
-#sys.path.insert(0, os.path.abspath('../../..'))
+sys.path.insert(0, os.path.abspath('../../..'))
 
 load_dotenv()
 
@@ -26,10 +26,9 @@ def load_data(begin_date, end_date, code):
 
 def main():
     method = 'aicso2'
-    end_date = datetime.datetime(2025, 4, 17)
+    end_date = datetime.datetime(2025, 5, 8)
     begin_date =  advanceDateByCalendar('china.sse', end_date, '-10b')
     code = 'IF'
-    pdb.set_trace()
     total_data = load_data(begin_date, end_date, code)
     path = create_agent_path(name=Agent.name,
                              method=method,
@@ -84,7 +83,6 @@ def main():
     dates = [d.strftime('%Y-%m-%d') for d in dates]  #[0:100]
     dates.sort()
     date = end_date.strftime('%Y-%m-%d')
-    pdb.set_trace()
     kline = KLine(date=date,
                   symbol=code,
                   open=total_data.loc[(date, code), 'open'],
@@ -92,7 +90,7 @@ def main():
                   high=total_data.loc[(date, code), 'high'],
                   low=total_data.loc[(date, code), 'low'],
                   volume=total_data.loc[(date, code), 'volume'])
-
+    pdb.set_trace()
     indicator_list = IndicatorList(date=date)
     indicator_list.set_indicator(sma5=sma5.loc[date],
                                  sma10=sma10.loc[date],
@@ -112,7 +110,6 @@ def main():
                                  s2=s2.loc[date],
                                  r3=r3.loc[date],
                                  s3=s3.loc[date])
-    pdb.set_trace()
     agent.handing_data(date, code, indicator_list, kline)
     short_prompt, reflection_prompt = agent.query_records(date, code)
     response = agent.generate_prediction(date=date,
@@ -121,5 +118,5 @@ def main():
                                          reflection_prompt=reflection_prompt)
     content = "{0}: 日期:{1}, 方向:{2}, 置信度:{3}, 推理原因:{4}".format(code,advanceDateByCalendar('china.sse', date, '1b').strftime('%Y-%m-%d'),response.signal,response.confidence,response.reasoning)
     print(content)
-    feishu(content)
+    #feishu(content)
 main()
