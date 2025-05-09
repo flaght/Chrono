@@ -101,7 +101,9 @@ def fit(index, train_data, val_data, variant):
 
     params = copy.deepcopy(variant)
     params['verbosity'] = 40
-    del params['direction']
+    params['direction'] = 1 if variant['direction'] == 'long' else -1
+    #del params['direction']
+
     params['step_len'] = train_data.shape[0] - 1
 
     params['close_times'] = CLOSE_TIME_MAPPING[variant['code']]
@@ -115,11 +117,12 @@ def fit(index, train_data, val_data, variant):
         buy_cost_pct=buy_cost_pct_sets,
         sell_cost_pct=sell_cost_pct_sets,
         ticker_dim=ticker_dimension,
+        #direction=params['direction']#[variant['direction']],
         mode='train',
-        cont_multnum=CONT_MULTNUM_MAPPING[variant['code']],
+        cont_multnum=CONT_MULTNUM_MAPPING[params['code']],
         initial_amount=initial_amount,
-        open_threshold=THRESHOLD_MAPPING[variant['code']]['long_open'],
-        close_threshold=THRESHOLD_MAPPING[variant['code']]['long_close'],
+        open_threshold=THRESHOLD_MAPPING[params['code']]['long_open'],
+        close_threshold=THRESHOLD_MAPPING[params['code']]['long_close'],
         **params)
     env_train, _ = env_train_gym.get_env()
 
@@ -131,11 +134,12 @@ def fit(index, train_data, val_data, variant):
         buy_cost_pct=buy_cost_pct_sets,
         sell_cost_pct=sell_cost_pct_sets,
         ticker_dim=ticker_dimension,
+        #direction=[params['direction']],
         mode='eval',
-        cont_multnum=CONT_MULTNUM_MAPPING[variant['code']],
+        cont_multnum=CONT_MULTNUM_MAPPING[params['code']],
         initial_amount=initial_amount,
-        open_threshold=THRESHOLD_MAPPING[variant['code']]['long_open'],
-        close_threshold=THRESHOLD_MAPPING[variant['code']]['long_close'],
+        open_threshold=THRESHOLD_MAPPING[params['code']]['long_open'],
+        close_threshold=THRESHOLD_MAPPING[params['code']]['long_close'],
         **params)
     env_val, _ = env_val_gym.get_env()
 
@@ -196,8 +200,7 @@ def educate(index, test_data, model_index, variant):
         zip(test_data.code, [sell_cost_pct] * ticker_dimension))
 
     params = copy.deepcopy(variant)
-    #del params['direction']
-    params['direction'] = 1 if variant['direction'] == 'long' else -1
+    del params['direction']
     initial_amount = INIT_CASH_MAPPING[variant['code']]  #2000000.0  #60000
     pdb.set_trace()
     env_test_gym = HedgeTraderEnv(
@@ -208,6 +211,7 @@ def educate(index, test_data, model_index, variant):
         buy_cost_pct=buy_cost_pct_sets,
         sell_cost_pct=sell_cost_pct_sets,
         ticker_dim=ticker_dimension,
+        direction=[variant['direction']],
         mode='eval',
         cont_multnum=CONT_MULTNUM_MAPPING[variant['code']],
         initial_amount=initial_amount,
@@ -312,10 +316,10 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=512)  ## 训练时数据大小
     parser.add_argument('--window', type=int, default=3)  ## 开始周期，即多少个周期构建env数据
 
-    parser.add_argument('--direction', type=str, default='long')  ## 方向
+    parser.add_argument('--direction', type=str, default='short')  ## 方向
     parser.add_argument('--code', type=str, default='IM')  ## 代码
 
     args = parser.parse_args()
-    #train(vars(args))
-    predict(vars(args))
+    train(vars(args))
+    #predict(vars(args))
     #predict_all(vars(args))
