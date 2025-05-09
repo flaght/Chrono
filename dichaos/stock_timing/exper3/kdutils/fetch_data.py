@@ -46,6 +46,8 @@ def main_daily(begin_date,
             algin_factors.trade_date <= row.end_date) & (algin_factors.code
                                                          == row.code)
         factors = algin_factors[cond1]
+        if factors.empty:
+            continue
         begin_date = factors.trade_date.min().strftime('%Y-%m-%d')
         end_date = factors.trade_date.max().strftime('%Y-%m-%d')
         end_date = row.end_date.strftime('%Y-%m-%d') if index == (

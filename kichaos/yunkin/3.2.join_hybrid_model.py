@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 from kdutils.macro import base_path
 from ultron.optimize.wisem import *
