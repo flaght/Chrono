@@ -37,6 +37,7 @@ def fetch_main_contract(begin_date, end_date, codes):
 
 
 def fetch_market(begin_date, end_date, codes=None):
+    pdb.set_trace()
     main_factors = fetch_main_contract(begin_date, end_date, codes)
     codes = main_factors['code'].unique().tolist()
     basic_info = fetch_basic(begin_date, end_date, codes)
@@ -45,7 +46,6 @@ def fetch_market(begin_date, end_date, codes=None):
                                        codes=codes,
                                        method='pcr',
                                        format_data=0)
-    pdb.set_trace()
     market_data = [data[code] for code in codes if code in data]
     market_data = pd.concat(market_data,
                             axis=0).sort_values(by=['trade_date', 'code'])

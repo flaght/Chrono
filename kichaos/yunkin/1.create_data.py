@@ -47,6 +47,8 @@ def load_market(begin_date, end_date, base_path, method):
     if not os.path.exists(dirs):
         os.makedirs(dirs)
     filename = os.path.join(dirs, 'market_data.feather')
+    print('save market data to {0}'.format(filename))
+    market_data = market_data.drop_duplicates(subset=['trade_time', 'code'])
     market_data.sort_index().reset_index(drop=True).to_feather(filename)
 
 
@@ -60,6 +62,7 @@ def build_yields(method, horizon_sets, categories):
     market_data = market_data.drop_duplicates(subset=['trade_time', 'code'])
     market_data = market_data.sort_values(by=['trade_time', 'code'])
     if categories == 'o2o':
+        pdb.set_trace()
         openp = market_data.set_index(['trade_time', 'code'])['open'].unstack()
         pre_openp = openp.shift(1)
         ret_o2o = np.log((openp) / pre_openp)
@@ -110,7 +113,6 @@ def normal_data(method, horizon, categories):
         os.makedirs(dirs)
     count = data.groupby(level='trade_time').count()['close'].reset_index()
     count = count.rename(columns={'close': 'count'})
-    pdb.set_trace()
     data = data.reset_index().merge(count, on=['trade_time'], how='left')
     data = data[data['count'] > 20]
     data = data.drop(columns=['count'])
@@ -135,32 +137,31 @@ def normal_data(method, horizon, categories):
         by=['trade_time', 'code'])
     test_data = data[data.trade_time.isin(test_time)].sort_values(
         by=['trade_time', 'code'])
-    pdb.set_trace()
-    train_data.reset_index(drop=True).to_feather(
-        os.path.join(dirs, 'train_normal_{0}_{1}h.feather').format(
-            categories, horizon))
-    val_data.reset_index(drop=True).to_feather(
-        os.path.join(dirs, 'val_normal_{0}_{1}h.feather').format(
-            categories, horizon))
-    test_data.reset_index(drop=True).to_feather(
-        os.path.join(dirs, 'test_normal_{0}_{1}h.feather').format(
-            categories, horizon))
+
+    train_file = os.path.join(dirs, 'train_normal_{0}_{1}h.feather').format(
+        categories, horizon)
+    val_file = os.path.join(dirs, 'val_normal_{0}_{1}h.feather').format(
+        categories, horizon)
+    test_file = os.path.join(dirs, 'test_normal_{0}_{1}h.feather').format(
+        categories, horizon)
+    print('save train data to {0}'.format(train_file))
+    print('save val data to {0}'.format(val_file))
+    print('save test data to {0}'.format(test_file))
+    train_data.reset_index(drop=True).to_feather(train_file)
+    val_data.reset_index(drop=True).to_feather(val_file)
+    test_data.reset_index(drop=True).to_feather(test_file)
 
 
 def main(method):
     horizon_sets = [1, 2, 3, 5]
     begin_date, end_date = get_dates(method)
-    pdb.set_trace()
-    '''
-
     load_market(begin_date=begin_date,
                 end_date=end_date,
                 base_path=base_path,
                 method=method)
-    '''
 
     #build_yields(method=method, horizon_sets=horizon_sets, categories='o2o')
-    normal_data(method=method, horizon=1, categories='o2o')
+    #normal_data(method=method, horizon=1, categories='o2o')
 
 
 
