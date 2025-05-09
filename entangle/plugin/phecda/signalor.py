@@ -15,7 +15,7 @@ class Signalor(object):
         self.workflow = WorkFlow(
             code=code,
             symbol=MAIN_CONTRACT_MAPPING[code],
-            base_path=os.environ['CHAOS_PHECDA_PATH'],
+            base_path=os.environ['CHAOS_PHECDA_PATH'] ,
             name=id,
         )
         self._mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
@@ -94,6 +94,7 @@ class Signalor(object):
         impluse_data = impluse_data.merge(bar_data, on=['trade_time', 'code'])
         signal = self.workflow.create_signals(trade_time=trade_time,
                                                 data=impluse_data)
+        signal = signal if signal == 0 else 0 - signal
         results = {
             'trade_time': trade_time,
             'signal': signal,
