@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
 from kdutils.macro import base_path
 from ultron.optimize.wisem import *
@@ -53,10 +53,10 @@ class VarianceModel(nn.Module):
 
 def create_prediction_model(features, window):
     params = {
-        'd_model': 256,
+        'd_model': 128,
         'n_heads': 4,
-        'e_layers': 4,
-        'd_layers': 4,
+        'e_layers': 2,
+        'd_layers': 2,
         'dropout': 0.25,
         'denc_dim': 1,
         'activation': 'gelu',
@@ -97,7 +97,7 @@ def load_micro(method,
         col for col in train_data.columns
         if col not in ['trade_time', 'code', 'nxt1_ret']
     ]
-
+    #pdb.set_trace()
     #train_data = train_data.loc[:10000]
     #val_data = val_data.loc[:10000]
     train_dataset = CogniDataSet10.generate(train_data,
@@ -131,7 +131,7 @@ def nll_loss_with_two_models(pred, var, target):
 def train(variant):
 
     writer = SummaryWriter(log_dir='runs/experiment')
-    batch_size = 16
+    batch_size = 32
     train_dataset, val_dataset = load_micro(method=variant['method'],
                                             window=variant['window'],
                                             categories=variant['categories'],
@@ -192,7 +192,7 @@ def train(variant):
                 optimizer2.zero_grad()
 
                 _, _, pred = prediction_model(X)  ## [batch, time, features]
-
+        
                 var = variance_model(X.permute(0, 2,
                                                1))  ## [batch, features, time]
 
@@ -274,7 +274,7 @@ def train(variant):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--method', type=str, default='aicso1')
+    parser.add_argument('--method', type=str, default='aicso3')
     parser.add_argument('--window', type=int, default=1)
     parser.add_argument('--horizon', type=int, default=1)
     parser.add_argument('--seq_cycle', type=int, default=3)
