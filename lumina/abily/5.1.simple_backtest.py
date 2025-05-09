@@ -43,9 +43,9 @@ def merge_signals(strategies_data, filter_strategies):
 
 if __name__ == '__main__':
     method = 'aicso2'
-    k_split = 4
+    k_split = 16
     pdb.set_trace()
-
+    task_id = '1078761302'
     strategy_settings = {
         'capital': 10000000,
         'commission': COST_MAPPING[instruments_codes[g_instruments][0]],
@@ -53,10 +53,11 @@ if __name__ == '__main__':
         'size': CONT_MULTNUM_MAPPING[instruments_codes[g_instruments][0]]
     }
 
-    total_data = fetch_file_data(base_path=base_path,
-                                 method=method,
-                                 g_instruments=g_instruments,
-                                 datasets=['train_data','val_data','test_data'])
+    total_data = fetch_file_data(
+        base_path=base_path,
+        method=method,
+        g_instruments=g_instruments,
+        datasets=['train_data', 'val_data', 'test_data'])
 
     total_data['trade_time'] = pd.to_datetime(total_data['trade_time'])
 
@@ -73,9 +74,9 @@ if __name__ == '__main__':
     roto1 = fetch_rotor(os.path.join(base_path, method, g_instruments,
                                      'kmeans'),
                         code=instruments_codes[g_instruments][0],
-                        name='1046921830')
+                        name=task_id)
 
-    strategies_data = create_postions(k_split=4,
+    strategies_data = create_postions(k_split=k_split,
                                       filter_strategies=roto1.strategies,
                                       total_data=total_data)
 
@@ -108,7 +109,7 @@ if __name__ == '__main__':
     annual_volatility = empyrical.annual_volatility(returns=returns,
                                                     period=empyrical.DAILY)
 
-    metrics = EmpyricalTuple(name='1046921830',
+    metrics = EmpyricalTuple(name=task_id,
                              annual_return=annual_return,
                              annual_volatility=annual_volatility,
                              calmar=calmar_ratio,
