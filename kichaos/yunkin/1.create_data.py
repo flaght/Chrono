@@ -47,6 +47,8 @@ def load_market(begin_date, end_date, base_path, method):
     if not os.path.exists(dirs):
         os.makedirs(dirs)
     filename = os.path.join(dirs, 'market_data.feather')
+    print('save market data to {0}'.format(filename))
+    market_data = market_data.drop_duplicates(subset=['trade_time', 'code'])
     market_data.sort_index().reset_index(drop=True).to_feather(filename)
 
 
@@ -57,6 +59,7 @@ def build_yields(method, horizon_sets, categories):
     filename = os.path.join(dirs, 'market_data.feather')
     market_data = pd.read_feather(filename)
     if categories == 'o2o':
+        pdb.set_trace()
         openp = market_data.set_index(['trade_time', 'code'])['open'].unstack()
         pre_openp = openp.shift(1)
         ret_o2o = np.log((openp) / pre_openp)
@@ -105,12 +108,12 @@ def normal_data(method, horizon, categories):
         os.makedirs(dirs)
     count = data.groupby(level='trade_time').count()['close'].reset_index()
     count = count.rename(columns={'close': 'count'})
-    data = data.reset_index().merge(count, on=['trade_time'],how='left')
-    data = data[data['count']> 20]
+    data = data.reset_index().merge(count, on=['trade_time'], how='left')
+    data = data[data['count'] > 20]
     data = data.drop(columns=['count'])
     pdb.set_trace()
 
-    ### 过滤截面较小的时间段  
+    ### 过滤截面较小的时间段
     ### 71, 79,  51,  8,  4,  12,  3, 20, 11, 10,  2
     ### 10:16:00~10:30:00 13:01~13:30 8个
     ### 15:01:00~15:15:00 4个
@@ -119,7 +122,7 @@ def normal_data(method, horizon, categories):
 
     times = pd.to_datetime(
         data['trade_time']).dt.strftime('%Y-%m-%d %H:%M:%S').unique()
-    
+
     train_time, val_time, test_time = split_three_parts(times,
                                                         ratios=[0.7, 0.2, 0.1])
     train_data = data[data.trade_time.isin(train_time)].sort_values(
@@ -128,32 +131,33 @@ def normal_data(method, horizon, categories):
         by=['trade_time', 'code'])
     test_data = data[data.trade_time.isin(test_time)].sort_values(
         by=['trade_time', 'code'])
-    pdb.set_trace()
-    train_data.reset_index(drop=True).to_feather(
-        os.path.join(dirs, 'train_normal_{0}_{1}h.feather').format(
-            categories, horizon))
-    val_data.reset_index(drop=True).to_feather(
-        os.path.join(dirs, 'val_normal_{0}_{1}h.feather').format(
-            categories, horizon))
-    test_data.reset_index(drop=True).to_feather(
-        os.path.join(dirs, 'test_normal_{0}_{1}h.feather').format(
-            categories, horizon))
+
+    train_file = os.path.join(dirs, 'train_normal_{0}_{1}h.feather').format(
+        categories, horizon)
+    val_file = os.path.join(dirs, 'val_normal_{0}_{1}h.feather').format(
+        categories, horizon)
+    test_file = os.path.join(dirs, 'test_normal_{0}_{1}h.feather').format(
+        categories, horizon)
+    print('save train data to {0}'.format(train_file))
+    print('save val data to {0}'.format(val_file))
+    print('save test data to {0}'.format(test_file))
+    train_data.reset_index(drop=True).to_feather(train_file)
+    val_data.reset_index(drop=True).to_feather(val_file)
+    test_data.reset_index(drop=True).to_feather(test_file)
 
 
 def main(method):
     horizon_sets = [1, 2, 3, 5]
     begin_date, end_date = get_dates(method)
-
+    
     load_market(begin_date=begin_date,
                 end_date=end_date,
                 base_path=base_path,
                 method=method)
-    '''
     
-    #build_yields(method=method, horizon_sets=horizon_sets, categories='o2o')
+
+    build_yields(method=method, horizon_sets=horizon_sets, categories='o2o')
     normal_data(method=method, horizon=1, categories='o2o')
-    '''
-    
 
 
-main('aicso2')
+main('aicso3')
