@@ -68,4 +68,4 @@ def fetch_market(begin_date, end_date, codes=None):
         columns=['barTime', 'symbol', 'mincount', 'trade_date', 'chg'], axis=1)
     market_data = market_data.sort_values(by=['trade_time', 'code'])
     pdb.set_trace()
-    return market_data
+    return market_data.drop_duplicates(subset=['trade_time', 'code'])

@@ -13,7 +13,7 @@ def main():
     codes = ['IF', 'M', 'IM', 'RB', 'AU']
     setproctitle.setproctitle("entangle")
     atlex_qubit = AtlexEngine(codes=codes)
-    chaos_qubit = PhecdaEngine(codes=['AU'])
+    chaos_qubit = PhecdaEngine(codes=['IM'])
     qubits = [atlex_qubit,chaos_qubit]
     conor = Conor(name='ctp', codes=codes, qubits=qubits)
     conor.start(

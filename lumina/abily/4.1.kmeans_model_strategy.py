@@ -26,6 +26,7 @@ def fetch_strategy(task_id, threshold=1.0):
     """.format(task_id)
     engine = sa.create_engine(os.environ['DB_URL'])
     dt = pd.read_sql(sql=sql, con=engine)
+    pdb.set_trace()
     dt = dt[(dt['fitness'] > threshold) & (dt['fitness'] < 10)]
     pdb.set_trace()
     dt = [StrategyTuple(**d1) for d1 in dt.to_dict(orient='records')]
@@ -132,7 +133,7 @@ if __name__ == '__main__':
     k_split = 4
     pdb.set_trace()
     task_id = INDEX_MAPPING[instruments_codes[g_instruments][0]]
-    strategies_dt = fetch_strategy(task_id)
+    strategies_dt = fetch_strategy(task_id, threshold=1.2)
     total_data = fetch_file_data(base_path=base_path,
                                  method=method,
                                  g_instruments=g_instruments,

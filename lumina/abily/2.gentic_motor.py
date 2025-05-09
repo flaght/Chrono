@@ -16,6 +16,7 @@ from kdutils.operators_sets import operators_sets
 from kdutils.callback import callback_fitness, callback_models
 from lumina.genetic import Motor
 
+
 def train(method):
     filename = os.path.join(base_path, method, g_instruments, 'merge',
                             "train_data.feather")
@@ -40,7 +41,7 @@ def train(method):
         'size': CONT_MULTNUM_MAPPING[instruments_codes[g_instruments][0]]
     }
     configure = {
-        'n_jobs': 4,
+        'n_jobs': 8,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 8,
@@ -51,7 +52,9 @@ def train(method):
             'dethod': method,
             'tournament_size': tournament_size,
             'standard_score': 2,
-            'strategy_settings': strategy_settings
+            'strategy_settings': strategy_settings,
+            'task_id': rootid,
+            'method': PERFORMANCE_MAPPING[rootid]
         }
     }
     motor = Motor(factor_columns=factor_columns,

@@ -60,12 +60,14 @@ def callback_fitness(factor_data, total_data, signal_method, strategy_method,
     ### 值有异常 绝对值大于1
     returns = df['ret']
     #fitness = empyrical.calmar_ratio(returns=returns, period=empyrical.DAILY)
-    fitness = empyrical.sharpe_ratio(returns=returns, period=empyrical.DAILY)
+    #fitness = empyrical.sharpe_ratio(returns=returns, period=empyrical.DAILY)
+    method_funciton = getattr(empyrical,
+                              '{0}_ratio'.format(custom_params['method']))
+    fitness = method_funciton(returns=returns, period=empyrical.DAILY)
     return fitness
 
 
 def create_fitness(total_data, strategy, strategy_settings):
-    pdb.set_trace()
     total_dt = total_data.copy()
     factors_data = calc_factor(expression=strategy.formual,
                                total_data=total_dt.set_index(['trade_time']),
