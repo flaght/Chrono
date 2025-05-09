@@ -52,6 +52,7 @@ class Basic(object):
         self.codes = data.index.get_level_values(1)
         grouped = data.groupby('code')
         for code, group in grouped:
+            print(code)
             sorted_group = group.sort_index(level=time_name)
             features = sorted_group[wfeatures].values
             n_samples = len(sorted_group) - seq_cycle + 1
