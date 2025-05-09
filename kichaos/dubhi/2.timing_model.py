@@ -1,9 +1,11 @@
 import sys, os, torch, pdb, argparse, time
 import pandas as pd
 import numpy as np
+import torch.nn.functional as F
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from kichaos.nn import SequentialHybridTransformer
+from kichaos.nn import TemporalConvolution
 from ultron.optimize.wisem import *
 from dataset10 import Dataset10 as CogniDataSet10
 from dataset10 import Basic as CongniBasic10
@@ -13,13 +15,61 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def create_model(features, window):
+class VarianceModel(nn.Module):
+
+    def __init__(self, input_channels=4, time_steps=3, num_filters=32):
+        ### feature--> channel
+        ### time_steps --> width 对应卷积核操作的sequence_length 长度
+        ### batch_size --> batch
+
+        super(VarianceModel, self).__init__()
+        self.conv1 = nn.Conv1d(input_channels, num_filters, kernel_size=2)
+        self.conv2 = nn.Conv1d(num_filters, num_filters * 2, kernel_size=2)
+        self.bn1 = nn.BatchNorm1d(num_filters)
+        self.bn2 = nn.BatchNorm1d(num_filters * 2)
+        self.fc = nn.Linear(num_filters * 2 * (time_steps - 2), 1)
+        self.softplus = nn.Softplus()  # 保证输出是正数
+
+    def forward(self, x):
+        ### 初始时间步骤： time_steps
+        ### 第一层卷积后: time_steps - 1
+        ### 第二层卷积后: time_steps - 2
+        ### 全连接层输入维度: num_filters * 2 * (time_steps - 2)
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = x.view(x.size(0), -1)
+        return self.softplus(self.fc(x)) + 1e-6
+
+
+def create_model3(features, window, seq_cycle):
+    params = {
+        'num_channels': [16, 32, 64],
+        'kernel_size': 4,
+        'dropout': 0.2,
+        'softmax_output': False
+    }
+    model = TemporalConvolution(input_size=len(features) * window,
+                                output_size=1,
+                                **params)
+    return model
+
+
+def create_model2(features, window, seq_cycle):
+    params = {
+        'input_channels': len(features) * window,
+        'time_steps': seq_cycle
+    }
+    model = VarianceModel(**params)
+    return model
+
+
+def create_model1(features, window, seq_cycle):
     params = {
         'd_model': 256,
-        'n_heads': 4,
-        'e_layers': 4,
-        'd_layers': 4,
-        'dropout': 0.25,
+        'n_heads': 2,
+        'e_layers': 2,
+        'd_layers': 2,
+        'dropout': 0.15,
         'denc_dim': 1,
         'activation': 'gelu',
         'output_attention': True
@@ -129,8 +179,11 @@ def train(variant):
         shuffle=False,
         collate_fn=CogniDataSet10.collate_fn)
 
-    model = create_model(features=train_dataset.features,
-                         window=variant['window'])
+    #model = create_model(features=train_dataset.features,
+    #                     window=variant['window'])
+    model = create_model1(features=train_dataset.features,
+                          window=variant['window'],
+                          seq_cycle=variant['seq_cycle'])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -165,7 +218,8 @@ def train(variant):
                     if X.shape[0] == 1:
                         continue
                     _, _, pred = model(X)  ## [batch, time, features]
-
+                    #pred = model(X.permute(0, 2, 1))
+                    #_, pred = model(X.permute(0, 2, 1))
                     loss = criterion(pred, y)
 
                     train_losses.append(loss.item())
@@ -188,6 +242,8 @@ def train(variant):
                         X = to_device(data['values'])
                         y = to_device(data['target'])
                         _, _, pred = model(X)
+                        #pred = model(X.permute(0, 2, 1))
+                        #_, pred = model(X.permute(0, 2, 1))
                         loss = criterion(pred, y)
                         val_losses.append(loss.item())
                     pg.show(val_batch_num + 1)
