@@ -4,7 +4,8 @@ import numpy as np
 import torch.nn.functional as F
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-from kichaos.nn import SequentialHybridTransformer
+#from kichaos.nn import SequentialHybridTransformer
+from kichaos.nn.HybridTransformer.transformer import Transformer_base
 from kichaos.nn import TemporalConvolution
 from ultron.optimize.wisem import *
 from dataset10 import Dataset10 as CogniDataSet10
@@ -13,6 +14,148 @@ from ultron.kdutils.progress import Progress
 from dotenv import load_dotenv
 
 load_dotenv()
+'''
+class SequentialHybridTransformer(Transformer_base):
+
+    def __init__(self,
+                 enc_in,
+                 dec_in,
+                 c_out,
+                 d_model=128,
+                 n_heads=4,
+                 e_layers=2,
+                 d_layers=1,
+                 d_ff=256,
+                 dropout=0.0,
+                 activation='gelu',
+                 denc_dim=-1,
+                 output_attention=False):
+        super(SequentialHybridTransformer,
+              self).__init__(enc_in=enc_in,
+                             dec_in=dec_in,
+                             c_out=c_out,
+                             d_model=d_model,
+                             n_heads=n_heads,
+                             e_layers=e_layers,
+                             d_layers=d_layers,
+                             d_ff=d_ff,
+                             dropout=dropout,
+                             activation=activation,
+                             output_attention=output_attention)
+        self.d_model = d_model
+        self.c_out = c_out
+        self.denc_dim = denc_dim
+
+    def hidden_size(self):
+        return self.d_model
+
+    def forward(self, inputs):
+        # 将输入数据从四维变为三维
+        enc_inp = inputs
+        if self.denc_dim > 0:
+            dec_inp = inputs[:, :, -self.denc_dim:]
+        else:
+            dec_inp = inputs
+
+        # 去掉与 stock_num 相关的处理
+        enc_out, dec_out, output = super(SequentialHybridTransformer,self).forward(enc_inp, dec_inp)
+        return enc_out, dec_out, output
+'''
+
+
+class SequentialHybridTransformer(Transformer_base):
+
+    def __init__(self,
+                 enc_in,
+                 dec_in,
+                 c_out,
+                 d_model=128,
+                 n_heads=4,
+                 e_layers=2,
+                 d_layers=1,
+                 d_ff=256,
+                 dropout=0.0,
+                 activation='gelu',
+                 output_attention=False):
+        super(SequentialHybridTransformer,
+              self).__init__(enc_in=enc_in,
+                             dec_in=dec_in,
+                             c_out=c_out,
+                             d_model=d_model,
+                             n_heads=n_heads,
+                             e_layers=e_layers,
+                             d_layers=d_layers,
+                             d_ff=d_ff,
+                             dropout=dropout,
+                             activation=activation,
+                             output_attention=output_attention)
+
+        self.d_model = d_model
+        self.c_out = c_out
+
+    def forward(self, inputs):
+        """处理三维输入 [batch, feature, time]"""
+        # 调整维度顺序为 [batch, time, features]
+        #enc_inp = inputs.permute(0, 2, 1)  # [batch, time, features]
+        enc_inp = inputs
+        dec_inp = enc_inp  # 使用相同输入作为decoder输入
+
+        enc_out, dec_out, output = super().forward(enc_inp, dec_inp)
+
+        # 输出调整回 [batch, prediction_length]
+        return enc_out, dec_out, output[:, -1, :]
+
+
+class SequentialHybridTransformer1(Transformer_base):
+
+    def __init__(self,
+                 enc_in,
+                 dec_in,
+                 c_out,
+                 d_model=128,
+                 n_heads=4,
+                 e_layers=2,
+                 d_layers=1,
+                 d_ff=256,
+                 dropout=0.0,
+                 activation='gelu',
+                 denc_dim=1,
+                 output_attention=False):
+        super(SequentialHybridTransformer1,
+              self).__init__(enc_in=enc_in,
+                             dec_in=dec_in,
+                             c_out=c_out,
+                             d_model=d_model,
+                             n_heads=n_heads,
+                             e_layers=e_layers,
+                             d_layers=d_layers,
+                             d_ff=d_ff,
+                             dropout=dropout,
+                             activation=activation,
+                             output_attention=output_attention)
+
+        self.d_model = d_model
+        self.c_out = c_out
+        self.denc_dim = denc_dim
+
+    def forward(self, inputs):
+        # 输入为 [batch, time, features]
+        enc_inp = inputs
+        # 如果 denc_dim > 0，选择最后 denc_dim 个时间步作为解码器输入
+        if self.denc_dim > 0:
+            dec_inp = inputs[:, -self.denc_dim:, :]
+        else:
+            dec_inp = inputs
+
+        # 使用父类的 forward 方法进行编码和解码
+        enc_out, dec_out, output = super(SequentialHybridTransformer1,
+                                         self).forward(enc_inp, dec_inp)
+        # 对输出进行处理，确保输出为 [batch, 1]
+        # 可以使用全连接层或其他方法进行降维
+        output = output.mean(dim=1)  # 对时间维度进行平均，得到 [batch, features]
+        #output = output.squeeze(-1)  # 压缩最后一个维度，得到 [batch]
+        pdb.set_trace()
+        return enc_out, dec_out, output
 
 
 class VarianceModel(nn.Module):
@@ -70,14 +213,15 @@ def create_model1(features, window, seq_cycle):
         'e_layers': 2,
         'd_layers': 2,
         'dropout': 0.15,
-        'denc_dim': 1,
+        #'denc_dim': 0,
         'activation': 'gelu',
         'output_attention': True
     }
-    model = SequentialHybridTransformer(enc_in=len(features) * window,
-                                        dec_in=len(features) * window,
-                                        c_out=1,
-                                        **params)
+    model = SequentialHybridTransformer1(enc_in=len(features) * window,
+                                         dec_in=len(features) * window,
+                                         c_out=1,
+                                         denc_dim=2,
+                                         **params)
     return model
 
 
@@ -109,8 +253,8 @@ def load_micro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
                                 "val_model_normal.feather")
     val_data = pd.read_feather(val_filename).rename(
         columns={'trade_date': 'trade_time'})
-    #train_data = train_data.loc[0:int(len(train_data) * 0.4)]
-    #val_data = val_data.loc[0:int(len(val_data) * 0.4)]
+    train_data = train_data.loc[0:int(len(train_data) * 0.4)]
+    val_data = val_data.loc[0:int(len(val_data) * 0.4)]
     nxt1_columns = train_data.filter(regex="^nxt1_").columns.to_list()
 
     columns = [
@@ -156,9 +300,10 @@ def load_micro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
 def train(variant):
     batch_size = 512
     task_id = int(time.time())
-    writer = SummaryWriter(log_dir='runs/experiment/{0}'.format(task_id))
+    writer_dir = os.path.join('runs/experiment/time_model_{0}'.format(task_id))
+    writer = SummaryWriter(log_dir=writer_dir)
 
-    model_dir = os.path.join('runs/models/{0}'.format(task_id))
+    model_dir = os.path.join('runs/models/time_model_{0}'.format(task_id))
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
 
@@ -217,6 +362,7 @@ def train(variant):
                     optimizer1.zero_grad()
                     if X.shape[0] == 1:
                         continue
+                    pdb.set_trace()
                     _, _, pred = model(X)  ## [batch, time, features]
                     #pred = model(X.permute(0, 2, 1))
                     #_, pred = model(X.permute(0, 2, 1))
@@ -236,6 +382,7 @@ def train(variant):
                       0,
                       label="epoch {0}:val model".format(epoch)) as pg:
             with torch.no_grad():
+                pdb.set_trace()
                 for batch in val_loader:
                     val_batch_num += 1
                     for data in batch:
