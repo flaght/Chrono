@@ -4,7 +4,7 @@ import torch
 from dotenv import load_dotenv
 
 load_dotenv()
-os.environ['INSTRUMENTS'] = 'ims'
+os.environ['INSTRUMENTS'] = 'rbb'
 g_instruments = os.environ['INSTRUMENTS']
 g_start_pos = 47  #44
 g_max_pos = g_start_pos + 1
