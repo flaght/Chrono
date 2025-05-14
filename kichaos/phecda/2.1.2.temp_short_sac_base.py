@@ -200,9 +200,9 @@ def educate(index, test_data, model_index, variant):
         zip(test_data.code, [sell_cost_pct] * ticker_dimension))
 
     params = copy.deepcopy(variant)
-    del params['direction']
+    #del params['direction']
+    params['direction'] = 1 if variant['direction'] == 'long' else -1
     initial_amount = INIT_CASH_MAPPING[variant['code']]  #2000000.0  #60000
-    pdb.set_trace()
     env_test_gym = HedgeTraderEnv(
         df=test_data,
         features=features,
@@ -320,6 +320,6 @@ if __name__ == '__main__':
     parser.add_argument('--code', type=str, default='IM')  ## 代码
 
     args = parser.parse_args()
-    train(vars(args))
-    #predict(vars(args))
+    #train(vars(args))
+    predict(vars(args))
     #predict_all(vars(args))

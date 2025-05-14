@@ -42,7 +42,7 @@ def load_datasets(variant):
         train_data = pd.read_feather(train_filename)
         val_data = pd.read_feather(val_filename)
         test_data = pd.read_feather(test_filename)
-
+        pdb.set_trace()
         min_time = pd.to_datetime(train_data['trade_time']).min()
         max_time = pd.to_datetime(val_data['trade_time']).max()
         min_date = min_time if min_date is None else min(min_date, min_time)
@@ -100,13 +100,12 @@ def fit(index, train_data, val_data, variant):
         zip(val_data.code, [sell_cost_pct] * ticker_dimension))
 
     params = copy.deepcopy(variant)
-    params['verbosity'] = 40
+    params['verbosity'] = 1
     del params['direction']
     params['step_len'] = train_data.shape[0] - 1
-
+    params['direction'] = 1 if variant['direction'] == 'long' else -1
     params['close_times'] = CLOSE_TIME_MAPPING[variant['code']]
     initial_amount = INIT_CASH_MAPPING[variant['code']]  #2000000.0  #60000
-
     env_train_gym = HedgeTraderEnv(
         df=train_data,
         features=features,

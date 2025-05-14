@@ -26,7 +26,7 @@ def load_data(begin_date, end_date, code):
 
 def main():
     method = 'aicso2'
-    end_date = datetime.datetime(2025, 5, 8)
+    end_date = advanceDateByCalendar('china.sse', datetime.datetime.now(), '-1b')
     begin_date =  advanceDateByCalendar('china.sse', end_date, '-10b')
     code = 'IF'
     total_data = load_data(begin_date, end_date, code)
@@ -90,7 +90,7 @@ def main():
                   high=total_data.loc[(date, code), 'high'],
                   low=total_data.loc[(date, code), 'low'],
                   volume=total_data.loc[(date, code), 'volume'])
-    pdb.set_trace()
+
     indicator_list = IndicatorList(date=date)
     indicator_list.set_indicator(sma5=sma5.loc[date],
                                  sma10=sma10.loc[date],
@@ -118,5 +118,5 @@ def main():
                                          reflection_prompt=reflection_prompt)
     content = "{0}: 日期:{1}, 方向:{2}, 置信度:{3}, 推理原因:{4}".format(code,advanceDateByCalendar('china.sse', date, '1b').strftime('%Y-%m-%d'),response.signal,response.confidence,response.reasoning)
     print(content)
-    #feishu(content)
+    feishu(content)
 main()
