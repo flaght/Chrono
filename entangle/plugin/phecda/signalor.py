@@ -94,7 +94,7 @@ class Signalor(object):
         impluse_data = impluse_data.merge(bar_data, on=['trade_time', 'code'])
         signal = self.workflow.create_signals(trade_time=trade_time,
                                                 data=impluse_data)
-        signal = signal if signal == 0 else 0 - signal
+        #signal = signal if signal == 0 else 0 - signal
         results = {
             'trade_time': trade_time,
             'signal': signal,
