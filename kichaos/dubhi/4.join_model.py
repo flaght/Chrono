@@ -1,195 +1,59 @@
-import sys, os, torch, pdb, argparse, time, datetime
+import sys, os, torch, pdb, argparse, time
+from collections import OrderedDict
 import pandas as pd
 import numpy as np
-import torch.nn.functional as F
 import torch.nn as nn
+import torch
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-#from kichaos.nn import SequentialHybridTransformer
-from kichaos.nn.HybridTransformer.transformer import Transformer_base
-from kichaos.nn import TemporalConvolution
+
 from ultron.optimize.wisem import *
+from ultron.kdutils.progress import Progress
+from kichaos.nn import TemporalConvolution
+
 from dataset10 import Dataset10 as CogniDataSet10
 from dataset10 import Basic as CongniBasic10
-from ultron.kdutils.progress import Progress
+
+from kdutils.process import *
+from kdutils.data import fetch_basic
 from dotenv import load_dotenv
 
 load_dotenv()
-'''
-class SequentialHybridTransformer(Transformer_base):
-
-    def __init__(self,
-                 enc_in,
-                 dec_in,
-                 c_out,
-                 d_model=128,
-                 n_heads=4,
-                 e_layers=2,
-                 d_layers=1,
-                 d_ff=256,
-                 dropout=0.0,
-                 activation='gelu',
-                 denc_dim=-1,
-                 output_attention=False):
-        super(SequentialHybridTransformer,
-              self).__init__(enc_in=enc_in,
-                             dec_in=dec_in,
-                             c_out=c_out,
-                             d_model=d_model,
-                             n_heads=n_heads,
-                             e_layers=e_layers,
-                             d_layers=d_layers,
-                             d_ff=d_ff,
-                             dropout=dropout,
-                             activation=activation,
-                             output_attention=output_attention)
-        self.d_model = d_model
-        self.c_out = c_out
-        self.denc_dim = denc_dim
-
-    def hidden_size(self):
-        return self.d_model
-
-    def forward(self, inputs):
-        # 将输入数据从四维变为三维
-        enc_inp = inputs
-        if self.denc_dim > 0:
-            dec_inp = inputs[:, :, -self.denc_dim:]
-        else:
-            dec_inp = inputs
-
-        # 去掉与 stock_num 相关的处理
-        enc_out, dec_out, output = super(SequentialHybridTransformer,self).forward(enc_inp, dec_inp)
-        return enc_out, dec_out, output
-'''
-loss_mapping = {
-    'mse': nn.MSELoss(),
-}
 
 
-class SequentialHybridTransformer(Transformer_base):
-
-    def __init__(self,
-                 enc_in,
-                 dec_in,
-                 c_out,
-                 d_model=128,
-                 n_heads=4,
-                 e_layers=2,
-                 d_layers=1,
-                 d_ff=256,
-                 dropout=0.0,
-                 activation='gelu',
-                 output_attention=False):
-        super(SequentialHybridTransformer,
-              self).__init__(enc_in=enc_in,
-                             dec_in=dec_in,
-                             c_out=c_out,
-                             d_model=d_model,
-                             n_heads=n_heads,
-                             e_layers=e_layers,
-                             d_layers=d_layers,
-                             d_ff=d_ff,
-                             dropout=dropout,
-                             activation=activation,
-                             output_attention=output_attention)
-
-        self.d_model = d_model
-        self.c_out = c_out
-
-    def forward(self, inputs):
-        """处理三维输入 [batch, feature, time]"""
-        # 调整维度顺序为 [batch, time, features]
-        #enc_inp = inputs.permute(0, 2, 1)  # [batch, time, features]
-        enc_inp = inputs
-        dec_inp = enc_inp  # 使用相同输入作为decoder输入
-
-        enc_out, dec_out, output = super().forward(enc_inp, dec_inp)
-
-        # 输出调整回 [batch, prediction_length]
-        return enc_out, dec_out, output[:, -1, :]
-
-
-class SequentialHybridTransformer1(Transformer_base):
-
-    def __init__(self,
-                 enc_in,
-                 dec_in,
-                 c_out,
-                 d_model=128,
-                 n_heads=4,
-                 e_layers=2,
-                 d_layers=1,
-                 d_ff=256,
-                 dropout=0.0,
-                 activation='gelu',
-                 denc_dim=1,
-                 output_attention=False):
-        super(SequentialHybridTransformer1,
-              self).__init__(enc_in=enc_in,
-                             dec_in=dec_in,
-                             c_out=c_out,
-                             d_model=d_model,
-                             n_heads=n_heads,
-                             e_layers=e_layers,
-                             d_layers=d_layers,
-                             d_ff=d_ff,
-                             dropout=dropout,
-                             activation=activation,
-                             output_attention=output_attention)
-
-        self.d_model = d_model
-        self.c_out = c_out
-        self.denc_dim = denc_dim
-
-    def forward(self, inputs):
-        # 输入为 [batch, time, features]
-        enc_inp = inputs
-        # 如果 denc_dim > 0，选择最后 denc_dim 个时间步作为解码器输入
-        if self.denc_dim > 0:
-            dec_inp = inputs[:, -self.denc_dim:, :]
-        else:
-            dec_inp = inputs
-
-        # 使用父类的 forward 方法进行编码和解码
-        enc_out, dec_out, output = super(SequentialHybridTransformer1,
-                                         self).forward(enc_inp, dec_inp)
-        # 对输出进行处理，确保输出为 [batch, 1]
-        # 可以使用全连接层或其他方法进行降维
-        output = output.mean(dim=1)  # 对时间维度进行平均，得到 [batch, features]
-        #output = output.squeeze(-1)  # 压缩最后一个维度，得到 [batch]
-        return enc_out, dec_out, output
-
-
-class VarianceModel(nn.Module):
+class StandardDeviationModel(nn.Module):
 
     def __init__(self, input_channels=4, time_steps=3, num_filters=32):
         ### feature--> channel
         ### time_steps --> width 对应卷积核操作的sequence_length 长度
         ### batch_size --> batch
-
-        super(VarianceModel, self).__init__()
+        super(StandardDeviationModel, self).__init__()
         self.conv1 = nn.Conv1d(input_channels, num_filters, kernel_size=2)
         self.conv2 = nn.Conv1d(num_filters, num_filters * 2, kernel_size=2)
         self.bn1 = nn.BatchNorm1d(num_filters)
         self.bn2 = nn.BatchNorm1d(num_filters * 2)
         self.fc = nn.Linear(num_filters * 2 * (time_steps - 2), 1)
-        self.softplus = nn.Softplus()  # 保证输出是正数
+
+        # 使用更稳定的激活函数组合
+        self.log_softplus = nn.LogSigmoid()
+        self.epsilon = 1e-6
 
     def forward(self, x):
-        ### 初始时间步骤： time_steps
-        ### 第一层卷积后: time_steps - 1
-        ### 第二层卷积后: time_steps - 2
-        ### 全连接层输入维度: num_filters * 2 * (time_steps - 2)
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = x.view(x.size(0), -1)
-        return self.softplus(self.fc(x)) + 1e-6
+
+        # 修改输出处理流程
+        log_var = self.log_softplus(self.fc(x))
+        std = torch.sqrt(torch.exp(log_var) + self.epsilon)
+
+        return std
 
 
-def create_model3(features, window, seq_cycle):
+def create_prediction_model(features, window, seq_cycle):
     params = {
         'num_channels': [16, 32, 64],
-        'kernel_size': 4,
+        'kernel_size': 8,
         'dropout': 0.2,
         'softmax_output': False
     }
@@ -199,31 +63,24 @@ def create_model3(features, window, seq_cycle):
     return model
 
 
-def create_model2(features, window, seq_cycle):
+def create_volatility_model(features, window, seq_cycle):
     params = {
         'input_channels': len(features) * window,
         'time_steps': seq_cycle
     }
-    model = VarianceModel(**params)
+    model = StandardDeviationModel(**params)
     return model
 
 
-def create_model1(features, window, seq_cycle):
-    params = {
-        'd_model': 256,
-        'n_heads': 4,
-        'e_layers': 4,
-        'd_layers':4,
-        'dropout': 0.15,
-        'denc_dim': 2,
-        'activation': 'gelu',
-        'output_attention': True
-    }
-    model = SequentialHybridTransformer1(enc_in=len(features) * window,
-                                         dec_in=len(features) * window,
-                                         c_out=1,
-                                         **params)
-    return model
+def nll_loss_with_two_models(pred, var, target):
+    """
+    基于两个模型的NLL损失计算
+    pred: 主模型预测 [batch,1]
+    var: 方差模型预测 [batch,1] 
+    target: 真实值 [batch,1]
+    """
+
+    return 0.5 * (torch.log(var) + (target - pred).pow(2) / (2 * var)).mean()
 
 
 def load_misro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
@@ -254,8 +111,7 @@ def load_micro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
                                 "val_model_normal.feather")
     val_data = pd.read_feather(val_filename).rename(
         columns={'trade_date': 'trade_time'})
-    #train_data = train_data.loc[0:int(len(train_data) * 0.4)]
-    #val_data = val_data.loc[0:int(len(val_data) * 0.4)]
+
     nxt1_columns = train_data.filter(regex="^nxt1_").columns.to_list()
 
     columns = [
@@ -300,16 +156,16 @@ def load_micro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
 
 def train(variant):
     batch_size = 512
-    task_id = int(datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
-    writer_dir = os.path.join('runs/experiment/time_model_{0}_{1}'.format(
-        variant['loss'], task_id))
+    task_id = int(time.time())
+    writer_dir = os.path.join('runs/experiment/join_model_{0}'.format(task_id))
     writer = SummaryWriter(log_dir=writer_dir)
 
-    model_dir = os.path.join('runs/models/time_model_{0}_{1}'.format(
-        variant['loss'], task_id))
+    model_dir = os.path.join('runs/models/join_model_{0}'.format(task_id))
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
 
+    print('model_dir:', model_dir)
+    print('writer_dir:', writer_dir)
     train_dataset, val_dataset = load_micro(method=variant['method'],
                                             window=variant['window'],
                                             seq_cycle=variant['seq_cycle'],
@@ -327,29 +183,48 @@ def train(variant):
         shuffle=False,
         collate_fn=CogniDataSet10.collate_fn)
 
-    #model = create_model(features=train_dataset.features,
-    #                     window=variant['window'])
-    model = create_model1(features=train_dataset.features,
-                          window=variant['window'],
-                          seq_cycle=variant['seq_cycle'])
+    ## 创建收益率模型
+    prediction_model = create_prediction_model(features=train_dataset.features,
+                                               window=variant['window'],
+                                               seq_cycle=variant['seq_cycle'])
+
+    ## 创建波动率模型
+    volatility_model = create_volatility_model(features=train_dataset.features,
+                                               window=variant['window'],
+                                               seq_cycle=variant['seq_cycle'])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model.to(device)
-    criterion = loss_mapping[variant['loss']]  #nn.MSELoss()
-    optimizer1 = torch.optim.AdamW(model.parameters(), lr=0.005)
+    prediction_model.to(device)
+    volatility_model.to(device)
+
+    optimizer1 = torch.optim.AdamW(prediction_model.parameters(), lr=0.001)
+    optimizer2 = torch.optim.AdamW(volatility_model.parameters(), lr=0.001)
+
+    scheduler1 = torch.optim.lr_scheduler.LambdaLR(optimizer1, lambda steps: min(
+        (steps + 1) / 10000, 1.0))
+    scheduler2 = torch.optim.lr_scheduler.LambdaLR(optimizer2, lambda steps: min(
+        (steps + 1) / 10000, 1.0))
+    '''
     scheduler1 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer1,
                                                             mode='min',
-                                                            factor=0.5,
+                                                            factor=0.4,
                                                             patience=3,
                                                             verbose=True)
+    scheduler2 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer2,
+                                                            mode='min',
+                                                            factor=0.4,
+                                                            patience=3,
+                                                            verbose=True)
+    '''
 
     num_epochs = 200
 
     for epoch in range(num_epochs):
         train_losses = []
         val_losses = []
-        model.train()
+        prediction_model.train()
+        volatility_model.train()
         train_batch_num = 0
 
         best_val_loss = None
@@ -363,37 +238,41 @@ def train(variant):
                     X = to_device(data['values'])
                     y = to_device(data['target'])
                     optimizer1.zero_grad()
+                    optimizer2.zero_grad()
                     if X.shape[0] == 1:
                         continue
-                    _, _, pred = model(X)  ## [batch, time, features]
-                    #pred = model(X.permute(0, 2, 1))
-                    #_, pred = model(X.permute(0, 2, 1))
-                    loss = criterion(pred, y)
+                    _, pred = prediction_model(X.permute(0, 2, 1))
+                    #_, _, pred = prediction_model(
+                    #    X)  ## [batch, time, features]
 
+                    var = volatility_model(X.permute(
+                        0, 2, 1))  ## [batch, features, time]
+
+                    loss = nll_loss_with_two_models(
+                        pred, var, y)  ## [batch, features, time]
                     train_losses.append(loss.item())
                     loss.backward()
                     optimizer1.step()
-
+                    optimizer2.step()
                 pg.show(train_batch_num + 1)
 
         # 校验集
         val_batch_num = 0
-        model.eval()
+        prediction_model.eval()
+        volatility_model.eval()
 
         with Progress(len(val_loader),
                       0,
                       label="epoch {0}:val model".format(epoch)) as pg:
             with torch.no_grad():
-                pdb.set_trace()
                 for batch in val_loader:
                     val_batch_num += 1
                     for data in batch:
                         X = to_device(data['values'])
                         y = to_device(data['target'])
-                        _, _, pred = model(X)
-                        #pred = model(X.permute(0, 2, 1))
-                        #_, pred = model(X.permute(0, 2, 1))
-                        loss = criterion(pred, y)
+                        _, pred = prediction_model(X.permute(0, 2, 1))
+                        var = volatility_model(X.permute(0, 2, 1))
+                        loss = nll_loss_with_two_models(pred, var, y)
                         val_losses.append(loss.item())
                     pg.show(val_batch_num + 1)
 
@@ -401,14 +280,20 @@ def train(variant):
         avg_val_loss = sum(val_losses) / len(val_losses)
 
         scheduler1.step(avg_val_loss)
+        scheduler2.step(avg_val_loss)
 
         writer.add_scalar('Loss/train', avg_train_loss, epoch)
         writer.add_scalar('Loss/val', avg_val_loss, epoch)
 
-        writer.add_scalar('LR/model', optimizer1.param_groups[0]['lr'], epoch)
+        writer.add_scalar('LR/prediction_model',
+                          optimizer1.param_groups[0]['lr'], epoch)
+        writer.add_scalar('LR/volatility_model',
+                          optimizer2.param_groups[0]['lr'], epoch)
 
-        for name, param in model.named_parameters():
-            writer.add_histogram(f'Model/{name}', param, epoch)
+        for name, param in prediction_model.named_parameters():
+            writer.add_histogram(f'PredictionModel/{name}', param, epoch)
+        for name, param in volatility_model.named_parameters():
+            writer.add_histogram(f'VolatilityModel/{name}', param, epoch)
 
         print('epoch {0}: train loss {1}, val loss {2}'.format(
             epoch,
@@ -420,20 +305,43 @@ def train(variant):
             best_epoch = epoch
 
         ## 保存每个epoch的模型
-        torch.save(model.state_dict(),
-                   os.path.join(model_dir, '{}_{}.pth'.format('model', epoch)))
+        torch.save(
+            prediction_model.state_dict(),
+            os.path.join(model_dir, '{}_{}.pth'.format('prediction', epoch)))
+
+        torch.save(
+            volatility_model.state_dict(),
+            os.path.join(model_dir, '{}_{}.pth'.format('volatility', epoch)))
 
         if avg_val_loss <= best_val_loss:
             best_val_loss = avg_val_loss
             best_epoch = epoch
             torch.save(
-                model.state_dict(),
-                os.path.join(model_dir, '{}_{}.pth'.format('best',
-                                                           best_epoch)))
+                prediction_model.state_dict(),
+                os.path.join(model_dir,
+                             '{}_{}.pth'.format('best_prediction',
+                                                best_epoch)))
+
+            torch.save(
+                volatility_model.state_dict(),
+                os.path.join(model_dir,
+                             '{}_{}.pth'.format('best_volatility',
+                                                best_epoch)))
     writer.close()
 
 
 def predict(variant):
+
+    def load_state(model_dir, model_name):
+        model_name = os.path.join(model_dir, "{0}.pth".format(model_name))
+        model_dict = torch.load(model_name, map_location=device)
+        new_state_dict = OrderedDict()
+        for k, v in model_dict.items():
+            name = k[:]
+            new_state_dict[name] = v
+        return new_state_dict
+
+    task_id = '1746792204'
     test_datasets = load_misro(method=variant['method'],
                                window=variant['window'],
                                seq_cycle=variant['seq_cycle'],
@@ -443,6 +351,63 @@ def predict(variant):
         if col not in ['trade_time', 'code', 'nxt1_ret']
     ]
 
+    ## 创建收益率模型
+    prediction_model = create_prediction_model(
+        features=test_datasets.sfeatures,
+        window=variant['window'],
+        seq_cycle=variant['seq_cycle'])
+
+    ## 创建波动率模型
+    volatility_model = create_volatility_model(
+        features=test_datasets.sfeatures,
+        window=variant['window'],
+        seq_cycle=variant['seq_cycle'])
+
+    ## 加载模型参数
+    model_dir = os.path.join('runs/models/join_model_{0}'.format(task_id))
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    pdb.set_trace()
+    prediction_model = prediction_model.to(device=device)
+    volatility_model = volatility_model.to(device=device)
+    prediction_model.load_state_dict(
+        load_state(model_dir, 'best_prediction_12'))
+    volatility_model.load_state_dict(
+        load_state(model_dir, 'best_volatility_12'))
+
+    prediction_model.eval()
+    volatility_model.eval()
+
+    res = []
+    for data in test_datasets.samples:
+        print(data['time'])
+        X = to_device(data['values'])
+        with torch.no_grad():
+            _, pred = prediction_model(X.permute(0, 2, 1))
+            var = volatility_model(X.permute(0, 2, 1))
+        output = (pred / var)
+        output = pd.DataFrame(output.detach().cpu(), index=data['codes'])
+        output = output.reset_index()
+        output = output.rename(columns={'index': 'code', 0: 'value'})
+        output['trade_date'] = data['time']
+        output['trade_date'] = pd.to_datetime(output['trade_date'])
+        output = output.set_index(['trade_date', 'code'])
+        res.append(output)
+    outputs = pd.concat(res)
+    outputs = outputs['value'].unstack()
+    min_date = outputs.index.get_level_values('trade_date').min().strftime(
+        '%Y-%m-%d')
+    max_date = outputs.index.get_level_values('trade_date').max().strftime(
+        '%Y-%m-%d')
+    val, ret, iret, ret_c2o, usedummy, vardummy = fetch_basic(
+        begin_date=min_date, end_date=max_date)
+    pdb.set_trace()
+    weight = TopNWeight(vardummy, outputs, 1, 5, 0)
+    out1, pnl1, tvs1 = CalRet(usedummy, weight, ret, None, iret['000300'], 252)
+    out2, pnl2, tvs2 = CalRet(usedummy, weight, ret, ret_c2o, iret['000300'],
+                              252)
+    print(outputs)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -450,7 +415,6 @@ if __name__ == '__main__':
     parser.add_argument('--window', type=int, default=1)
     parser.add_argument('--horizon', type=int, default=5)
     parser.add_argument('--seq_cycle', type=int, default=4)
-    parser.add_argument('--loss', type=str, default='mse')
     parser.add_argument('--universe',
                         type=str,
                         default=os.environ['DUMMY_NAME'])
@@ -458,3 +422,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     train(vars(args))
+    #predict(vars(args))

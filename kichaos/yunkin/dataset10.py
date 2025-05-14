@@ -2,7 +2,98 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset
 import torch, pdb, os
+from collections import defaultdict
 from ultron.optimize.wisem import *
+
+
+class Basic(object):
+
+    @classmethod
+    def generate(cls,
+                 data,
+                 features,
+                 window=1,
+                 start_date=None,
+                 seq_cycle=0,
+                 time_name='trade_time',
+                 time_format='%Y-%m-%d'):
+        names = []
+        res = []
+        start_time = data[time_name].min().strftime(
+            time_format) if start_date is None else start_date
+        data_raw = data.set_index([time_name, 'code']).sort_index()
+        raw = data_raw[features]
+        uraw = raw.unstack()
+        for i in range(0, window):
+            names += ["{0}_{1}d".format(c, i) for c in features]
+            res.append(uraw.shift(i).loc[start_time:].stack())
+        dt = pd.concat(res, axis=1)
+        dt.columns = names
+        dt = dt.reindex(data_raw.index)
+        dt = dt.loc[start_time:].dropna()
+
+        return cls(dt,
+                   features,
+                   window=window,
+                   seq_cycle=seq_cycle,
+                   time_format=time_format)
+
+    def __init__(self,
+                 data=None,
+                 features=None,
+                 window=None,
+                 seq_cycle=0,
+                 time_name='trade_time',
+                 time_format='%Y-%m-%d'):
+        samples = []
+        self.sfeatures = features
+        self.features = features
+        wfeatures = [f"{f}_{i}d" for f in features for i in range(window)]
+        self.codes = data.index.get_level_values(1)
+        grouped = data.groupby('code')
+        for code, group in grouped:
+            print(code)
+            sorted_group = group.sort_index(level=time_name)
+            features = sorted_group[wfeatures].values
+            n_samples = len(sorted_group) - seq_cycle + 1
+            for i in range(n_samples):
+                x = features[i:i + seq_cycle]
+                # 保存对应的时间点和代码
+                time_point = sorted_group.index.get_level_values(time_name)[
+                    i + seq_cycle - 1]
+                samples.append({
+                    'values': torch.from_numpy(x),
+                    'code': code,
+                    'time': time_point.strftime(time_format)
+                })
+
+        time_groups = defaultdict(list)
+        code_groups = defaultdict(list)
+        for sample in samples:
+            time_key = sample['time']
+            time_groups[time_key].append(sample['values'])
+            code_groups[time_key].append(sample['code'])
+        # 转换为张量
+        batched_data = {}
+        for time_key in time_groups:
+            # 堆叠同一天的样本 [n_codes, seq_cycle, n_features]
+            #if time_key == '2024-04-01 10:22:00':
+            #    pdb.set_trace()
+            batched_data[time_key] = {
+                'values': torch.stack(time_groups[time_key]),
+                'codes': code_groups[time_key]
+            }
+        self.samples = [
+            {
+                'time': time_key,
+                'values': data['values'],  # [32, 3, 7]
+                'codes': data['codes']  # 对应的code
+            } for time_key, data in batched_data.items()
+        ]
+        ## 排序
+        self.samples.sort(key=lambda x: x['time'])
+
+
 
 
 class Base(Dataset):

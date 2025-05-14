@@ -14,7 +14,7 @@ instruments_codes = {
     'rbb': ['RB']
 }
 
-base_path = os.path.join('/workspace/data/dev/kd/evolution/nn/',
+base_path = os.path.join(os.environ['BASE_PATH'],
                          os.environ['KICHAOS_BASE_NAME'])
 
 codes = instruments_codes[os.environ['INSTRUMENTS']]

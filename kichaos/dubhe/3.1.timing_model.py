@@ -115,6 +115,8 @@ def load_micro(method,
 
 def train(variant):
     batch_size = 16
+
+    
     train_dataset, val_dataset, _, _ = load_micro(
         method=variant['method'],
         window=variant['window'],
