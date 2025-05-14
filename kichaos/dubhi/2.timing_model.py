@@ -1,4 +1,4 @@
-import sys, os, torch, pdb, argparse, time
+import sys, os, torch, pdb, argparse, time, datetime
 import pandas as pd
 import numpy as np
 import torch.nn.functional as F
@@ -61,6 +61,9 @@ class SequentialHybridTransformer(Transformer_base):
         enc_out, dec_out, output = super(SequentialHybridTransformer,self).forward(enc_inp, dec_inp)
         return enc_out, dec_out, output
 '''
+loss_mapping = {
+    'mse': nn.MSELoss(),
+}
 
 
 class SequentialHybridTransformer(Transformer_base):
@@ -154,7 +157,6 @@ class SequentialHybridTransformer1(Transformer_base):
         # 可以使用全连接层或其他方法进行降维
         output = output.mean(dim=1)  # 对时间维度进行平均，得到 [batch, features]
         #output = output.squeeze(-1)  # 压缩最后一个维度，得到 [batch]
-        pdb.set_trace()
         return enc_out, dec_out, output
 
 
@@ -209,18 +211,17 @@ def create_model2(features, window, seq_cycle):
 def create_model1(features, window, seq_cycle):
     params = {
         'd_model': 256,
-        'n_heads': 2,
-        'e_layers': 2,
-        'd_layers': 2,
+        'n_heads': 4,
+        'e_layers': 4,
+        'd_layers':4,
         'dropout': 0.15,
-        #'denc_dim': 0,
+        'denc_dim': 2,
         'activation': 'gelu',
         'output_attention': True
     }
     model = SequentialHybridTransformer1(enc_in=len(features) * window,
                                          dec_in=len(features) * window,
                                          c_out=1,
-                                         denc_dim=2,
                                          **params)
     return model
 
@@ -253,8 +254,8 @@ def load_micro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
                                 "val_model_normal.feather")
     val_data = pd.read_feather(val_filename).rename(
         columns={'trade_date': 'trade_time'})
-    train_data = train_data.loc[0:int(len(train_data) * 0.4)]
-    val_data = val_data.loc[0:int(len(val_data) * 0.4)]
+    #train_data = train_data.loc[0:int(len(train_data) * 0.4)]
+    #val_data = val_data.loc[0:int(len(val_data) * 0.4)]
     nxt1_columns = train_data.filter(regex="^nxt1_").columns.to_list()
 
     columns = [
@@ -299,11 +300,13 @@ def load_micro(method, window, seq_cycle, horizon, time_format='%Y-%m-%d'):
 
 def train(variant):
     batch_size = 512
-    task_id = int(time.time())
-    writer_dir = os.path.join('runs/experiment/time_model_{0}'.format(task_id))
+    task_id = int(datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
+    writer_dir = os.path.join('runs/experiment/time_model_{0}_{1}'.format(
+        variant['loss'], task_id))
     writer = SummaryWriter(log_dir=writer_dir)
 
-    model_dir = os.path.join('runs/models/time_model_{0}'.format(task_id))
+    model_dir = os.path.join('runs/models/time_model_{0}_{1}'.format(
+        variant['loss'], task_id))
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
 
@@ -333,8 +336,8 @@ def train(variant):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model.to(device)
-    criterion = nn.MSELoss()
-    optimizer1 = torch.optim.AdamW(model.parameters(), lr=0.001)
+    criterion = loss_mapping[variant['loss']]  #nn.MSELoss()
+    optimizer1 = torch.optim.AdamW(model.parameters(), lr=0.005)
     scheduler1 = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer1,
                                                             mode='min',
                                                             factor=0.5,
@@ -362,7 +365,6 @@ def train(variant):
                     optimizer1.zero_grad()
                     if X.shape[0] == 1:
                         continue
-                    pdb.set_trace()
                     _, _, pred = model(X)  ## [batch, time, features]
                     #pred = model(X.permute(0, 2, 1))
                     #_, pred = model(X.permute(0, 2, 1))
@@ -448,6 +450,7 @@ if __name__ == '__main__':
     parser.add_argument('--window', type=int, default=1)
     parser.add_argument('--horizon', type=int, default=5)
     parser.add_argument('--seq_cycle', type=int, default=4)
+    parser.add_argument('--loss', type=str, default='mse')
     parser.add_argument('--universe',
                         type=str,
                         default=os.environ['DUMMY_NAME'])
