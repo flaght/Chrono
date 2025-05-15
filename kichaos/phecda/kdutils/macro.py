@@ -17,7 +17,9 @@ instruments_codes = {
 base_path = os.path.join(os.environ['BASE_PATH'],
                          os.environ['KICHAOS_BASE_NAME'])
 
-codes = instruments_codes[os.environ['INSTRUMENTS']]
+def codes(g_instruments):
+    return instruments_codes[g_instruments]
+#codes = instruments_codes[os.environ['INSTRUMENTS']]
 
 ### 0 sklearn standard
 ### 1 -1~1 等比例扩充
