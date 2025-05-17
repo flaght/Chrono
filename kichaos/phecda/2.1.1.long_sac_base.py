@@ -1,4 +1,4 @@
-import argparse, os, pdb, copy, time, math
+import os, pdb, copy, time, math
 import pandas as pd
 import torch
 from dotenv import load_dotenv
@@ -10,6 +10,7 @@ from kichaos.agent.tessla.tessla0001 import Tessla0001 as Tessla
 from kdutils.macro import base_path
 from kdutils.macro import *
 from kichaos.utils.env import *
+from kdutils.tactix import Tactix
 
 
 def load_datasets(variant):
@@ -37,7 +38,7 @@ def load_datasets(variant):
         train_data = pd.read_feather(train_filename)
         val_data = pd.read_feather(val_filename)
         test_data = pd.read_feather(test_filename)
-
+        pdb.set_trace()
         min_time = pd.to_datetime(train_data['trade_time']).min()
         max_time = pd.to_datetime(val_data['trade_time']).max()
         min_date = min_time if min_date is None else min(min_date, min_time)
@@ -108,6 +109,7 @@ def train(variant):
     for i in range(variant['g_start_pos'],
                    variant['g_start_pos'] + variant['g_max_pos']):
         train_data, val_data, _ = data_mapping[i]
+        pdb.set_trace()
         fit(index=i, train_data=train_data, val_data=val_data, variant=variant)
 
 
@@ -116,6 +118,7 @@ def evaluate(variant):
     for i in range(variant['g_start_pos'],
                    variant['g_start_pos'] + variant['g_max_pos']):
         _, _, test_data = data_mapping[i]
+        pdb.set_trace()
         educate(index=i,
                 test_data=test_data,
                 model_index='best_model',
@@ -181,41 +184,8 @@ def educate(index, test_data, model_index, variant):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('--freq', type=int, default=5)  ## 多少个周期训练一次
-    parser.add_argument('--train_days', type=int, default=60)  ## 训练天数
-    parser.add_argument('--val_days', type=int, default=5)  ## 验证天数
-
-    parser.add_argument('--method', type=str, default='aicso3')  ## 方法
-    parser.add_argument('--categories', type=str, default='o2o')  ## 类别
-    parser.add_argument('--horizon', type=int, default=1)  ## 预测周期
-
-    parser.add_argument('--nc', type=int, default=1)  ## 标准方式
-    parser.add_argument('--swindow', type=int, default=0)  ## 滚动窗口
-
-    parser.add_argument('--check_freq', type=int, default=0)  ## 每次模型保存的频率
-    parser.add_argument('--batch_size', type=int, default=512)  ## 训练时数据大小
-    parser.add_argument('-learning_starts', type=int,
-                        default=1000)  ## 学习开始时间 目前该参数放入到tessla内部
-    parser.add_argument('--epchos', type=int, default=10)  ## 迭代多少轮
-    parser.add_argument('--window', type=int, default=3)  ## 开始周期，即多少个周期构建env数据
-
-    parser.add_argument('--direction', type=str, default='long')  ## 方向
-    parser.add_argument('--code', type=str, default='RB')  ## 代码
-    parser.add_argument('--g_instruments', type=str, default='rbb')  ## 标的
-
-    parser.add_argument('--param_index', type=int, default=1)  ## 模型参数索引
-    parser.add_argument('--addition_index', type=int, default=1)  ## 通用参数索引
-    parser.add_argument('--policy_key', type=str, default='neuro0004_1')  ## 策略参数索引
-
-    parser.add_argument('--verbosity', type=int, default=40)  ## 训练时的输出频率
-    parser.add_argument('--g_start_pos', type=int, default=47)
-    parser.add_argument('--g_max_pos', type=int, default=1)
-
-    args = parser.parse_args()
-
-    variant = vars(args)
-
-    train(variant=variant)
-    #evaluate(variant=variant)
+    variant = Tactix().start()
+    if variant['methois'] == 'train':
+        train(variant=variant)
+    elif variant['methois'] == 'evaluate':
+        evaluate(variant=variant)
