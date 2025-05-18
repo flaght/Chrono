@@ -109,7 +109,6 @@ def train(variant):
     for i in range(variant['g_start_pos'],
                    variant['g_start_pos'] + variant['g_max_pos']):
         train_data, val_data, _ = data_mapping[i]
-        pdb.set_trace()
         fit(index=i, train_data=train_data, val_data=val_data, variant=variant)
 
 
@@ -118,7 +117,6 @@ def evaluate(variant):
     for i in range(variant['g_start_pos'],
                    variant['g_start_pos'] + variant['g_max_pos']):
         _, _, test_data = data_mapping[i]
-        pdb.set_trace()
         educate(index=i,
                 test_data=test_data,
                 model_index='best_model',
@@ -169,7 +167,8 @@ def educate(index, test_data, model_index, variant):
                     action_dim=2,
                     log_dir=g_log_path)
 
-    test_memory = tessla.evaluate(name="{0}".format(index),
+    test_memory = tessla.evaluate(name="{0}c_{1}".format(
+        variant['config_id'], index),
                                   test_data=test_data,
                                   train_path=g_train_path,
                                   **params)
@@ -183,9 +182,70 @@ def educate(index, test_data, model_index, variant):
                       **params)
 
 
+def tensorbdex(variant):
+    data_mapping = load_datasets(variant)
+    for i in range(variant['g_start_pos'],
+                   variant['g_start_pos'] + variant['g_max_pos']):
+        _, _, test_data = data_mapping[i]
+        tbdex(index=i, test_data=test_data, variant=variant)
+
+
+def tbdex(index, test_data, variant):
+    features = [
+        col for col in test_data.columns
+        if col not in ['trade_time', 'code'] + ['price', 'close']
+    ]
+
+    ## 标的维度
+    ticker_dimension = len(test_data.code.unique())
+    state_space = ticker_dimension
+
+    ## 开仓手续费
+    buy_cost_pct = COST_MAPPING[variant['code']]['buy']
+    ## 平仓手续费
+    sell_cost_pct = COST_MAPPING[variant['code']][
+        'sell']  #0.00012  #0.1 / 1000  #0.000100#(0.0100 / 10000)
+
+    ## 手续费字典
+    buy_cost_pct_sets = dict(
+        zip(test_data.code, [buy_cost_pct] * ticker_dimension))
+    sell_cost_pct_sets = dict(
+        zip(test_data.code, [sell_cost_pct] * ticker_dimension))
+
+    params = copy.deepcopy(variant)
+    params['verbosity'] = 40
+    del params['direction']
+    params['direction'] = 1 if variant['direction'] == 'long' else -1
+    params['step_len'] = test_data.shape[0] - 1
+
+    params['close_times'] = CLOSE_TIME_MAPPING[variant['code']]
+    initial_amount = INIT_CASH_MAPPING[variant['code']]  #2000000.0  #60000
+
+    tessla = Tessla(code=variant['code'],
+                    env_class=HedgeTraderEnv,
+                    features=features,
+                    state_space=state_space,
+                    buy_cost_pct=buy_cost_pct_sets,
+                    sell_cost_pct=sell_cost_pct_sets,
+                    ticker_dim=ticker_dimension,
+                    initial_amount=initial_amount,
+                    direction=variant['direction'],
+                    cont_multnum=CONT_MULTNUM_MAPPING[variant['code']],
+                    action_dim=2,
+                    log_dir=g_log_path)
+    pdb.set_trace()
+    tessla.tbdex(tb_path=g_tensorboard_path,
+                 out_path=g_tbdex_path,
+                 tb_index=1,
+                 name="{0}".format(index),
+                 **params)
+
+
 if __name__ == '__main__':
     variant = Tactix().start()
     if variant['methois'] == 'train':
         train(variant=variant)
     elif variant['methois'] == 'evaluate':
         evaluate(variant=variant)
+    elif variant['methois'] == 'tbdex':
+        tensorbdex(variant=variant)
