@@ -7,6 +7,9 @@ class Tactix(object):
     ### yaml配置文件
     def yaml(self, args):
         yaml_config = load_config(args.config_file, args.config_id)
+        if not yaml_config:
+            raise ValueError(
+                f"load {args.config_id} config from {args.config_file} failed")
         if yaml_config:
             print(
                 f"load {args.config_id} config from {args.config_file} success"
