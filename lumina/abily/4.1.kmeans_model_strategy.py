@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import sqlalchemy as sa
 import os, pdb, sys, json, joblib
+from kdutils.cache import exist_cache, load_cache, save_cache
 
 from dotenv import load_dotenv
 
@@ -21,13 +22,14 @@ from kdutils.file import fetch_file_data
 
 
 def fetch_strategy(task_id, threshold=1.0):
+
     sql = """
         select name, formual, signal_method, signal_params, strategy_method, fitness, strategy_params from genetic_strategy where task_id={0} order by fitness desc
     """.format(task_id)
     engine = sa.create_engine(os.environ['DB_URL'])
     dt = pd.read_sql(sql=sql, con=engine)
-    pdb.set_trace()
-    dt = dt[(dt['fitness'] > threshold) & (dt['fitness'] < 10)]
+    dt = dt[(dt['fitness'] > threshold) & (dt['fitness'] < 1)]
+    dt = dt.loc[0:30]
     pdb.set_trace()
     dt = [StrategyTuple(**d1) for d1 in dt.to_dict(orient='records')]
     dt = [d1 for d1 in dt if 'MPWMA' not in d1.formual]
@@ -41,6 +43,7 @@ def create_metrics(k_split, strategies_dt, strategy_settings, total_data):
     results = thruster.calculate(strategies_infos=strategies_dt,
                                  strategy_setting=strategy_settings,
                                  total_data=total_data)
+    pdb.set_trace()
 
     ## 根据绩效筛选结果
     metrics_dt = [{
@@ -125,15 +128,17 @@ def save_metrics(path, metrics):
     if not os.path.exists(path):
         os.makedirs(path)
     filename = os.path.join(path, '{0}.pkl'.format(metrics.name))
+    pdb.set_trace()
     joblib.dump(metrics, filename)
 
 
 if __name__ == '__main__':
     method = 'aicso2'
     k_split = 4
+    code = instruments_codes[g_instruments][0]
+    task_id = INDEX_MAPPING[code]
     pdb.set_trace()
-    task_id = INDEX_MAPPING[instruments_codes[g_instruments][0]]
-    strategies_dt = fetch_strategy(task_id, threshold=1.2)
+    strategies_dt = fetch_strategy(task_id, threshold=0.48)
     total_data = fetch_file_data(base_path=base_path,
                                  method=method,
                                  g_instruments=g_instruments,
@@ -146,23 +151,93 @@ if __name__ == '__main__':
         'slippage': SLIPPAGE_MAPPING[instruments_codes[g_instruments][0]],
         'size': CONT_MULTNUM_MAPPING[instruments_codes[g_instruments][0]]
     }
-
     ## 筛选策略 #夏普大于1  卡玛大于1
-    filter_strategies, filter_metrics = create_metrics(
-        k_split=k_split,
-        strategies_dt=strategies_dt,
-        strategy_settings=strategy_settings,
-        total_data=total_data)
+    filter_strategies_name = "filter_strategies.pkl"
+    filter_metrics_name = "filter_metrics.pkl"
     pdb.set_trace()
+    '''
+    if not exist_cache(code=code,
+                       task_id=task_id,
+                       method=method,
+                       cache_file=filter_strategies_name) or not exist_cache(
+                           code=code,
+                           task_id=task_id,
+                           method=method,
+                           cache_file=filter_metrics_name):
+    '''
+    if True:
+        ## 策略筛选
+        filter_strategies, filter_metrics = create_metrics(
+            k_split=k_split,
+            strategies_dt=strategies_dt,
+            strategy_settings=strategy_settings,
+            total_data=total_data)
+        save_cache(code=code,
+                   task_id=task_id,
+                   method=method,
+                   data=filter_strategies,
+                   cache_file=filter_strategies_name)
+        save_cache(code=code,
+                   task_id=task_id,
+                   method=method,
+                   data=filter_metrics,
+                   cache_file=filter_metrics_name)
+    else:
+        filter_strategies = load_cache(code=code,
+                                       task_id=task_id,
+                                       method=method,
+                                       cache_file=filter_strategies_name)
+        filter_metrics = load_cache(code=code,
+                                    task_id=task_id,
+                                    method=method,
+                                    cache_file=filter_metrics_name)
+
     ## 计算仓位
-    strategies_data = create_postions(k_split=k_split,
-                                      filter_strategies=filter_strategies,
-                                      total_data=total_data)
+    if not exist_cache(code=code,
+                       task_id=task_id,
+                       method=method,
+                       cache_file='strategies_data.pkl'):
+        strategies_data = create_postions(k_split=k_split,
+                                          filter_strategies=filter_strategies,
+                                          total_data=total_data)
+        save_cache(code=code,
+                   task_id=task_id,
+                   method=method,
+                   data=strategies_data,
+                   cache_file='strategies_data.pkl')
+    else:
+        strategies_data = load_cache(code=code,
+                                     task_id=task_id,
+                                     method=method,
+                                     cache_file='strategies_data.pkl')
 
     ## 信号合并
-    pdb.set_trace()
-    positions_data, weights_data = merge_signals(strategies_data,
-                                                 filter_strategies)
+    if not exist_cache(code=code,
+                       task_id=task_id,
+                       method=method,
+                       cache_file='positions_data.pkl') or not exist_cache(
+                           cache_file='weights_data.pkl'):
+        positions_data, weights_data = merge_signals(strategies_data,
+                                                     filter_strategies)
+        save_cache(code=code,
+                   task_id=task_id,
+                   method=method,
+                   data=positions_data,
+                   cache_file='positions_data.pkl')
+        save_cache(code=code,
+                   task_id=task_id,
+                   method=method,
+                   data=weights_data,
+                   cache_file='weights_data.pkl')
+    else:
+        positions_data = load_cache(code=code,
+                                    task_id=task_id,
+                                    method=method,
+                                    cache_file='positions_data.pkl')
+        weights_data = load_cache(code=code,
+                                  task_id=task_id,
+                                  method=method,
+                                  cache_file='weights_data.pkl')
 
     market_data = total_data.set_index(['trade_time', 'code'])[[
         'close', 'high', 'low', 'open', 'value', 'volume', 'openint', 'vwap'
@@ -172,10 +247,24 @@ if __name__ == '__main__':
     positions_data.name = 'value'
     positions_data = positions_data.reset_index().set_index('trade_time')
     ## 模型训练
-    rotor = Rotors(signal_values=[-1, 0, 1], k_split=4, n_clusters=3)
-    res = rotor.evaluation(positions_data=positions_data,
-                           market_data=market_data,
-                           strategy_setting=strategy_settings)
+    rotor = Rotors(signal_values=[-1, 0, 1], k_split=1, n_clusters=3)
+    pdb.set_trace()
+    if not exist_cache(
+            code=code, task_id=task_id, method=method,
+            cache_file='rotor_res.pkl'):
+        res = rotor.evaluation(positions_data=positions_data,
+                               market_data=market_data,
+                               strategy_setting=strategy_settings)
+        save_cache(code=code,
+                   task_id=task_id,
+                   method=method,
+                   data=res,
+                   cache_file='rotor_res.pkl')
+    else:
+        res = load_cache(code=code,
+                         task_id=task_id,
+                         method=method,
+                         cache_file='rotor_res.pkl')
     path = os.path.join(base_path, method, g_instruments, 'kmeans')
     for r in res:
         rotor.save_model(path=path,

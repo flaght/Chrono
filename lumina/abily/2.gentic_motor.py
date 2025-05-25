@@ -41,7 +41,7 @@ def train(method):
         'size': CONT_MULTNUM_MAPPING[instruments_codes[g_instruments][0]]
     }
     configure = {
-        'n_jobs': 8,
+        'n_jobs': 1,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 8,
@@ -60,7 +60,7 @@ def train(method):
     motor = Motor(factor_columns=factor_columns,
                   callback_fitness=callback_fitness,
                   callback_save_model=callback_models)
-
+    pdb.set_trace()
     motor.calculate(total_data=factors_data,
                     configure=configure,
                     operators_sets=operators_sets,

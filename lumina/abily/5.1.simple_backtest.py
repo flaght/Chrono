@@ -45,7 +45,7 @@ if __name__ == '__main__':
     method = 'aicso2'
     k_split = 16
     pdb.set_trace()
-    task_id = '1078761302'
+    task_id = '1067015693'
     strategy_settings = {
         'capital': 10000000,
         'commission': COST_MAPPING[instruments_codes[g_instruments][0]],
