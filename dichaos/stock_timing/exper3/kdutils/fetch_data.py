@@ -52,7 +52,7 @@ def main_daily(begin_date,
         end_date = factors.trade_date.max().strftime('%Y-%m-%d')
         end_date = row.end_date.strftime('%Y-%m-%d') if index == (
             count - 1) else end_date
-        symbol = factors.symbol.tolist()[0]
+        symbol = factors.symbol.tolist()[-1]
         cumfactors = factors.pcr_cumfactor.tolist()[0]
         md = fut_daily(begin_date, end_date, symbol, row.code, columns)
         md[inter_columns] = (md[inter_columns] * cumfactors)  #.apply(round)

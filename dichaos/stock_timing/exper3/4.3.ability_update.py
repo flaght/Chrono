@@ -26,10 +26,12 @@ def load_data(begin_date, end_date, code):
 
 def main():
     method = 'aicso2'
-    end_date = advanceDateByCalendar('china.sse', datetime.datetime.now(), '-1b')
-    begin_date =  advanceDateByCalendar('china.sse', end_date, '-10b')
+    end_date = advanceDateByCalendar('china.sse', datetime.datetime.now(),
+                                     '-1b')
+    begin_date = advanceDateByCalendar('china.sse', end_date, '-10b')
     code = 'IF'
     total_data = load_data(begin_date, end_date, code)
+    symbol = total_data['symbol'].unique()[-1]
     path = create_agent_path(name=Agent.name,
                              method=method,
                              symbol=code,
@@ -116,7 +118,12 @@ def main():
                                          symbol=code,
                                          short_prompt=short_prompt,
                                          reflection_prompt=reflection_prompt)
-    content = "{0}: 日期:{1}, 方向:{2}, 置信度:{3}, 推理原因:{4}".format(code,advanceDateByCalendar('china.sse', date, '1b').strftime('%Y-%m-%d'),response.signal,response.confidence,response.reasoning)
+    content = "{0}-{1}: 日期:{2}, 方向:{3}, 置信度:{4}, 推理原因:{5}".format(
+        code, symbol,
+        advanceDateByCalendar('china.sse', date, '1b').strftime('%Y-%m-%d'),
+        response.signal, response.confidence, response.reasoning)
     print(content)
     feishu(content)
+
+
 main()
