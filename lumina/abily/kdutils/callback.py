@@ -5,6 +5,7 @@ import ultron.factor.empyrical as empyrical
 from ultron.factor.genetic.geneticist.operators import calc_factor
 from .adapter import data_adapter
 from lumina.genetic.metrics.ts_pnl import calculate_ful_ts_pnl
+from kdutils.orders import position_next_order_nb, pnl_std
 
 
 class NpEncoder(json.JSONEncoder):
@@ -42,7 +43,7 @@ def callback_models(gen, rootid, best_programs, custom_params):
 
 def callback_fitness(factor_data, total_data, signal_method, strategy_method,
                      factor_sets, custom_params, default_value):
-
+    pdb.set_trace()
     strategy_settings = custom_params['strategy_settings']
     factor_data = factor_data.reset_index().set_index(['trade_time', 'code'])
     total_data = total_data.set_index(['trade_time', 'code']).unstack()
@@ -51,19 +52,28 @@ def callback_fitness(factor_data, total_data, signal_method, strategy_method,
     pos_data = strategy_method.function(signal=pos_data,
                                         total_data=total_data,
                                         **strategy_method.params)
-    total_data['trade_vol', total_data['open'].columns[0]] = (
-        custom_params['strategy_settings']['capital'] / total_data['open'] /
-        custom_params['strategy_settings']['size'])
-    df = calculate_ful_ts_pnl(pos_data=pos_data,
-                              total_data=total_data,
-                              strategy_settings=strategy_settings)
-    ### 值有异常 绝对值大于1
-    returns = df['ret']
-    #fitness = empyrical.calmar_ratio(returns=returns, period=empyrical.DAILY)
-    #fitness = empyrical.sharpe_ratio(returns=returns, period=empyrical.DAILY)
-    method_funciton = getattr(empyrical,
-                              '{0}_ratio'.format(custom_params['method']))
-    fitness = method_funciton(returns=returns, period=empyrical.DAILY)
+
+    ### 包含order 则从订单开始评估
+    if "order" in custom_params['method']:
+        orders = position_next_order_nb(pos_data=pos_data,
+                                        market_data=total_data)
+        if 'order_std' in custom_params['method']:
+            fitness = pnl_std(orders=orders)
+
+    else:
+        total_data['trade_vol', total_data['open'].columns[0]] = (
+            custom_params['strategy_settings']['capital'] /
+            total_data['open'] / custom_params['strategy_settings']['size'])
+        df = calculate_ful_ts_pnl(pos_data=pos_data,
+                                  total_data=total_data,
+                                  strategy_settings=strategy_settings)
+        returns = df['ret']
+        if 'sharpe' in custom_params['method']:
+            fitness = empyrical.sharpe_ratio(returns=returns,
+                                             period=empyrical.DAILY)
+            #method_funciton = getattr(empyrical,
+            #                          '{0}_ratio'.format(custom_params['method']))
+            #fitness = method_funciton(returns=returns)
     return fitness
 
 
