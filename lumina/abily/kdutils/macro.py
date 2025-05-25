@@ -22,13 +22,13 @@ codes = instruments_codes[os.environ['INSTRUMENTS']]
 CONT_MULTNUM_MAPPING = {'RB': 10, 'IF': 300, 'IM': 200}
 
 ### 手续费
-COST_MAPPING = {'IF': 0.000023, 'IM': 0.000023}
+COST_MAPPING = {'IF': 0.00023, 'IM': 0.0008}
 
 ### 滑点
 SLIPPAGE_MAPPING = {'IF': 0.0001, 'IM': 0.0001}
 
-INDEX_MAPPING = {"IF": 100001, 'IM': 100012}  
+INDEX_MAPPING = {"IF": 100001, 'IM': 100013}  
 
 ## IM 100002 卡玛  100012 夏普
 ## 对应的绩效值
-PERFORMANCE_MAPPING = {100002: "calmar", 100012: "sharpe"}
+PERFORMANCE_MAPPING = {100002: "profit_calmar", 100012: "profit_sharpe", 100013: "order_std"}
