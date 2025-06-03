@@ -15,7 +15,6 @@ from kdutils.until import create_agent_path
 
 def load_mirso(method):
     dirs = os.path.join('records', 'data', method, 'technical')
-    pdb.set_trace()
     filename = os.path.join(dirs, 'market_data.feather')
     market_data = pd.read_feather(filename)
 
@@ -87,7 +86,6 @@ def main(method, symbol, date):
                                             s3.index.get_level_values(0))
     dates = [d.strftime('%Y-%m-%d') for d in dates]  #[0:100]
     dates.sort()
-
     for date in dates:
         kline = KLine(date=date,
                       symbol=symbol,
@@ -116,11 +114,11 @@ def main(method, symbol, date):
                                      r3=r3.loc[date],
                                      s3=s3.loc[date])
 
+        pdb.set_trace()
         future_data = total_data.loc[date]
         future_data = future_data.to_dict(orient='records')[0]
         agent.handing_data(date, symbol, indicator_list, kline)
         short_prompt, reflection_prompt = agent.query_records(date, symbol)
-        pdb.set_trace()
         portfolio.update_market_info(
             cur_date=date,
             market_price=total_data.loc[date, symbol]['close'],
@@ -139,4 +137,4 @@ def main(method, symbol, date):
         feedback = portfolio.feedback()
 
 
-main('aicso2', 'IF', '2010-07-06')
+main('aicso2', 'IF', '2010-04-19')
