@@ -1,0 +1,96 @@
+[INSTRUMENTS]
+rbb = "RB"
+ib = "I"
+jmb = "JM"
+hcb = "HC"
+jb = "J"
+sfb = "SF"
+smb = "SM"
+spb = "SP"
+wrb = "WR"
+prb = "PR"
+
+tac = "TA"
+mac = "MA"
+pfc = "PF"
+egc = "EG"
+sac = "SA"
+lc = "L"
+ppc = "PP"
+vc = "V"
+fuc = "FU"
+buc = "BU"
+scc = "SC"
+ebc = "EB"
+fbc = "FB"
+pgc = "PG"
+cyc = "CY"
+nrc = "NR"
+fgc = "FG"
+urc = "UR"
+rrc = "RR"
+brc = "BR"
+pxc = "PX"
+psc = "PS"
+
+aac = "A"
+yc = "Y"
+mc = "M"
+oiac = "OI"
+pc = "P"
+cc = "C"
+csc = "CS"
+src = "SR"
+cfc = "CF"
+jdc = "JD"
+lhc = "LH"
+ruc = "RU"
+apc = "AP"
+cjc = "CJ"
+pkc = "PK"
+whc = "WH"
+jrc = "JR"
+rsc = "RS"
+shc = "SH"
+
+znn = "ZN"
+nin = "NI"
+aln = "AL"
+cun = "CU"
+pbn = "PB"
+snn = "SN"
+ssn = "SS"
+bcn = "BC"
+
+agm = "AG"
+aum = "AU"
+
+icf = "IC"
+iff = "IF"
+ihf = "IH"
+imf = "IM"
+tf = "T"
+tff = "TF"
+tsf = "TS"
+tlf = "TL"
+
+
+[CONT_MULTNUM]
+RB=10
+IF=300
+IM=200
+
+[COST]
+IF={buy=0.000023, sell=0.000023}
+RB={buy=0.00012, sell=0.00012}
+
+[INIT_CASH]
+RB=60000
+IF=2000000
+IM=2000000
+
+[TRADE_TIME]
+RB=['21:00:00','15:00:00']
+
+[CLOSE_TIME]
+RB=[['22:58:00', '23:00:00'], ['14:58:00', '15:00:00']]
