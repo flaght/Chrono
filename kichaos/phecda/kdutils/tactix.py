@@ -156,7 +156,6 @@ class Tactix(object):
 
         self.yaml(args)
         variant = vars(args)
-        pdb.set_trace()
         if log:
             self.dump(variant)
         return variant
