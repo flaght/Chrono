@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from kichaos.envs.trader.cn_futures.hedge041 import Hedge041TraderEnv as HedgeTraderEnv
+from kichaos.envs.trader.cn_futures.hedge051 import Hedge051TraderEnv as HedgeTraderEnv
 from kichaos.agent.tessla.tessla0001 import Tessla0001 as Tessla
 from kdutils.macro import base_path
 from kdutils.macro import *
@@ -38,7 +38,7 @@ def load_datasets(variant):
         train_data = pd.read_feather(train_filename)
         val_data = pd.read_feather(val_filename)
         test_data = pd.read_feather(test_filename)
-        pdb.set_trace()
+
         min_time = pd.to_datetime(train_data['trade_time']).min()
         max_time = pd.to_datetime(val_data['trade_time']).max()
         min_date = min_time if min_date is None else min(min_date, min_time)
@@ -95,7 +95,7 @@ def fit(index, train_data, val_data, variant):
                     cont_multnum=CONT_MULTNUM_MAPPING[variant['code']],
                     action_dim=2,
                     log_dir=g_log_path)
-    tessla.train(name="{0}".format(index),
+    tessla.train(name="{0}c_{1}".format(variant['config_id'], index),
                  train_data=train_data,
                  val_data=val_data,
                  tensorboard_path=g_tensorboard_path,
@@ -173,7 +173,7 @@ def educate(index, test_data, model_index, variant):
                                   train_path=g_train_path,
                                   **params)
 
-    tessla.illustrate(name="{0}".format(index),
+    tessla.illustrate(name="{0}c_{1}".format(variant['config_id'], index),
                       memory_data=test_memory[0],
                       kl_pd=test_data,
                       illustrate_path=g_illustrate_path,
@@ -233,11 +233,11 @@ def tbdex(index, test_data, variant):
                     cont_multnum=CONT_MULTNUM_MAPPING[variant['code']],
                     action_dim=2,
                     log_dir=g_log_path)
-    pdb.set_trace()
+    
     tessla.tbdex(tb_path=g_tensorboard_path,
                  out_path=g_tbdex_path,
                  tb_index=1,
-                 name="{0}".format(index),
+                 name="{0}c_{1}".format(variant['config_id'], index),
                  **params)
 
 
