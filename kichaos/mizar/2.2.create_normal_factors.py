@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from kdutils.macro2 import *
 from kdutils.data import fetch_main_market
-from kdutils.normal import sklearn_normal, sklearn_fit
+from kdutils.normal import sklearn_normal, sklearn_fit, sklean_fit1, rolling_train, rolling_val, rolling_test
 
 # --- 配置参数 ---
 # 缺失值处理
@@ -381,7 +381,7 @@ def apply_transformation(series,
         return None, f"转换失败: {str(e)}", lambda_param, applied_reflection
 
 
-def prepar_data(method, categories, horizon, total_data, g_instruments, type2):
+def prepar_data(total_data, g_instruments, type2):
     ## 价格直接提取
     if type2 == 'price':
         market_data = fetch_main_market(
@@ -668,6 +668,7 @@ def process_features_for_window(df, factor_cols):
 def split_factors1(prepare_pd,
                    start_time,
                    method,
+                   types,
                    categories,
                    horizon,
                    train_params,
@@ -749,14 +750,16 @@ def split_factors1(prepare_pd,
 
         if train1.empty:
             continue
-
         ## 标准化
         if train_params['nc'] == 1:
             window = train_params['window']
             window = 0
-            scaler = sklearn_fit(
+            #scaler = sklearn_fit(
+            #    train2.set_index(['trade_time', 'code'])[features])
+            pdb.set_trace()
+            scaler = sklean_fit1(
                 train2.set_index(['trade_time', 'code'])[features])
-            normal_train = sklearn_normal(data=train1,
+            normal_train = sklearn_normal(data=train2,
                                           features=features,
                                           scaler=scaler)
             normal_val = sklearn_normal(data=val2,
@@ -765,7 +768,29 @@ def split_factors1(prepare_pd,
             normal_test = sklearn_normal(data=test2,
                                          features=features,
                                          scaler=scaler)
+        elif train_params['nc'] == 2:
+            window = train_params['window']
+            normal_train = rolling_train(data=train2,
+                                         features=features,
+                                         window_size=window)
+            normal_val = rolling_val(train_data=train2,
+                                     val_data=val1,
+                                     features=features,
+                                     window_size=window)
 
+            normal_test = rolling_test(val_data=val2,
+                                       test_data=test2,
+                                       features=features,
+                                       window_size=window)
+        elif train_params['nc'] == 0:
+            window = 0
+            normal_train = train2
+            normal_test = test2
+            normal_val = val2
+
+        assert (not np.any(np.isinf(normal_train[features].values)))
+        assert (not np.any(np.isinf(normal_val[features].values)))
+        assert (not np.any(np.isinf(normal_test[features].values)))
         normal_res.append((normal_train, normal_val, normal_test))
         report_res.append((train_report, val_report, test_report))
         original_res.append((train2, val2, test2))
@@ -773,8 +798,8 @@ def split_factors1(prepare_pd,
         print('done')
     ### 存储
     dirs = os.path.join(
-        base_path, method, 'normal', g_instruments, 'rolling',
-        'normal_factors3', "{0}_{1}".format(categories, horizon),
+        base_path, categories, method, 'normal', g_instruments, 'rollings',
+        'normal_factors3', "{0}_{1}".format(types, horizon),
         "{0}_{1}_{2}_{3}_{4}".format(str(train_params['freq']),
                                      str(train_params['train_days']),
                                      str(train_params['val_days']),
@@ -783,21 +808,19 @@ def split_factors1(prepare_pd,
     if not os.path.exists(dirs):
         os.makedirs(dirs)
 
-    pdb.set_trace()
-
     for i, (original_train, original_val,
             original_test) in enumerate(original_res):
         filename = os.path.join(dirs,
                                 'original_factors_train_{0}.feather'.format(i))
-        original_train.reset_index().to_feather(filename)
+        original_train.reset_index(drop=True).to_feather(filename)
 
         filename = os.path.join(dirs,
                                 'original_factors_val_{0}.feather'.format(i))
-        original_val.reset_index().to_feather(filename)
+        original_val.reset_index(drop=True).to_feather(filename)
 
         filename = os.path.join(dirs,
                                 'original_factors_test_{0}.feather'.format(i))
-        original_test.reset_index().to_feather(filename)
+        original_test.reset_index(drop=True).to_feather(filename)
         print(
             "original_train.shape:{0}\n original_val.shape:{1}\n original_test.shape:{2}\n\n"
             .format(original_train.shape, original_val.shape,
@@ -806,15 +829,15 @@ def split_factors1(prepare_pd,
     for i, (normal_train, normal_val, normal_test) in enumerate(normal_res):
         filename = os.path.join(dirs,
                                 'normal_factors_train_{0}.feather'.format(i))
-        normal_train.reset_index().to_feather(filename)
+        normal_train.reset_index(drop=True).to_feather(filename)
 
         filename = os.path.join(dirs,
                                 'normal_factors_val_{0}.feather'.format(i))
-        normal_val.reset_index().to_feather(filename)
+        normal_val.reset_index(drop=True).to_feather(filename)
 
         filename = os.path.join(dirs,
                                 'normal_factors_test_{0}.feather'.format(i))
-        normal_test.reset_index().to_feather(filename)
+        normal_test.reset_index(drop=True).to_feather(filename)
         print(
             "normal_train.shape:{0}\n normal_val.shape:{1}\n normal_test.shape:{2}\n\n"
             .format(normal_train.shape, normal_val.shape, normal_test.shape))
@@ -832,18 +855,17 @@ def split_factors1(prepare_pd,
                                 'report_factors_test_{0}.feather'.format(i))
         test_report.reset_index().to_feather(filename)
 
+    print("dirs:{0}".format(dirs))
 
 def normal_factors(method,
+                   types,
                    categories,
                    horizon,
                    total_data,
                    g_instruments,
                    train_params,
                    type2='price'):
-    total_data = prepar_data(method=method,
-                             categories=categories,
-                             horizon=horizon,
-                             total_data=total_data,
+    total_data = prepar_data(total_data=total_data,
                              g_instruments=g_instruments,
                              type2=type2)
 
@@ -859,25 +881,26 @@ def normal_factors(method,
                    start_time=trade_time,
                    train_params=train_params,
                    method=method,
+                   types=types,
                    categories=categories,
                    horizon=horizon)
 
 
 if __name__ == '__main__':
 
-    window = 3
-    nc = 1
-    freq = 5
+    window = 60  ## 滚动标准化
+    nc = 2
+    freq = 10
     train_days = 60
-    val_days = 5
-    test_days = 5
+    val_days = freq
+    test_days = freq
     past_days = 250
 
     method1 = 'kimto1'
     method2 = 'aicso4'
     g_instruments = 'rbb'
     horizon = 1
-    category = 1
+    category = 'mizar'
     types = 'o2o'
 
     ### 加载筛选因子
@@ -903,6 +926,7 @@ if __name__ == '__main__':
     ## 切割 + 滚动修复 + 标准化 (train, val, test)
     normal_factors(method=method2,
                    categories=category,
+                   types=types,
                    total_data=total_data,
                    g_instruments=g_instruments,
                    horizon=horizon,
