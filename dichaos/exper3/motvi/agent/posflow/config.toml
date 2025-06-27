@@ -1,0 +1,49 @@
+[vector_db]
+db_name = 'test_db'
+vector_provider = 'fassis'
+top_k=3
+
+[embedding]
+embedding_model="bge-large"
+embedding_provider="openai"
+
+[llm]
+llm_model="deepseek-chat"
+llm_provider="openai"
+
+
+[short]
+importance_score_initialization = "sample"
+decay_recency_factor=3.0
+decay_importance_factor=0.92
+clean_up_threshold_dict = {recency_threshold=0.05, importance_threshold=5}
+jump_threshold_upper = 60
+jump_threshold_lower=-99999
+
+
+
+[mid]
+importance_score_initialization = "sample"
+decay_recency_factor=90.0
+decay_importance_factor=0.967
+clean_up_threshold_dict = {recency_threshold=0.05, importance_threshold=5}
+jump_threshold_lower = 60
+jump_threshold_upper = 80 
+
+
+[long]
+importance_score_initialization = "sample"
+decay_recency_factor=365.0
+decay_importance_factor=0.988
+clean_up_threshold_dict = {recency_threshold=0.05, importance_threshold=5}
+jump_threshold_lower = 80
+jump_threshold_upper=999999999
+
+
+[reflection]
+importance_score_initialization = "sample"
+decay_recency_factor=365.0
+decay_importance_factor=0.988
+clean_up_threshold_dict = {recency_threshold=0.03, importance_threshold=3}
+jump_threshold_lower=-99999
+jump_threshold_upper=60
