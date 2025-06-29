@@ -42,7 +42,7 @@ def fetch_main_daily(begin_date, end_date, codes, columns=None):
         'highestPrice': 'high',
         'lowestPrice': 'low',
         'closePrice': 'close',
-        'turnoverVol': 'volumne',
+        'turnoverVol': 'volume',
         'turnoverValue': 'value',
         'openInt': 'openint'
     },
