@@ -11,7 +11,9 @@ instruments_codes = {
     'ihs': ['IH'],
     'ics': ['IC'],
     'ims': ['IM'],
-    'rbb': ['RB']
+    'rbb': ['RB'],
+    'mb':["M"],
+    'aub': ['AU']
 }
 
 base_path = os.path.join(os.environ['BASE_PATH'],
