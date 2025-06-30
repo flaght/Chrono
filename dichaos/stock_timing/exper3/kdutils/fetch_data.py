@@ -90,7 +90,6 @@ def fetch_basic(codes):
 
 
 def fetch_main_daily(begin_date, end_date, codes):
-    basic_info = fetch_basic(codes)
     data = main_daily(begin_date=begin_date,
                       end_date=end_date,
                       codes=codes,
