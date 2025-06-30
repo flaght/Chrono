@@ -16,6 +16,10 @@ def fetch_main_returns(begin_date, end_date, codes, columns=None):
                                               category='daily',
                                               columns=columns)
     market_data.rename(columns={'closePrice': 'close'}, inplace=True)
+    market_data = market_data.sort_values(by=['trade_date', 'code', 'close'],
+                                          ascending=True).drop_duplicates(
+                                              subset=['trade_date', 'code'],
+                                              keep='last')
     market_data = market_data.drop(['symbol'], axis=1)
     returns_data = market_data.set_index(
         ['trade_date', 'code'])['close'].unstack().pct_change().stack()
