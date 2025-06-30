@@ -73,7 +73,6 @@ class FactorsGroup(BaseModel):
         return texts
 
     def format(self, types: str = "short"):
-        pdb.set_trace()
         desc = {"short": "短期记忆", "mid": "中期记忆", "long": "长期记忆"}
         sidx = {"short": "S", "mid": "M", "long": "L"}
         
