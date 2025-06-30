@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-os.environ['INSTRUMENTS'] = 'ims'
+os.environ['INSTRUMENTS'] = 'rbb'
 g_instruments = os.environ['INSTRUMENTS']
 
 from kdutils.macro import base_path, codes
@@ -20,7 +20,6 @@ from kdutils.data import fetch_main_market
 
 ### 加载挖掘因子
 def fetch_evolutions(method, categories, horizon):
-    pdb.set_trace()
     dirs = os.path.join(base_path, method, 'evolution', g_instruments,
                         str(horizon))
     filename = os.path.join(dirs, '{0}_factors.feather'.format(categories))
@@ -130,7 +129,6 @@ def split_factors2(prepare_pd,
 
     if not os.path.exists(dirs):
         os.makedirs(dirs)
-    pdb.set_trace()
     for i, (normal_train, normal_val, normal_test) in enumerate(res):
         filename = os.path.join(dirs,
                                 'normal_factors_train_{0}.feather'.format(i))
@@ -170,7 +168,6 @@ def split_factors1(prepare_pd,
         if col not in ['trade_time', 'code', 'price']
     ]
     res = []
-    pdb.set_trace()
     for i in range(len(dates) - 1):
         print(dates[i], dates[i + 1], i)
         ### 测试集
@@ -210,6 +207,7 @@ def split_factors1(prepare_pd,
         train1 = train1.fillna(method='ffill')
         val1 = val1.fillna(method='ffill')
         test1 = test1.fillna(method='ffill')
+
         if train1.empty:
             continue
         if train_params['nc'] == 1:
@@ -232,7 +230,7 @@ def split_factors1(prepare_pd,
                                      str(train_params['nc']), str(window)))
     if not os.path.exists(dirs):
         os.makedirs(dirs)
-    pdb.set_trace()
+
     for i, (normal_train, normal_val, normal_test) in enumerate(res):
         filename = os.path.join(dirs,
                                 'normal_factors_train_{0}.feather'.format(i))
@@ -245,8 +243,9 @@ def split_factors1(prepare_pd,
                                 'normal_factors_test_{0}.feather'.format(i))
         normal_test.reset_index().to_feather(filename)
         print(
-            "normal_train.shape:{0}\n normal_val.shape:{1}\n normal_test.shape:{2}\n\n"
-            .format(normal_train.shape, normal_val.shape, normal_test.shape))
+            "normal_train.shape:{0}\n normal_val.shape:{1}\n normal_test.shape:{2}\nnormal_test path:{3}\n\n"
+            .format(normal_train.shape, normal_val.shape, normal_test.shape,
+                    filename))
 
 
 def normal_factors(method,
@@ -263,13 +262,12 @@ def normal_factors(method,
 
     ### 使用多少天前的数据
     trade_time = total_data['trade_time'].max()
-    pdb.set_trace()
+
     start_time = advanceDateByCalendar(
         'china.sse', trade_time,
         '-{0}b'.format(train_params['past_days'] + train_params['train_days'] +
                        train_params['val_days'])).strftime('%Y-%m-%d')
     prepare_pd = total_data[total_data['trade_time'] >= start_time]
-    pdb.set_trace()
 
     if 'kimto' in method:
         split_factors2(prepare_pd=prepare_pd,
@@ -280,21 +278,23 @@ def normal_factors(method,
                        horizon=horizon)
     else:
         split_factors1(prepare_pd=prepare_pd,
-                   start_time=trade_time,
-                   train_params=train_params,
-                   method=method,
-                   categories=categories,
-                   horizon=horizon)
+                       start_time=trade_time,
+                       train_params=train_params,
+                       method=method,
+                       categories=categories,
+                       horizon=horizon)
 
 
 if __name__ == '__main__':
     window = 3
     nc = 1
-    freq = 5
-    train_days = 60
-    val_days = 5
-    test_days = 5
-    past_days = 250
+
+    train_days = 180
+    val_days = 30
+    test_days = 30
+
+    freq = test_days
+    past_days = train_days + val_days + test_days
 
     train_params = {
         'window': window,

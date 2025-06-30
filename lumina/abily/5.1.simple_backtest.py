@@ -18,7 +18,7 @@ from kdutils.macro import *
 
 
 def fetch_rotor(base_path, code, name):
-    rotor = Rotor.from_pickle(path=os.path.join(base_path, code.lower()),
+    rotor = Rotor.from_pickle(path=os.path.join(base_path, code.upper()),
                               name=name)
     return rotor
 
@@ -45,7 +45,7 @@ if __name__ == '__main__':
     method = 'aicso2'
     k_split = 16
     pdb.set_trace()
-    task_id = '1078761302'
+    task_id = '1085310361'
     strategy_settings = {
         'capital': 10000000,
         'commission': COST_MAPPING[instruments_codes[g_instruments][0]],

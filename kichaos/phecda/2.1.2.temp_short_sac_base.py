@@ -161,6 +161,7 @@ def fit(index, train_data, val_data, variant):
     total_timesteps = math.ceil(
         params['step_len'] * params['check_freq'] / 10000) * 10000  #40000
     #total_timesteps = 40000
+    pdb.set_trace()
     agent_model_name = model_name + "_{0}".format(name)
     agent.train_model(
         model=model_sac,
@@ -320,6 +321,6 @@ if __name__ == '__main__':
     parser.add_argument('--code', type=str, default='IM')  ## 代码
 
     args = parser.parse_args()
-    #train(vars(args))
-    predict(vars(args))
+    train(vars(args))
+    #predict(vars(args))
     #predict_all(vars(args))

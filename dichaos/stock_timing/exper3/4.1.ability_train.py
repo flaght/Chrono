@@ -4,11 +4,13 @@ from datetime import date, timedelta
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.abspath('../../..'))
+
+sys.path.insert(0, os.path.abspath('..'))
 #load_dotenv(os.path.join('../', '.env'))
 load_dotenv()
 
-from dichaos.agents.indexor.ability.agent import Agent
-from dichaos.agents.indexor.ability.model import IndicatorList, KLine
+from ability.agent import Agent
+from ability.model import IndicatorList, KLine
 from dichaos.agents.indexor.porfolio import Portfolio
 from dichaos.kdutils import kd_logger
 from kdutils.until import create_agent_path
@@ -31,6 +33,7 @@ def load_mirso(method):
 
 
 def main(method, symbol):
+    pdb.set_trace()
     total_data = load_mirso(method)
 
     agent = Agent.from_config()
@@ -83,7 +86,7 @@ def main(method, symbol):
                                             r3.index.get_level_values(0)
                                         ).intersection(
                                             s3.index.get_level_values(0))
-    dates = [d.strftime('%Y-%m-%d') for d in dates]#[0:100]
+    dates = [d.strftime('%Y-%m-%d') for d in dates]  #[0:100]
     dates.sort()
     for date in dates:
         kline = KLine(date=date,
@@ -114,6 +117,7 @@ def main(method, symbol):
                                      s3=s3.loc[date])
         future_data = total_data.loc[date]
         future_data = future_data.to_dict(orient='records')[0]
+        pdb.set_trace()
         agent.handing_data(date, symbol, indicator_list, kline)
         short_prompt, reflection_prompt = agent.query_records(date, symbol)
 
@@ -125,7 +129,7 @@ def main(method, symbol):
         ## 记录操作
         actions = 1 if total_data.loc[date, symbol]['ret_o2o'] > 0 else -1
         portfolio.record_action(action={'direction': actions})
-
+        pdb.set_trace()
         response = agent.generate_suggestion(
             date=date,
             symbol=symbol,
