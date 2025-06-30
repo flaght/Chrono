@@ -3,8 +3,9 @@ from typing import Dict
 from pydantic import BaseModel
 from dichaos.kdutils.logger import logger
 from .model import *
-from .prompt import system_message, suggestion_human_message
-from motvi.agent.decision.model import *
+from .prompt import system_message, suggestion_human_message, decision_human_message
+from motvi.kdutils.model import *
+from motvi.agent.agents import Agents
 
 
 class Agent(Agents):
@@ -26,22 +27,26 @@ class Agent(Agents):
                                     system_message=system_message)
 
     def handing_data(self, trade_date: str, symbol: str,
-                     agent_group: AgentsGroup):
-        self.brain_db.add_memory_short_term(symbol=symbol,
-                                            date=trade_date,
-                                            text=agent_group.model_dump_json())
+                     agents_group: AgentsGroup):
+        super(Agent, self).handing_data(trade_date=trade_date,
+                                        symbol=symbol,
+                                        factors_group=agents_group)
+
+    def query_reflection(self, trade_date: str, symbol: str):
+        return super(Agent, self).query_reflection(trade_date=trade_date,
+                                                   symbol=symbol)
 
     def query_record(self, trade_date: str, symbol: str, name: str):
         query_memory_term = getattr(self.brain_db,
                                     "query_memory_{0}_term".format(name))
-        short_records = query_memory_term(
+        records = query_memory_term(
             query_text="date must is {0}".format(trade_date),
             symbol=symbol,
             top_k=self.top_k * 1000,
             duplicates=True)
 
         prompt = ""
-        for index, record in zip(short_records[1], short_records[0]):
+        for index, record in zip(records[1], records[0]):
             memory = json.loads(record)
             memory = AgentsGroup(**memory)
             if memory.date != trade_date:
@@ -49,43 +54,14 @@ class Agent(Agents):
             memory.index = index
             prompt += memory.format(types=name)
         return prompt
-    
-    def query_reflection(self, trade_date: str, symbol: str):
-
-        def create_whole_prompts1(whole_data):
-            str1 = ""
-            for k, v in zip(whole_data[0], whole_data[1]):
-                str1 += "过去反思记忆索引ID:{0}  内容:{1}\n\n".format("R" + str(v), k)
-            return str1
-
-        reflection_records = self.brain_db.query_memory_reflection(
-            query_text="{0}".format(trade_date),
-            symbol=symbol,
-            top_k=int(self.top_k * 1.5),
-            duplicates=False)
-        reflection_prompt = create_whole_prompts1(reflection_records)
-        return reflection_prompt
 
     def query_records(self, trade_date: str, symbol: str):
-        short_prompt = self.query_record(trade_date=trade_date,
-                                         symbol=symbol,
-                                         name='short')
-        mid_prompt = self.query_record(trade_date=trade_date,
-                                       symbol=symbol,
-                                       name='mid')
-        long_prompt = self.query_record(trade_date=trade_date,
-                                        symbol=symbol,
-                                        name='long')
+        return super(Agent, self).query_records(trade_date=trade_date,
+                                                symbol=symbol)
 
-        reflection_prompt = self.query_reflection(trade_date=trade_date,
-                                                  symbol=symbol)
-
-        return long_prompt, mid_prompt, short_prompt, reflection_prompt
-    
     def generate_suggestion(self, date: str, symbol: str, short_prompt: str,
                             mid_prompt: str, long_prompt: str,
-                            reflection_prompt: str, factors_details: str,
-                            returns: float, suggestion_human_message: str):
+                            reflection_prompt: str, returns: float):
         DomInfo1 = create_suggestion_dom(short_prompt=short_prompt,
                                          mid_prompt=mid_prompt,
                                          long_prompt=long_prompt,
@@ -122,3 +98,44 @@ class Agent(Agents):
                 time.sleep(5)
                 continue
         return response
+
+    def generate_prediction(self, date: str, symbol: str, short_prompt: str,
+                            mid_prompt: str, long_prompt: str,
+                            reflection_prompt: str):
+        DomInfo2 = create_prediction_dom1(short_prompt=short_prompt,
+                                         mid_prompt=mid_prompt,
+                                         long_prompt=long_prompt,
+                                         reflection_prompt=reflection_prompt)
+
+        json_format = DomInfo2.dumps()
+        for _ in range(5):
+            response = self.generate_message(decision_human_message,
+                                             params={
+                                                 "ticker": symbol,
+                                                 "date": date,
+                                                 "short_terms": short_prompt,
+                                                 "mid_terms": mid_prompt,
+                                                 "long_terms": long_prompt,
+                                                 "reflection_terms":
+                                                 reflection_prompt,
+                                                 "json_format": json_format
+                                             },
+                                             default={},
+                                             response=DomInfo2,
+                                             is_structured=True)
+            try:
+                if 'reasoning' in response.__dict__:
+                    break
+                else:
+                    logger.info('retrying...')
+                    time.sleep(5)
+                    continue
+            except Exception as e:
+                logger.info('error:{0}'.format(e))
+                time.sleep(5)
+                continue
+        return response
+
+    def actions(self, response, threshold=80):
+        return super(Agent, self).actions(response=response,
+                                          threshold=threshold)
