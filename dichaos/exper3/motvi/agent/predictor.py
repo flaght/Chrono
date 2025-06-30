@@ -13,8 +13,7 @@ class Predictor(ABC):
 
     def initialize_agent(self, base_path, symbol, date):
         self.agent = self.agent_class.load_checkpoint(path=os.path.join(
-            base_path, self.agent_class.name, self.agent_class.name, f'{symbol}_{date}'))
-
+            base_path, self.agent_class.name, f'{symbol}_{date}'))
 
     @abstractmethod
     def prepare_data(self):
@@ -32,7 +31,7 @@ class Predictor(ABC):
         """
         raise NotImplementedError(
             "Subclasses must implement _create_factors_group_for_date")
-    
+
     def create_model(self, date, factors, desc, model_class):
         factors_list = model_class(date=date, desc=desc)
         for k, v in factors.items():
@@ -41,13 +40,13 @@ class Predictor(ABC):
                                      desc=v.desc)
             factors_list.factors[k] = factor_instance
         return factors_list
-    
-    def train(self, date, future_data):
+
+    def prdict(self, date, future_data):
         factors_group = self.create_group(date)
         if not factors_group:
             print(f"Skipping date {date} due to missing factor data.")
             return
-        
+
         self.agent.handing_data(trade_date=date,
                                 symbol=self.symbol,
                                 factors_group=factors_group)
