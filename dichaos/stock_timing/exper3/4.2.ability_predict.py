@@ -5,10 +5,11 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.abspath('../../..'))
 
+sys.path.insert(0, os.path.abspath('..'))
 load_dotenv()
 
-from dichaos.agents.indexor.ability.agent import Agent
-from dichaos.agents.indexor.ability.model import IndicatorList, KLine
+from ability.agent import Agent
+from ability.model import IndicatorList, KLine
 from dichaos.agents.indexor.porfolio import Portfolio
 from dichaos.kdutils import kd_logger
 from kdutils.until import create_agent_path
@@ -133,7 +134,6 @@ def main(method, symbol, date):
 
         actions = agent.actions(response=response)
         kd_logger.info('response:{0}'.format(response))
-        pdb.set_trace()
         portfolio.record_action(action={'direction': actions})
         feedback = portfolio.feedback()
 
@@ -149,6 +149,5 @@ def main(method, symbol, date):
             # 这里可能是因为没有反馈数据
             pass
     
-    pdb.set_trace()
     print('portfolio:', portfolio)
 main('bsotr1', 'IF', '2025-02-21')

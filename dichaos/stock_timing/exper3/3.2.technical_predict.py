@@ -28,9 +28,11 @@ def load_mirso(method):
 
 
 def main(method, symbol, date):
+    pdb.set_trace()
     total_data = load_mirso(method)
     base_dir = 'brain/bsotr1/'
-    source_path = os.path.join(os.environ['BASE_PATH'], base_dir, f'{symbol}_{date}')
+    source_path = os.path.join(os.environ['BASE_PATH'], base_dir,
+                               f'{symbol}_{date}')
     agent = Agent.load_checkpoint(source_path)
     pdb.set_trace()
     portfolio = Portfolio(symbol=symbol, lookback_window_size=2)
@@ -125,8 +127,9 @@ def main(method, symbol, date):
 
         ## 保存记忆点
         #pdb.set_trace()
-        
-        path = os.path.join(os.environ['BASE_PATH'], f'brain/{method}/', f'{symbol}_{d}')
+
+        path = os.path.join(os.environ['BASE_PATH'], f'brain/{method}/',
+                            f'{symbol}_{d}')
         agent.save_checkpoint(path=path)
 
 
