@@ -130,6 +130,11 @@ class Tactix(object):
                             default=1,
                             help='Max position')  ## 最大位置
 
+        parser.add_argument("--feature_id",
+                            type=int,
+                            default=0,
+                            help="features id")
+
         parser.add_argument('--config_file',
                             type=str,
                             default='configs.yaml',
