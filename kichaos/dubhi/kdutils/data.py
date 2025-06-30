@@ -2,13 +2,33 @@ import os, pdb
 import pandas as pd
 
 ### 映射
-from alphakit.const import *
-from alphakit.data import *
+#from alphakit.const import *
+#from alphakit.data import *
 from alphacopilot.api.data import RetrievalAPI, ddb_tools, DDBAPI
 from ultron.strategy.models.processing import winsorize as alk_winsorize
 from ultron.strategy.models.processing import standardize as alk_standardize
 from ultron.tradingday import advanceDateByCalendar
 #from ultron.factor.metrics.CrossSection.booster import Booster
+
+def fetch_basic(begin_date, end_date):
+    data = RetrievalAPI.get_data_by_map(columns=[
+        'ret_o2o', 'turnoverValue', 'dummy_test_f1r_open',
+        'dummy120_fst_close', 'ret', 'iret', 'ret_c2o', 'zz1000', 'hs300',
+        'dummy120_fst'
+    ],
+                                        begin_date=begin_date,
+                                        end_date=end_date,
+                                        method='ddb',
+                                        is_debug=True)
+    val = data['turnoverValue']
+    ret = data['ret']
+    iret = data['iret']
+    ret_c2o = data['ret_c2o']
+    usedummy = data['dummy_test_f1r_open'] * data['dummy120_fst_close']
+    vardummy = data['dummy120_fst_close']
+    return val, ret, iret, ret_c2o, usedummy, vardummy
+
+
 
 def fetch_base(begin_date, end_date):
     data = RetrievalAPI.get_data_by_map(

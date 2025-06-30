@@ -42,7 +42,7 @@ def load_datasets(variant):
         train_data = pd.read_feather(train_filename)
         val_data = pd.read_feather(val_filename)
         test_data = pd.read_feather(test_filename)
-        pdb.set_trace()
+
         min_time = pd.to_datetime(train_data['trade_time']).min()
         max_time = pd.to_datetime(val_data['trade_time']).max()
         min_date = min_time if min_date is None else min(min_date, min_time)
@@ -100,7 +100,7 @@ def fit(index, train_data, val_data, variant):
         zip(val_data.code, [sell_cost_pct] * ticker_dimension))
 
     params = copy.deepcopy(variant)
-    params['verbosity'] = 1
+    params['verbosity'] = 40
     del params['direction']
     params['step_len'] = train_data.shape[0] - 1
     params['direction'] = 1 if variant['direction'] == 'long' else -1
@@ -169,127 +169,12 @@ def fit(index, train_data, val_data, variant):
     print("Training Done time: %.3f" % (time.time() - start))
 
 
+
 def train(variant):
     data_mapping = load_datasets(variant)
     for i in range(g_start_pos, g_max_pos):
         train_data, val_data, test_data = data_mapping[i]
         fit(index=i, train_data=train_data, val_data=val_data, variant=variant)
-
-
-def educate(index, test_data, model_index, variant):
-    features = [
-        col for col in test_data.columns
-        if col not in ['trade_time', 'code'] + ['price', 'close']
-    ]
-    ticker_dimension = len(test_data.code.unique())
-    state_space = ticker_dimension
-
-    buy_cost_pct = COST_MAPPING[variant['code']][
-        'buy']  #0.00012  #0.1 / 1000  #0.00001#0.000100#(0.0100 / 10000)
-    sell_cost_pct = COST_MAPPING[variant['code']][
-        'sell']  #0.00012  #0.1 / 1000  #0.000100#(0.0100 / 10000)
-
-    buy_cost_pct_sets = dict(
-        zip(test_data.code, [buy_cost_pct] * ticker_dimension))
-    sell_cost_pct_sets = dict(
-        zip(test_data.code, [sell_cost_pct] * ticker_dimension))
-
-    params = copy.deepcopy(variant)
-    #del params['direction']
-    params['direction'] = 1 if variant['direction'] == 'long' else -1
-    initial_amount = INIT_CASH_MAPPING[variant['code']]  #2000000.0  #60000
-    pdb.set_trace()
-    env_test_gym = HedgeTraderEnv(
-        df=test_data,
-        features=features,
-        state_space=state_space,
-        action_dim=2,
-        buy_cost_pct=buy_cost_pct_sets,
-        sell_cost_pct=sell_cost_pct_sets,
-        ticker_dim=ticker_dimension,
-        mode='eval',
-        cont_multnum=CONT_MULTNUM_MAPPING[variant['code']],
-        initial_amount=initial_amount,
-        open_threshold=THRESHOLD_MAPPING[variant['code']]['long_open'],
-        close_threshold=THRESHOLD_MAPPING[variant['code']]['long_close'],
-        **params)
-
-    ## 要考虑参数序列化
-    '''
-    filename = os.path.join(
-        "records", "env_params",
-        "{0}_{1}_{2}.pkl".format(variant['code'], variant['direction'],
-                                  env_test_gym.name))
-    params = env_test_gym.dumps(filename)
-    '''
-
-    pdb.set_trace()
-    env_test, _ = env_test_gym.get_env()
-
-    model_name = 'sac_base'
-    log_dir = os.path.join("../../records/", "logs")
-    name = "{0}_{1}_{2}_{3}".format(env_test_gym.name, variant['code'],
-                                    variant['direction'], index)
-    agent_model_name = model_name + "_{0}".format(name)
-
-    model_path = os.path.join(g_train_path, agent_model_name, model_index)
-    pdb.set_trace()
-    env_results = Agent.load_from_file(model_name=model_name,
-                                       environment=env_test_gym,
-                                       model_path=model_path,
-                                       log_dir=log_dir)
-    method1 = 'test' if 'kimto' not in variant['method'] else 'val'
-    dirs = os.path.join(
-        os.environ['RECORDS_PATH'], 'agent', variant['method'],
-        'g_instruments', 'rolling', 'normal_factors3',
-        "{0}_{1}".format(variant['categories'], variant['horizon']),
-        "{0}_{1}_{2}_{3}".format(model_name, env_test_gym.name,
-                                 variant['code'], variant['direction']))
-
-    dirs = os.path.join(
-        os.environ['RECORDS_PATH'], 'agent', variant['method'],
-        'g_instruments', 'rolling', 'normal_factors3', method1,
-        str(variant['train_days']), str(variant["val_days"]),
-        "{0}_{1}".format(variant['categories'], str(variant['horizon'])),
-        str(index), "{0}_{1}_{2}_{3}".format(model_name, env_test_gym.name,
-                                             variant['code'],
-                                             str(variant['direction'])))
-    if not os.path.exists(dirs):
-        os.makedirs(dirs)
-    filename = os.path.join(
-        dirs, "{0}_{1}_profit.feather".format(index, model_index))
-    asset = env_results[0]['profit_memory']
-    asset.index.name = 'trade_time'
-    asset.reset_index().to_feather(filename)
-
-
-def predict(variant):
-    data_mapping = load_datasets(variant)
-    for i in range(g_start_pos, g_max_pos):
-        train_data, val_data, test_data = data_mapping[i]
-        educate(index=i,
-                test_data=test_data,
-                variant=variant,
-                model_index='best_model')
-
-
-def predict_all(variant):
-    model_indexs = [
-        1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000,
-        12000, 13000, 14000, 15000, 16000
-    ]
-    data_mapping = load_datasets(variant)
-    for i in range(g_start_pos, g_max_pos):
-        train_data, val_data, test_data = data_mapping[i]
-        for j in model_indexs:
-            educate(index=i,
-                    test_data=test_data,
-                    variant=variant,
-                    model_index='model{0}'.format(j))
-        educate(index=i,
-                test_data=test_data,
-                variant=variant,
-                model_index='best_model')
 
 
 if __name__ == '__main__':
@@ -306,15 +191,12 @@ if __name__ == '__main__':
     parser.add_argument('--nc', type=int, default=1)  ## 标准方式
     parser.add_argument('--swindow', type=int, default=0)  ## 滚动窗口
 
-    #parser.add_argument('--step_len', type=int, default=4000)  ## 每次训练集要经过多少个周期
     parser.add_argument('--check_freq', type=int, default=15)  ## 每次模型保存的频率
     parser.add_argument('--batch_size', type=int, default=512)  ## 训练时数据大小
     parser.add_argument('--window', type=int, default=3)  ## 开始周期，即多少个周期构建env数据
 
     parser.add_argument('--direction', type=str, default='long')  ## 方向
-    parser.add_argument('--code', type=str, default='IM')  ## 代码
+    parser.add_argument('--code', type=str, default='RB')  ## 代码
 
     args = parser.parse_args()
-    #train(vars(args))
-    predict(vars(args))
-    #predict_all(vars(args))
+    train(vars(args))
