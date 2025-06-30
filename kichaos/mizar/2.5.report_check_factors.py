@@ -278,7 +278,7 @@ def stationarity_adf_func(data_series,
 
     # 执行ADF检验
     # autolag='AIC' 会自动选择最佳的滞后阶数
-    result = adfuller(clean_data, maxlag=10) # maxlag=10 autolag='AIC'
+    result = adfuller(clean_data, maxlag=10)  # maxlag=10 autolag='AIC'
     p_value = result[1]
 
     # ADF检验的原假设是：序列存在单位根（即非平稳）。
@@ -318,9 +318,12 @@ def evaluate_stationarity_adf(train1, val1, test1, factor_name, report):
 def simple_check(variant):
     train1, val1, test1 = load_data(variant=variant)
 
+    train1 = pd.read_feather("temp/normal_train_24.feather")
+    val1 = pd.read_feather("temp/normal_val_24.feather")
+    test1 = pd.read_feather("temp/normal_test_24.feather")
     features = [
         col for col in train1.columns
-        if col not in ['trade_time', 'code', 'price']
+        if col not in ['trade_time', 'code', 'price', 'nxt1_ret']
     ]
     reports = []
     for factor_name in features:
@@ -423,7 +426,6 @@ if __name__ == "__main__":
 
     parser.add_argument('--category', type=int, default=1)
 
-    
     parser.add_argument('--window', type=int, default=60)
     parser.add_argument('--method',
                         type=str,
