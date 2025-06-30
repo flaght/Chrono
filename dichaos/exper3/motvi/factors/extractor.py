@@ -21,7 +21,8 @@ def fetch_main_returns(begin_date, end_date, codes, columns=None):
         ['trade_date', 'code'])['close'].unstack().pct_change().stack()
     returns_data = returns_data.loc[begin_date:end_date]
     returns_data.name = 'returns'
-    market_data = pd.concat([market_data.set_index(['trade_date', 'code']), returns_data], axis=1)
+    market_data = pd.concat(
+        [market_data.set_index(['trade_date', 'code']), returns_data], axis=1)
     return market_data
 
 
@@ -47,6 +48,10 @@ def fetch_main_daily(begin_date, end_date, codes, columns=None):
         'openInt': 'openint'
     },
                        inplace=True)
+    market_data = market_data.sort_values(by=['trade_date', 'code', 'openint'],
+                                          ascending=True).drop_duplicates(
+                                              subset=['trade_date', 'code'],
+                                              keep='last')
     market_data = market_data.drop(['symbol'], axis=1)
     market_data = market_data.reset_index(drop=True)
     return market_data

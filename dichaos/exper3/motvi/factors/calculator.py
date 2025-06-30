@@ -128,7 +128,9 @@ def create_indictor(begin_date, end_date, codes, window, **kwargs):
                                        'closePrice', 'turnoverVol',
                                        'turnoverValue', 'openInt'
                                    ])
-    market_data = market_data.set_index(['trade_date', 'code']).unstack()
+    market_data = market_data.drop_duplicates(
+        subset=['trade_date', 'code']).set_index(['trade_date',
+                                                  'code']).unstack()
 
     create_factors(name="In001",
                    keys=[(1, 1)],
