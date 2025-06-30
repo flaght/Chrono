@@ -28,7 +28,8 @@ RESULT_CODE_MAP = {
 def position_next_order(pos_data: pd.DataFrame,
                         market_data: pd.DataFrame,
                         commission: float = 0.0,
-                        slippage: float = 0.0) -> list: # Python type hint: List[OrderTuple]
+                        slippage: float = 0.0,
+                        name='close') -> list: # Python type hint: List[OrderTuple]
     orders = []
     if pos_data.empty:
         return orders
@@ -85,7 +86,7 @@ def position_next_order(pos_data: pd.DataFrame,
 
     # Determine price_col_name
     if isinstance(market_data.columns, pd.MultiIndex):
-        price_col_name = ('close', symbol)
+        price_col_name = (name, symbol)
     else:
         price_col_name = symbol 
 
@@ -95,11 +96,11 @@ def position_next_order(pos_data: pd.DataFrame,
             f"Cython: Position column {pos_col_name} not found in pos_data ({pos_data.columns})."
         )
     if price_col_name not in market_data.columns:
-        if not isinstance(market_data.columns, pd.MultiIndex) and 'close' in market_data.columns:
-            price_col_name = 'close' # Fallback for simple index market data
+        if not isinstance(market_data.columns, pd.MultiIndex) and name in market_data.columns:
+            price_col_name = name # Fallback for simple index market data
         else:
             raise ValueError(
-                f"Cython: Price column {price_col_name} (or 'close') not found in market_data ({market_data.columns})."
+                f"Cython: Price column {price_col_name} (or {name}) not found in market_data ({market_data.columns})."
             )
 
     if not isinstance(pos_data.index, pd.DatetimeIndex):

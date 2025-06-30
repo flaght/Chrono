@@ -5,7 +5,7 @@ import ultron.factor.empyrical as empyrical
 from ultron.factor.genetic.geneticist.operators import calc_factor
 from .adapter import data_adapter
 from lumina.genetic.metrics.ts_pnl import calculate_ful_ts_pnl
-from kdutils.orders import position_next_order_nb, pnl_std
+from lumina.genetic.fusion.orders import position_next_order_cy, profit_std
 
 
 class NpEncoder(json.JSONEncoder):
@@ -43,7 +43,6 @@ def callback_models(gen, rootid, best_programs, custom_params):
 
 def callback_fitness(factor_data, total_data, signal_method, strategy_method,
                      factor_sets, custom_params, default_value):
-    pdb.set_trace()
     strategy_settings = custom_params['strategy_settings']
     factor_data = factor_data.reset_index().set_index(['trade_time', 'code'])
     total_data = total_data.set_index(['trade_time', 'code']).unstack()
@@ -52,18 +51,25 @@ def callback_fitness(factor_data, total_data, signal_method, strategy_method,
     pos_data = strategy_method.function(signal=pos_data,
                                         total_data=total_data,
                                         **strategy_method.params)
-
     ### 包含order 则从订单开始评估
     if "order" in custom_params['method']:
-        orders = position_next_order_nb(pos_data=pos_data,
-                                        market_data=total_data)
-        if 'order_std' in custom_params['method']:
-            fitness = pnl_std(orders=orders)
+        orders = position_next_order_cy(
+            pos_data=pos_data,
+            market_data=total_data,
+            commission=strategy_settings['commission'],
+            slippage=strategy_settings['slippage'],
+            name='open')
+        if 'profit_std' in custom_params['method']:
+            fitness = profit_std(orders=orders)
 
     else:
+        ranges_to_zero = [] if 'filter_custom' not in custom_params else custom_params['filter_custom']['returns']
         total_data['trade_vol', total_data['open'].columns[0]] = (
             custom_params['strategy_settings']['capital'] /
             total_data['open'] / custom_params['strategy_settings']['size'])
+        for start_date_str, end_date_str in ranges_to_zero:
+            pos_data.loc[start_date_str:end_date_str, pos_data.columns] = 0.0
+
         df = calculate_ful_ts_pnl(pos_data=pos_data,
                                   total_data=total_data,
                                   strategy_settings=strategy_settings)

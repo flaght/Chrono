@@ -24,7 +24,7 @@ def determine_trade_result(entry_price, exit_price, direction):
             return 'even'
     return 'unknown_direction'
 
-def position_next_order(pos_data, market_data):
+def position_next_order(pos_data, market_data, commission, slippage):
     """
     将持仓数据转换为订单列表。
     sell_type 表示：win 或loss，即盈利单 还是亏损单。
