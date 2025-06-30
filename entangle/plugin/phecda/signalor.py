@@ -77,6 +77,8 @@ class Signalor(object):
     def run(self, trade_time):
         ## 读取因子
         impluse_data = self.fetch_factors(trade_time=trade_time, pos=120)
+        if impluse_data.empty:
+            return
         min_time = impluse_data['trade_time'].min()
         max_time = impluse_data['trade_time'].max()
         bar_data = self.fetch_bar(begin_time=min_time, end_time=max_time)
