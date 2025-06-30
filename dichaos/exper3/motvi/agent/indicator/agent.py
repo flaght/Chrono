@@ -3,7 +3,7 @@ from typing import Dict
 from pydantic import BaseModel
 from dichaos.kdutils.logger import logger
 from .model import *
-from .prompt import system_message, suggestion_human_message, decision_human_message
+from .prompt import system_message, suggestion_human_message, decision_human_message, desc
 from motvi.kdutils.model import *
 from motvi.agent.agents import Agents
 
@@ -67,7 +67,10 @@ class Agent(Agents):
             reflection_prompt=reflection_prompt,
             factors_details=factors_details,
             decision_human_message=decision_human_message)
-    
+
     def actions(self, response, threshold=80):
         return super(Agent, self).actions(response=response,
                                           threshold=threshold)
+
+    def desc(self):
+        return desc
