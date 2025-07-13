@@ -105,7 +105,7 @@ def rigde_regression_synthesis(train_data, val_data, test_data,
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(train_data[names])
     y_train = train_data['target']
-    pdb.set_trace()
+
     # --- 3. 创建并训练 RidgeCV 模型 ---
     print("正在使用RidgeCV寻找最佳alpha并训练模型...")
     '''
@@ -152,7 +152,7 @@ def lasso_regression_synthesis(train_data, val_data, test_data,
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(train_data[names])
     y_train = train_data['target']
-    pdb.set_trace()
+
     ## 此处可以考虑是否加入kfold 增强模型稳定性
     model = LassoCV(eps=1e-4,
                     n_alphas=100,
@@ -189,7 +189,7 @@ def random_forest_synthesis(train_data, val_data, test_data, train_positions,
     #X_train_scaled = scaler.fit_transform(train_data[names])
     X = train_data[names]
     y_transformed = rank_transform(train_data['target'])
-    pdb.set_trace()
+
     model = RandomForestRegressor(
         n_estimators=200,  # 树的数量
         max_depth=10,  # 限制每棵树的最大深度，防止过拟合
@@ -200,7 +200,7 @@ def random_forest_synthesis(train_data, val_data, test_data, train_positions,
         oob_score=True  # 使用袋外样本进行验证，是一个很好的内置验证机制
     )
     model.fit(X, y_transformed)
-    pdb.set_trace()
+
     print(f"模型训练完成。袋外OOB Score (R-squared): {model.oob_score_:.4f}")
     feature_importances = pd.Series(model.feature_importances_,
                                     index=X.columns)
@@ -323,17 +323,32 @@ if __name__ == '__main__':
         'ultron_1751388038959442', 'ultron_1751431447109266'
     ]
     strategy_pool = {
-        'bk': benchmark,
-        'tst1': benchmark + ['ultron_1751397805025247','ultron_1751431447109266'],
-        'tst2': [
-            'ultron_1751401005542132', 'ultron_1751414027498169',
-            'ultron_1751386610921461', 'ultron_1751388038959442',
+        'bk':
+        benchmark,
+        'bk1': ['ultron_1751388038959442', 'ultron_1751431447109266'],
+        'tst1':
+        benchmark + ['ultron_1751397805025247', 'ultron_1751431447109266'],
+        'tst2':
+        benchmark + ['ultron_1751397805025247'],
+        'tst3':
+        benchmark + [
             'ultron_1751397805025247', 'ultron_1751431447109266',
-            'ultron_1751375993205158', 'ultron_1751460301087405',
-            'ultron_1751492470196206', 'ultron_1751385107413126'
+            'ultron_1751388038959442'
+        ],
+        'tst4':
+        benchmark + [
+            'ultron_1751397805025247', 'ultron_1751431447109266',
+            'ultron_1751388038959442', 'ultron_1751385041297455'
+        ],
+        'tst5':
+        benchmark + [
+            'ultron_1751397805025247', 'ultron_1751431447109266',
+            'ultron_1751388038959442', 'ultron_1751385041297455',
+            'ultron_1751389839279277'
         ]
     }
-    key = 'tst2'
+    ## 最佳 best-->tst4
+    key = 'tst5'
 
     names = strategy_pool[key]
 
