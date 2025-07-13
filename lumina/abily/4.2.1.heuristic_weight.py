@@ -1,5 +1,6 @@
 import os, pdb, sys, json, math, empyrical
 import pandas as pd
+from pandas import Timestamp
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -107,6 +108,7 @@ def calcute_fitness(positions,
                     strategy_settings,
                     base_dirs,
                     key=None):
+    save_positions = positions.copy()
     name = positions.name
     positions.name = 'pos'
     positions = positions.reset_index()
@@ -118,12 +120,53 @@ def calcute_fitness(positions,
         strategy_settings=strategy_settings,
         agg=True  # 确保按天聚合
     )
+
+    ### 存储绩效
     dirs = os.path.join(os.path.join(base_dirs, 'returns', key)) if isinstance(
         key, str) else os.path.join(os.path.join(base_dirs, 'returns', key))
     if not os.path.exists(dirs):
         os.makedirs(dirs)
+    print(dirs)
     pnl_in_window.reset_index().to_feather(
         os.path.join(dirs, "{0}.feather".format(name)))
+
+    ### 存储仓位
+    dirs = os.path.join(os.path.join(
+        base_dirs, 'positions', key)) if isinstance(
+            key, str) else os.path.join(
+                os.path.join(base_dirs, 'positions', key))
+    if not os.path.exists(dirs):
+        os.makedirs(dirs)
+    print(dirs)
+    save_positions.reset_index().to_feather(
+        os.path.join(dirs, "{0}.feather".format(name)))
+
+
+def split_positions(positions, time_periods, key):
+    name = positions.name
+    train_positions = positions.loc[
+        time_periods['train_time'][0]:time_periods['train_time'][1]]
+    val_positions = positions.loc[
+        time_periods['val_time'][0]:time_periods['val_time'][1]]
+
+    test_positions = positions.loc[
+        time_periods['test_time'][0]:time_periods['test_time'][1]]
+
+    dirs = os.path.join(os.path.join(
+        base_dirs, 'positions', key)) if isinstance(
+            key, str) else os.path.join(
+                os.path.join(base_dirs, 'positions', key))
+    if not os.path.exists(dirs):
+        os.makedirs(dirs)
+
+    train_positions.reset_index().to_feather(
+        os.path.join(dirs, "{0}_train.feather".format(name)))
+
+    val_positions.reset_index().to_feather(
+        os.path.join(dirs, "{0}_val.feather".format(name)))
+
+    test_positions.reset_index().to_feather(
+        os.path.join(dirs, "{0}_test.feather".format(name)))
 
 
 if __name__ == '__main__':
@@ -145,17 +188,29 @@ if __name__ == '__main__':
     strategy_pool = {
         'bk':
         benchmark,
+        'bk1': ['ultron_1751388038959442', 'ultron_1751431447109266'],
         'tst1':
         benchmark + ['ultron_1751397805025247', 'ultron_1751431447109266'],
-        'tst2': [
-            'ultron_1751401005542132', 'ultron_1751414027498169',
-            'ultron_1751386610921461', 'ultron_1751388038959442',
+        'tst2':
+        benchmark + ['ultron_1751397805025247'],
+        'tst3':
+        benchmark + [
             'ultron_1751397805025247', 'ultron_1751431447109266',
-            'ultron_1751375993205158', 'ultron_1751460301087405',
-            'ultron_1751492470196206', 'ultron_1751385107413126'
+            'ultron_1751388038959442'
+        ],
+        'tst4':
+        benchmark + [
+            'ultron_1751397805025247', 'ultron_1751431447109266',
+            'ultron_1751388038959442', 'ultron_1751385041297455'
+        ],
+        'tst5':
+        benchmark + [
+            'ultron_1751397805025247', 'ultron_1751431447109266',
+            'ultron_1751388038959442', 'ultron_1751385041297455',
+            'ultron_1751389839279277'
         ]
     }
-    key = 'tst2'
+    key = 'tst5'
 
     names = list(set(strategy_pool[key]))
 
@@ -164,7 +219,7 @@ if __name__ == '__main__':
         'slippage': 0,  #SLIPPAGE_MAPPING[INSTRUMENTS_CODES[g_instruments]],
         'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[g_instruments]]
     }
-    pdb.set_trace()
+
     base_dirs = os.path.join(os.path.join('temp', "{}".format(method),
                                           task_id))
     if not os.path.exists(base_dirs):
@@ -200,6 +255,22 @@ if __name__ == '__main__':
 
     volatility_positions = volatility_weight_synthesis(positions=positions)
 
+    pdb.set_trace()
+
+    time_periods = {
+        'train_time':
+        (Timestamp('2022-07-25 09:31:00'), Timestamp('2024-05-29 13:22:00')),
+        'val_time':
+        (Timestamp('2024-05-29 13:23:00'), Timestamp('2024-12-05 10:15:00')),
+        'test_time': (Timestamp('2024-12-05 10:16:00'),
+                      Timestamp('2025-03-13 15:00:00'))
+    }
+
+    ## 合成仓位切割存储 用于合成
+    split_positions(equal_positions, time_periods=time_periods, key=key)
+    split_positions(weight_positions, time_periods=time_periods, key=key)
+    split_positions(volatility_positions, time_periods=time_periods, key=key)
+    pdb.set_trace()
     ## 绩效计算
     calcute_fitness(positions=equal_positions,
                     total_data=total_data,
