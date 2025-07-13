@@ -2,6 +2,7 @@ import pdb, empyrical
 import numpy as np
 import pandas as pd
 import os, pdb, sys, json, math
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.cluster import DBSCAN
 from sklearn.linear_model import LinearRegression  # 导入线性回归模型
 
@@ -239,6 +240,85 @@ class FilterStrategy(object):
             f"Stage 3 (Rolling Stability) 后剩余: {len(survivors_df)} / {initial_count}"
         )
         return survivors_df
+
+    def stage_timeseries_cv_check(
+            self,
+            programs: pd.DataFrame,
+            positions: pd.DataFrame,  # 验证集上的仓位
+            total_data: pd.DataFrame,  # 验证集上的市场数据
+            custom_params: dict,
+            config: dict):
+        
+        positions['code'] = INSTRUMENTS_CODES[self.instruments]
+        positions = positions.set_index(['trade_time', 'code'])
+        total_data = total_data.copy().reset_index().set_index(
+            ['trade_time', 'code']).unstack()
+
+        kd_logger.info(
+            "--- STAGE 3: TimeSeries Cross-Validation Stability Check ---")
+        initial_count = len(programs)
+        strategy_settings = custom_params.get('strategy_settings', {})
+        kd_logger.info("正在为所有候选策略计算日度收益率...")
+        daily_returns_list = []
+        for name in programs['name']:
+            position = positions[[name]].rename(columns={
+                name: 'pos'
+            }).unstack()
+            # 假设 _calculate_daily_returns 返回一个以日期为索引的Series
+            daily_returns = calculate_ful_ts_ret(
+                pos_data=position,
+                total_data=total_data,
+                strategy_settings=strategy_settings,
+                agg=True  # 确保按天聚合
+            )
+            daily_returns = daily_returns['a_ret']
+            daily_returns.name = name
+            daily_returns_list.append(daily_returns)
+
+        daily_returns_df = pd.concat(daily_returns_list, axis=1).fillna(0)
+
+        # --- 步骤 2: 创建TimeSeriesSplit并计算每折的绩效 ---
+        tscv = TimeSeriesSplit(n_splits=config['n_splits'])
+        all_folds_performance = []
+
+        for fold_num, (train_idx,
+                       val_idx) in enumerate(tscv.split(daily_returns_df)):
+            # 我们只关心每一折的“验证”部分
+            fold_returns = daily_returns_df.iloc[val_idx]
+            # 向量化计算：一次性计算当前折叠中所有策略的夏普比率
+            fold_sharpes = fold_returns.apply(
+                lambda x: empyrical.sharpe_ratio(x, period='daily'), axis=0)
+            fold_sharpes.name = fold_num
+            all_folds_performance.append(fold_sharpes)
+
+        # --- 步骤 3: 聚合所有折叠的绩效，并进行统计 ---
+        # performance_matrix 的行是策略名，列是折叠编号
+        performance_matrix = pd.concat(all_folds_performance, axis=1)
+
+        # 计算每个策略（每一行）的CV统计指标
+        cv_stats = pd.DataFrame(index=performance_matrix.index)
+        cv_stats['cv_mean_fitness'] = performance_matrix.mean(axis=1)
+        cv_stats['cv_std_fitness'] = performance_matrix.std(axis=1)
+        cv_stats['cv_win_rate'] = (performance_matrix
+                                   > config.get('positive_sharpe_threshold',
+                                                0)).mean(axis=1)
+        cv_stats['cv_worst_fold_fitness'] = performance_matrix.min(axis=1)
+
+        # --- 步骤 4: 根据CV统计指标进行最终筛选 ---
+        stable_strategies_mask = (
+            (cv_stats['cv_mean_fitness'] > config['min_cv_mean_fitness']) &
+            (cv_stats['cv_std_fitness'] < config['max_cv_std']) &
+            (cv_stats['cv_win_rate'] > config['min_cv_win_rate']) &
+            (cv_stats['cv_worst_fold_fitness'] > config['min_cv_worst_fold']))
+        stable_strategy_names = cv_stats[stable_strategies_mask].index
+        survivors = programs[programs['name'].isin(
+            stable_strategy_names)].copy()
+        survivors = survivors.merge(cv_stats[stable_strategies_mask],
+                                    left_on='name',
+                                    right_index=True)
+        kd_logger.info(
+            f"Stage 3 (TimeSeries CV) 后剩余: {len(survivors)} / {initial_count}")
+        return survivors
 
     # 基于行为聚类的邻里审查 (最核心的鲁棒性检验)。
     # 通过对策略在验证集上的仓位序列进行DBSCAN聚类，识别出稳定、高质量的“行为簇”，
@@ -515,9 +595,12 @@ class FilterStrategy(object):
     def run(self, programs, train_val_data, val_data, train_val_positions,
             val_positions, custom_params):
 
+        # --- 执行流水线 ---
+        # 关卡 1: 基础有效性
         survivors_sc = self.stage_sanity_check(programs=programs,
                                                config=self.config['stage_sc'])
 
+        # 关卡 2: 过拟合检验
         survivors_oc = self.stage_overfitting_check(
             programs=survivors_sc, config=self.config['stage_oc'])
 
@@ -528,8 +611,16 @@ class FilterStrategy(object):
             custom_params=custom_params,
             config=self.config['stage_rsc'])
 
-        survivors_na = self.stage_neighborhood_analysis(
+        pdb.set_trace()
+        surviors_tcc = self.stage_timeseries_cv_check(
             programs=survivors_rsc,
+            positions=val_positions,
+            total_data=val_data,
+            custom_params=custom_params,
+            config=self.config['stage_tcc'])
+        
+        survivors_na = self.stage_neighborhood_analysis(
+            programs=surviors_tcc,
             positions=val_positions,
             config=self.config['stage_na'])
 
@@ -542,6 +633,7 @@ class FilterStrategy(object):
             total_data=val_data,
             custom_params=custom_params,
             config=self.config['stage_ss'])
+        pdb.set_trace()
         return survivors_ss
 
 
@@ -598,6 +690,14 @@ if __name__ == '__main__':
 
             # 在表现最差的那个窗口，夏普比率也不能低于-2.0，防止策略有致命缺陷。
             'min_worst_window_perf': -2.3
+        },
+        'stage_tcc': {
+            'n_splits': 5,  # 将验证集切分成N折进行交叉验证。
+            'positive_sharpe_threshold': 0.01,  ## 定义夏普大于多少算“正”，用于计算win_rate
+            'min_cv_mean_fitness': 0.8,  #策略在所有未来时间片段上的平均夏普至少要大于0.3，证明其平均泛化能力
+            'max_cv_std': 4.0,  ## 不同未来时间片段上的夏普表现不能波动太大，标准差应小于2.0
+            'min_cv_win_rate': 0.6,  ## 在60%的未来时间片段上（5折中的3折），策略都必须是盈利的。
+            'min_cv_worst_fold': -6.0,  # 即使在表现最差的那个时间片段，夏普也不能低于-2.5。
         },
         'stage_na': {
             'min_cluster_input_size': 10,  # 最小策略数量
