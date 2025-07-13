@@ -90,18 +90,19 @@ def rolling_test(val_data, test_data, features, window_size):
     return normal_test.dropna().reset_index()
 
 
-def run(method, g_instruments):
+## 数据修复 + 切割
+def run1(method, g_instruments):
     pdb.set_trace()
-    filename = os.path.join(base_path, method, g_instruments, 'merge',
+    filename = os.path.join(base_path, method, g_instruments, 'basic',
                             "train_data.feather")
     train_data = pd.read_feather(filename).sort_values(
         by=['trade_time', 'code'])
 
-    filename = os.path.join(base_path, method, g_instruments, 'merge',
+    filename = os.path.join(base_path, method, g_instruments, 'basic',
                             "val_data.feather")
     val_data = pd.read_feather(filename).sort_values(by=['trade_time', 'code'])
 
-    filename = os.path.join(base_path, method, g_instruments, 'merge',
+    filename = os.path.join(base_path, method, g_instruments, 'basic',
                             "test_data.feather")
     test_data = pd.read_feather(filename).sort_values(
         by=['trade_time', 'code'])
@@ -143,14 +144,31 @@ def run(method, g_instruments):
         os.makedirs(to_path)
 
     pdb.set_trace()
-    train2.to_feather(os.path.join(to_path, "repaire_train_data.feather"))
+    train2.to_feather(os.path.join(to_path, "train_data.feather"))
 
-    val2.to_feather(os.path.join(to_path, "repaire_val_data.feather"))
+    val2.to_feather(os.path.join(to_path, "val_data.feather"))
 
-    test2.to_feather(os.path.join(to_path, "repaire_test_data.feather"))
+    test2.to_feather(os.path.join(to_path, "test_data.feather"))
+
+
+def run2(method, g_instruments):
+    ### 读取因子
+    dirs = os.path.join(base_path, method, g_instruments, 'factors')
+    res = []
+    for root, dirs, files in os.walk(dirs):
+        for filename in files:
+            all_filename = os.path.join(root, filename)
+            print(all_filename)
+            factor_data = pd.read_feather(all_filename)
+            res.append(
+                factor_data.set_index(['trade_time', 'code']).sort_index())
+    factors_data = pd.concat(res, axis=1).sort_index()
+    factors_data = factors_data.unstack().fillna(method='ffill').stack().dropna()
+    pdb.set_trace()
+    print('-->')
 
 
 if __name__ == '__main__':
-    method = 'aicso2'
+    method = 'aicso0'
     g_instruments = 'ims'
-    run(method=method, g_instruments=g_instruments)
+    run2(method=method, g_instruments=g_instruments)
