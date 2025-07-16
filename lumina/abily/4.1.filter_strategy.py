@@ -13,54 +13,7 @@ load_dotenv()
 from ultron.utilities.logger import kd_logger
 from lumina.genetic.metrics.ts_pnl import calculate_ful_ts_ret
 from kdutils.macro2 import *
-
-
-## 加载总览fitness
-def load_fitness(base_dirs):
-    fitness_file = os.path.join(base_dirs, "fitness.feather")
-    fitness_pd = pd.read_feather(fitness_file)
-
-    return fitness_pd
-
-
-## 加载不同时段的仓位数据
-def load_positions(base_dirs, names):
-    dirs = os.path.join(os.path.join(base_dirs, 'positions'))
-    positions_res = {}
-    for name in names:
-        train_positions = pd.read_feather(
-            os.path.join(dirs, "{0}_train.feather".format(name)))
-
-        val_positions = pd.read_feather(
-            os.path.join(dirs, "{0}_val.feather".format(name)))
-
-        test_positions = pd.read_feather(
-            os.path.join(dirs, "{0}_test.feather".format(name)))
-        positions_res[name] = {
-            'train': train_positions,
-            'val': val_positions,
-            'test': test_positions
-        }
-    return positions_res
-
-
-def load_data(instruments, mode='train'):
-    filename = os.path.join(base_path, method, instruments, 'level2',
-                            '{0}_data.feather'.format(mode))
-    factors_data = pd.read_feather(filename).sort_values(
-        by=['trade_time', 'code'])
-    return factors_data.set_index('trade_time')
-
-
-def merge_positions(positions_res, mode):
-    res = []
-    for name in positions_res:
-        print(name)
-        positions = positions_res[name][mode]
-        positions = positions.rename(columns={'pos': name})
-        res.append(positions.set_index('trade_time'))
-    positions = pd.concat(res, axis=1).reset_index()
-    return positions
+from kdutils.common import *
 
 
 class HelperStrategy(object):
@@ -183,7 +136,6 @@ class FilterStrategy(object):
 
         positions['code'] = INSTRUMENTS_CODES[self.instruments]
         positions = positions.set_index(['trade_time', 'code'])
-
         kd_logger.info("STAGE 3: Rolling Stability Check")
         initial_count = len(positions)
         # 准备 unstacked 的市场数据，以备循环内使用
@@ -192,7 +144,6 @@ class FilterStrategy(object):
 
         stable_survivors_names = []
         strategy_settings = custom_params.get('strategy_settings', {})
-        res1 = []
         for name in programs['name']:
             kd_logger.info(f"  - Analyzing rolling stability for '{name}'...")
             # 获取单个策略的仓位，并 unstack
@@ -205,7 +156,6 @@ class FilterStrategy(object):
                 strategy_settings=strategy_settings,
                 agg=True  # 确保按天聚合
             )
-
             # 步骤B: 在日度收益率序列上进行滚动夏普计算
             # empyrical.roll_sharpe_ratio 是一个现成的、高效的函数
             rolling_sharpes = empyrical.roll_sharpe_ratio(
@@ -248,7 +198,7 @@ class FilterStrategy(object):
             total_data: pd.DataFrame,  # 验证集上的市场数据
             custom_params: dict,
             config: dict):
-        
+
         positions['code'] = INSTRUMENTS_CODES[self.instruments]
         positions = positions.set_index(['trade_time', 'code'])
         total_data = total_data.copy().reset_index().set_index(
@@ -618,7 +568,7 @@ class FilterStrategy(object):
             total_data=val_data,
             custom_params=custom_params,
             config=self.config['stage_tcc'])
-        
+
         survivors_na = self.stage_neighborhood_analysis(
             programs=surviors_tcc,
             positions=val_positions,
@@ -638,7 +588,6 @@ class FilterStrategy(object):
 
 
 def prepare_data(instruments, method, task_id):
-    pdb.set_trace()
     base_dirs = os.path.join(
         os.path.join('temp', "{}".format(method), str(task_id)))
     programs = load_fitness(base_dirs=base_dirs)
@@ -648,17 +597,28 @@ def prepare_data(instruments, method, task_id):
     val_positions = merge_positions(positions_res=positions_res, mode='val')
     train_positions = merge_positions(positions_res=positions_res,
                                       mode='train')
-    val_data = load_data(instruments=instruments, mode='val')
-    train_data = load_data(instruments=instruments, mode='train')
+    val_data = load_data(instruments=instruments,
+                         method=method,
+                         task_id=task_id,
+                         mode='val')
+    train_data = load_data(instruments=instruments,
+                           method=method,
+                           task_id=task_id,
+                           mode='train')
 
     train_val_data = pd.concat([train_data, val_data], axis=0).sort_index()
     train_val_positions = pd.concat([train_positions, val_positions],
                                     axis=0).sort_index()
+    train_val_data.index = pd.to_datetime(train_val_data.index)
+    val_data.index = pd.to_datetime(val_data.index)
+    train_positions['trade_time'] = pd.to_datetime(
+        train_positions['trade_time'])
+    val_positions['trade_time'] = pd.to_datetime(val_positions['trade_time'])
     return programs, train_val_data, val_data, train_val_positions, val_positions
 
 
 if __name__ == '__main__':
-    method = 'aicso2'
+    method = 'aicso0'
     task_id = '200037'
     instruments = 'ims'
 
@@ -741,15 +701,7 @@ if __name__ == '__main__':
     helper_strategy = HelperStrategy(instruments=instruments,
                                      task_id=task_id,
                                      config=config)
-    '''
-    result1 = helper_strategy.stage_rolling_stability_check(
-        programs=programs,
-        positions=train_val_positions,
-        total_data=train_val_data,
-        custom_params=custom_params,
-        config=helper_strategy.config['stage_rsc']
-    )
-    '''
+
     filter_strategy = FilterStrategy(instruments=instruments,
                                      task_id=task_id,
                                      config=config)
@@ -759,5 +711,3 @@ if __name__ == '__main__':
                                    train_val_positions=train_val_positions,
                                    val_positions=val_positions,
                                    custom_params=custom_params)
-    pdb.set_trace()
-    print('-->')
