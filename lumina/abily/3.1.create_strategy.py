@@ -1,3 +1,4 @@
+### 多进程计算策略仓位 收益 序列 生成文件
 ### 参照 gentic fusion actuator 多进程生成，修改对应方法
 import pandas as pd
 import sqlalchemy as sa
@@ -10,86 +11,32 @@ from lumina.genetic.process import *
 from ultron.factor.genetic.geneticist.operators import *
 import ultron.factor.empyrical as empyrical
 from dotenv import load_dotenv
-
 load_dotenv()
 
+from kdutils.common import *
 from kdutils.macro2 import *
 
-
-### 文件读取
-def fetch_strategy1(task_id, **kwargs):
-    pdb.set_trace()
-    dirs = os.path.join(
-        os.path.join('temp', "{}".format(kwargs['method']), str(task_id),
-                     'evolution'))
-
-    positions_file = os.path.join(dirs, f'programs_{task_id}.feather')
-    strategy_dt = pd.read_feather(positions_file)
-    strategy_dt = strategy_dt[strategy_dt.final_fitness >= kwargs['threshold']]
-    return strategy_dt
-
-
-### 读取数据 计算训练集，校验集，测试集，总数集的绩效
-def fetch_temp_data(method, g_instruments, datasets):
-
-    res = []
-
-    def fet(name):
-        filename = os.path.join(base_path, method, g_instruments, 'level2',
-                                "{0}_data.feather".format(name))
-        factors_data = pd.read_feather(filename).sort_values(
-            by=['trade_time', 'code'])
-        factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
-        return factors_data
-
-    for n in datasets:
-        dt = fet(n)
-        res.append(dt)
-
-    res = pd.concat(res, axis=0)
-    factors_data = res.sort_values(by=['trade_time', 'code'])
-    factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
-    factors_data = factors_data.sort_values(by=['trade_time', 'code'])
-    return factors_data
-
-
-def fetch_times(method, g_instruments):
-    train_data = fetch_temp_data(method=method,
-                                 g_instruments=g_instruments,
-                                 datasets=['train'])
-    val_data = fetch_temp_data(method=method,
-                               g_instruments=g_instruments,
-                               datasets=['val'])
-    test_data = fetch_temp_data(method=method,
-                                g_instruments=g_instruments,
-                                datasets=['test'])
-    return {
-        'train_time':
-        (train_data['trade_time'].min(), train_data['trade_time'].max()),
-        'val_time':
-        (val_data['trade_time'].min(), val_data['trade_time'].max()),
-        'test_time':
-        (test_data['trade_time'].min(), test_data['trade_time'].max())
-    }
-
-
-### 对比和训练集，raw_fitness 变化率
-def compare_fitness_rate(column, method, g_instruments, times_info, base_dirs):
+### 对比和训练集
+# ，raw_fitness 变化率
+def compare_fitness_rate(column, method, instruments, times_info, task_id, base_dirs):
     strategy_settings = {
-        'commission': COST_MAPPING[INSTRUMENTS_CODES[g_instruments]] * 0.05,
+        'commission': COST_MAPPING[INSTRUMENTS_CODES[instruments]] * 0.05,
         'slippage': 0,
-        'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[g_instruments]]
+        'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[instruments]]
     }
 
     print(column)
 
-    def calcute_fitness(column, name, method, g_instruments):
+    def calcute_fitness(column, name, method, instruments, task_id):
         backup_cycle = 1
         total_data = fetch_temp_data(
             method=method,
-            g_instruments=g_instruments,
+            task_id=task_id,
+            instruments=instruments,
             datasets=name if isinstance(name, list) else [name])
 
+        total_data = total_data.drop_duplicates(
+            subset=['trade_time', 'code']).reset_index(drop=True)
         ## 计算
         total_data1 = total_data.set_index(['trade_time'])
         total_data2 = total_data.set_index(['trade_time', 'code']).unstack()
@@ -135,7 +82,7 @@ def compare_fitness_rate(column, method, g_instruments, times_info, base_dirs):
         pos_data1 = eval(strategy_method)(signal=pos_data,
                                           total_data=total_data1,
                                           **strategy_params)
-
+        
         df = calculate_ful_ts_ret(pos_data=pos_data1,
                                   total_data=total_data2,
                                   strategy_settings=strategy_settings)
@@ -148,11 +95,12 @@ def compare_fitness_rate(column, method, g_instruments, times_info, base_dirs):
     #fitness, df = calcute_fitness(strategy=strategy,
     #                              name=['train'],
     #                              method=method,
-    #                              g_instruments=g_instruments)
+    #                              instruments=instruments)
     posisition, fitness, df = calcute_fitness(column=column,
                                               name=['train', 'val', 'test'],
                                               method=method,
-                                              g_instruments=g_instruments)
+                                              instruments=instruments,
+                                              task_id=task_id)
     train_df = df[(df.index >= times_info['train_time'][0])
                   & (df.index <= times_info['train_time'][1])]
     train_fitness = empyrical.sharpe_ratio(returns=train_df['a_ret'],
@@ -197,6 +145,7 @@ def compare_fitness_rate(column, method, g_instruments, times_info, base_dirs):
     dirs = os.path.join(os.path.join(base_dirs, 'returns'))
     if not os.path.exists(dirs):
         os.makedirs(dirs)
+
     df.reset_index().to_feather(
         os.path.join(dirs, "{0}.feather".format(column['name'])))
 
@@ -227,23 +176,26 @@ def compare_fitness_rate(column, method, g_instruments, times_info, base_dirs):
 
 ### 批量生成策略
 @add_process_env_sig
-def run_position(target_column, method, g_instruments, times_info, base_dirs):
+def run_position(target_column, method, instruments, times_info, task_id, base_dirs):
     position_data = run_process(target_column=target_column,
                                 callback=compare_fitness_rate,
                                 method=method,
-                                g_instruments=g_instruments,
+                                instruments=instruments,
                                 times_info=times_info,
+                                task_id=task_id,
                                 base_dirs=base_dirs)
     return position_data
 
 
 if __name__ == '__main__':
-    method = 'aicso2'
-    g_instruments = 'ims'
-    task_id = '200037'
+    method = 'aicso0'
+    instruments = 'ims'
+    task_id = '200036'
     threshold = 1.1
 
-    times_info = fetch_times(method, g_instruments)
+    times_info = fetch_times(method=method,
+                             task_id=task_id,
+                             instruments=instruments)
     print(times_info)
     base_dirs = os.path.join(os.path.join('temp', "{}".format(method),
                                           task_id))
@@ -252,30 +204,19 @@ if __name__ == '__main__':
 
     strategy_dt = fetch_strategy1(task_id=task_id,
                                   method=method,
-                                  g_instruments=g_instruments,
+                                  instruments=instruments,
                                   threshold=threshold)
     res = []
     k_split = 4
-    pdb.set_trace()
+
     strategies_infos = strategy_dt.to_dict(orient='records')
     process_list = split_k(k_split, strategies_infos)
     res = create_parellel(process_list=process_list,
                           callback=run_position,
                           method=method,
-                          g_instruments=g_instruments,
+                          instruments=instruments,
                           times_info=times_info,
+                          task_id=task_id,
                           base_dirs=base_dirs)
     res = list(itertools.chain.from_iterable(res))
-    pdb.set_trace()
-    '''
-    for strategy in strategy_dt.to_dict(orient='records'):
-        print(strategy['name'])
-        results = compare_fitness_rate(strategy=strategy,
-                                       method=method,
-                                       g_instruments=g_instruments,
-                                       times_info=times_info,
-                                       base_dirs=base_dirs)
-        res.append(results)
-    '''
-
     pd.DataFrame(res).to_feather(os.path.join(base_dirs, "fitness.feather"))
