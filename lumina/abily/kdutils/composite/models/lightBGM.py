@@ -33,7 +33,6 @@ class LightBGMClassifier(Base):
         return raw_meta_signal
 
     def _fit(self, X_train_fold, y_train_fold, params, **kwargs):
-        pdb.set_trace()
         X_val_fold = kwargs['X_val_fold']
         y_val_fold = kwargs['y_val_fold']
         y_train_fold = self.stranard_target(y_train_fold)
@@ -63,18 +62,18 @@ class LightBGMClassifier(Base):
         # 1. 定义超参数搜索空间 (包含DART和强力正则化)
         params = {
             'objective':
-            'multiclass',
+            trial.suggest_categorical('objective', ['multiclass']),
             'num_class':
-            3,
+            trial.suggest_categorical('num_class', [3]),
             'metric':
-            'multi_logloss',
+            trial.suggest_categorical('metric', ['multi_logloss']),
             'verbose':
             -1,
             'n_jobs':
             -1,
             #'device':'gpu',
             'seed':
-            42,
+             trial.suggest_categorical('seed', [42]),
             #'boosting_type': trial.suggest_categorical('boosting_type', ['gbdt', 'dart']),
             'learning_rate':
             trial.suggest_float('learning_rate', 0.01, 0.1, log=True),
@@ -107,14 +106,12 @@ class LightBGMClassifier(Base):
     ## 参数确定后训练模型
     def train(self, train_data, val_data, train_positions, val_positions,
               params):
-        pdb.set_trace()
         X_train, y_train, X_val, y_val = self.prepare2(
             train_data=train_data,
             val_data=val_data,
             train_positions=train_positions,
             val_positions=val_positions,
             neutral_threshold=self.neutral_threshold)
-
         ## 训练模型
         model = self._fit(X_train_fold=X_train,
                           y_train_fold=y_train,
@@ -126,12 +123,11 @@ class LightBGMClassifier(Base):
     ### 预测
     def predict(self, model, train_positions, val_positions, test_positions,
                 name):
-        pdb.set_trace()
         positions = pd.concat([train_positions, val_positions, test_positions],
                               axis=0)
         positions = positions.set_index('trade_time')
-        features = self.standard_features(positions[self.names])
-        raw_meta_signal = model.predict(features)
+        predicted_probs = model.predict(positions.values)
+        raw_meta_signal = np.argmax(predicted_probs, axis=1)
         raw_meta_signal = pd.Series(raw_meta_signal, index=positions.index)
-        raw_meta_signal.name = "random_forest_{0}".format(name)
+        raw_meta_signal.name = "{0}_{1}".format(self.name, name)
         return raw_meta_signal
