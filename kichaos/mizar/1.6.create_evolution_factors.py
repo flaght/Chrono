@@ -267,8 +267,6 @@ def evolution(variant):
     factors_data = total_data.reset_index().set_index('trade_time')
     engine.train(total_data=factors_data)
 
-    print('-->')
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train a model')
