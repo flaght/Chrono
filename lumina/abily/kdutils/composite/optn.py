@@ -11,10 +11,25 @@ from lumina.genetic.metrics.ts_pnl import calculate_ful_ts_ret
 from kdutils.composite.prepare import *
 
 
-def composite1(train_data, val_data, test_data, train_positions, val_positions,
-               test_positions, instruments, names, strategy_settings,
-               objective_func):
-    pdb.set_trace()
+def create_positions1(train_positions, val_positions, test_positions,
+                      model_class, params, strategy_settings):
+    positions = pd.concat([train_positions, val_positions, test_positions],
+                          axis=0)
+    positions = positions.set_index('trade_time')
+
+
+def composite1(train_data,
+               val_data,
+               test_data,
+               train_positions,
+               val_positions,
+               test_positions,
+               instruments,
+               names,
+               strategy_settings,
+               objective_func,
+               strategy_func,
+               task_name=None):
     train_val_data = pd.concat([train_data, val_data], axis=0)
     train_val_positions = pd.concat([train_positions, val_positions], axis=0)
     total_data_train_val = train_val_data.sort_index().reset_index().copy(
@@ -28,21 +43,26 @@ def composite1(train_data, val_data, test_data, train_positions, val_positions,
     X_train_val = train_val_matrix[names]
 
     study = optuna.create_study(direction='maximize',
-                                study_name='robust_rf_synthesis')
+                                study_name='robust_synthesis' if
+                                not isinstance(task_name, str) else task_name)
     study.optimize(
         lambda trial: objective_func(trial, X_train_val, y_train_val,
                                      total_data_train_val, strategy_settings),
-        n_trials=40  # 至少100次
+        n_trials=10  # 至少100次
     )
 
     print("\n--- Optuna交叉验证搜索完成 ---")
     print(f"找到的最佳鲁棒性分数: {study.best_value:.4f}")
     print("对应的参数组合:", study.best_params)
-
-    robust_hyperparameters(study,
-                           distance_threshold=0.2,
-                           min_neighbors=3,
-                           minimum_size=7)
+    best_robust_trial = robust_hyperparameters(study,
+                                               distance_threshold=0.2,
+                                               min_neighbors=3,
+                                               minimum_size=7)
+    best_params = {
+        'object_best': study.best_params,  ## 寻优最佳
+        'robust_best': best_robust_trial.params  ## 邻里最佳
+    }
+    return best_params
 
 
 ### 针对通用方式
@@ -98,7 +118,6 @@ def objective_cv1(X_train_val: pd.DataFrame, y_train_val: pd.Series,
 
     # 奖励高均值，惩罚高波动
     robustness_score = mean_perf - 0.5 * std_perf
-
     return robustness_score
 
 
@@ -121,18 +140,20 @@ def objective_cv2(X_train_val: pd.DataFrame, y_train_val: pd.Series,
 
         try:
             model = lgb.train(
-                params, lgb_train,
+                params,
+                lgb_train,
                 num_boost_round=1000,
-                valid_sets=[lgb_val], valid_names=['val'],
-                callbacks=[lgb.early_stopping(30, verbose=False)]
-            )
+                valid_sets=[lgb_val],
+                valid_names=['val'],
+                callbacks=[lgb.early_stopping(30, verbose=False)])
 
-             # 在当前折叠的验证集上预测和回测
-            predicted_probs = model.predict(X_val_fold, num_iteration=model.best_iteration)
+            # 在当前折叠的验证集上预测和回测
+            predicted_probs = model.predict(X_val_fold,
+                                            num_iteration=model.best_iteration)
             predicted_labels = np.argmax(predicted_probs, axis=1)
             position_map = {0: -1, 1: 0, 2: 1}
-            val_positions = pd.Series(predicted_labels, index=X_val_fold.index).map(position_map)
-
+            val_positions = pd.Series(predicted_labels,
+                                      index=X_val_fold.index).map(position_map)
 
             val_positions.name = 'pos'
             val_positions = val_positions.reset_index()
@@ -178,7 +199,6 @@ def robust_hyperparameters(study: optuna.Study,
     :param min_neighbors: 一个点被认为是稳定点所需要的最小邻居数量。
     :return: Optuna.trial.Trial, 最稳健的试验。
     """
-    pdb.set_trace()
     completed_trials = [
         t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE
     ]
@@ -320,7 +340,8 @@ def objective_lbgm_csv(trial: optuna.Trial, X_train_val: pd.DataFrame,
         'feature_fraction': trial.suggest_float('feature_fraction', 0.5, 0.9),
         'min_child_samples': trial.suggest_int('min_child_samples', 50, 250),
     }
-    return objective_cv2(X_train_val=X_train_val,y_train_val=y_train_val,
+    return objective_cv2(X_train_val=X_train_val,
+                         y_train_val=y_train_val,
                          total_data_train_val=total_data_train_val,
                          strategy_settings=strategy_settings,
                          params=params)
@@ -336,6 +357,7 @@ def rf_classifer_cv(train_data,
                     names,
                     strategy_settings,
                     key=None):
+    pdb.set_trace()
     composite1(train_data=train_data,
                val_data=val_data,
                test_data=test_data,
@@ -345,7 +367,8 @@ def rf_classifer_cv(train_data,
                instruments=instruments,
                names=names,
                strategy_settings=strategy_settings,
-               objective_func=objective_rf_cv)
+               objective_func=objective_rf_cv,
+               task_name='RandomForestClassifer')
 
 
 def lbgm_classifer_cv(train_data,
@@ -367,4 +390,5 @@ def lbgm_classifer_cv(train_data,
                instruments=instruments,
                names=names,
                strategy_settings=strategy_settings,
-               objective_func=objective_lbgm_csv)
+               objective_func=objective_lbgm_csv,
+               task_name='LightBGMClassifer')

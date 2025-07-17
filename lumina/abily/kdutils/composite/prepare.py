@@ -86,6 +86,11 @@ def fetch_all_data(method, instruments, task_id):
                           instruments=instruments,
                           task_id=task_id,
                           mode='test')
+    pdb.set_trace()
+    train_data = train_data.loc[train_data.index[0:2000]]
+    test_data = test_data.loc[test_data.index[0:1000]]
+    val_data = val_data.loc[val_data.index[0:1000]]
+
     total_data = pd.concat([train_data, val_data, test_data],
                            axis=0).sort_values(by=['trade_time'])
     total_data = total_data.copy().reset_index().set_index(
@@ -99,10 +104,15 @@ def process_positions(positions_res, key):
     train_positions = merge_positions(positions_res=positions_res,
                                       mode='train')
 
+    pdb.set_trace()
     if any(df.empty
            for df in [train_positions, val_positions, test_positions]):
         print(f"警告: 策略池 '{key}' 的训练/验证/测试仓位数据不完整，跳过此池。")
         return None
+    
+    test_positions = test_positions.loc[0:1000]
+    val_positions = val_positions.loc[0:1000]
+    train_positions = train_positions.loc[0:2000]
     positions = pd.concat([train_positions, val_positions, test_positions],
                           axis=0).sort_values(by=['trade_time'])
     positions = positions.set_index('trade_time')
@@ -121,7 +131,7 @@ def create_target1(total_data,
     data = data.unstack()
     future_log_return = np.log((data / data.shift(1))).shift(-1)
     y_target = future_log_return.dropna()  #np.sign(future_log_return)
-    pdb.set_trace()
+    
     y_target = y_target.reset_index().rename(columns={'IM': 'target'})
 
     y_target = y_target.set_index('trade_time')['target']
