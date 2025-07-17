@@ -56,14 +56,17 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
         candidate_positions = candidate_positions.sort_values(
             by=['trade_time', 'code'])
 
-    selected_positions = sequential_gaind(
-        candidate_positions=candidate_positions,
-        programs_data=best_programs,
-        total_data=total_data,
-        custom_params=custom_params,
-        corr_threshold=custom_params['gain']['corr_threshold'],
-        fitness_threshold=custom_params['gain']['fitness_threshold'],
-        gain_threshold=custom_params['gain']['gain_threshold'])
+    if 'gain' in custom_params:
+        selected_positions = sequential_gaind(
+            candidate_positions=candidate_positions,
+            programs_data=best_programs,
+            total_data=total_data,
+            custom_params=custom_params,
+            corr_threshold=custom_params['gain']['corr_threshold'],
+            fitness_threshold=custom_params['gain']['fitness_threshold'],
+            gain_threshold=custom_params['gain']['gain_threshold'])
+    else:
+        selected_positions = candidate_positions
     if selected_positions is None:
         print("no selected program")
         return
@@ -139,8 +142,8 @@ def train(method, instruments):
         ]
     ]
 
-    population_size = 500#500  #500
-    tournament_size = 100#100  #100
+    population_size = 100  #500#500  #500
+    tournament_size = 20  #100#100  #100
     standard_score = 0.5
     strategy_settings = {
         #'capital': 10000000,
@@ -166,28 +169,6 @@ def train(method, instruments):
             'filter_custom': {
                 #'returns':
                 #FILTER_YEAR_MAPPING[INSTRUMENTS_CODES[g_instruments]]
-            },
-            'gain': {
-                'corr_threshold': 0.5,
-                'fitness_scale': 0.7,
-                'gain_threshold': 0.1
-            },
-            'adaptive': {
-                "initial_alpha": 0.01,
-                "target_penalty_ratio": 0.02,
-                "adjustment_speed": 0.05,
-                "lookback_period": 5
-            },
-            'warehouse': {
-                "n_benchmark_clusters": 200,
-                "distill_trigger_size": 100
-            },
-            'threshold': {
-                "initial_threshold": 0.08,
-                "target_percentile": 0.75,
-                "min_threshold": 0.08,
-                "max_threshold": 4.0,
-                "adjustment_speed": 0.1
             }
         }
     }
@@ -274,6 +255,7 @@ def test1(method, g_instruments):
 
     returns = df['a_ret']
     fitness = empyrical.sharpe_ratio(returns=returns, period=empyrical.DAILY)
+
 
 if __name__ == '__main__':
     method = 'aicso0'
