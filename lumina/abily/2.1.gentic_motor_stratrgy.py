@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from lumina.genetic.signal.method import *
+from lumina.genetic.strategy.method import *
 from kdutils.macro2 import *
 from kdutils.operators_sets import operators_sets
 #from kdutils.callback import callback_fitness, callback_models
@@ -13,6 +15,7 @@ from lumina.genetic.metrics.ts_pnl import calculate_ful_ts_ret
 from lumina.genetic.geneticist.warehouse import sequential_gaind
 import ultron.factor.empyrical as empyrical
 from lumina.genetic import Motor
+from ultron.factor.genetic.geneticist.operators import calc_factor
 
 
 def callback_models(gen, rootid, best_programs, custom_params, total_data):
@@ -29,10 +32,11 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
     best_programs = best_programs.sort_values(by=['final_fitness'],
                                               ascending=False)
 
-    dirs = os.path.join('temp', dethod, method, 'IF', 'evolution')
+    #dirs = os.path.join('temp', dethod, method,
+    #                    INSTRUMENTS_CODES[g_instruments],'evolution')
+    dirs = os.path.join('temp', dethod, str(rootid), 'evolution')
     if not os.path.exists(dirs):
         os.makedirs(dirs)
-
     names = rootid
     programs_filename = os.path.join(dirs, f'programs_{names}.feather')
     if os.path.exists(programs_filename):
@@ -52,14 +56,17 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
         candidate_positions = candidate_positions.sort_values(
             by=['trade_time', 'code'])
 
-    selected_positions = sequential_gaind(
-        candidate_positions=candidate_positions,
-        programs_data=best_programs,
-        total_data=total_data,
-        custom_params=custom_params,
-        corr_threshold=custom_params['gain']['corr_threshold'],
-        fitness_threshold=custom_params['gain']['fitness_threshold'],
-        gain_threshold=custom_params['gain']['gain_threshold'])
+    if 'gain' in custom_params:
+        selected_positions = sequential_gaind(
+            candidate_positions=candidate_positions,
+            programs_data=best_programs,
+            total_data=total_data,
+            custom_params=custom_params,
+            corr_threshold=custom_params['gain']['corr_threshold'],
+            fitness_threshold=custom_params['gain']['fitness_threshold'],
+            gain_threshold=custom_params['gain']['gain_threshold'])
+    else:
+        selected_positions = candidate_positions
     if selected_positions is None:
         print("no selected program")
         return
@@ -109,24 +116,23 @@ def callback_fitness(factor_data, pos_data, total_data, signal_method,
                               total_data=total_data,
                               strategy_settings=strategy_settings)
     ### 值有异常 绝对值大于1
-    returns = df['a_ret'].apply(lambda x: 0.9 * (x / abs(x))
-                                if abs(x) > 1 else x)
+    returns = df['a_ret']
     #empyrical.cagr(returns=returns, period=empyrical.DAILY)
     fitness = empyrical.sharpe_ratio(returns=returns, period=empyrical.DAILY)
     return fitness
 
 
-def train(method, g_instruments):
-    #filename = os.path.join(base_path, method, g_instruments, 'repaired',
-    #                        "repaire_train_data.feather")
-    #filename = os.path.join(base_path, method, g_instruments, 'merge',
-    #                        "train_data.feather")
-    filename = os.path.join(base_path, method, g_instruments, 'level2',
-                            'train_data.feather')
+def train(method, instruments):
+    rootid = INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
+
+    filename = os.path.join(
+        base_path, method, instruments,
+        DATAKIND_MAPPING[str(INDEX_MAPPING[INSTRUMENTS_CODES[instruments]])],
+        'train_data.feather')
+
     factors_data = pd.read_feather(filename).sort_values(
         by=['trade_time', 'code'])
-    pdb.set_trace()
-    rootid = INDEX_MAPPING[INSTRUMENTS_CODES[g_instruments]]
+
     factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
     factors_data = factors_data.set_index('trade_time')
     factor_columns = [
@@ -136,24 +142,24 @@ def train(method, g_instruments):
         ]
     ]
 
-    population_size = 500
-    tournament_size = 100
-    standard_score = 0.8
+    population_size = 100  #500#500  #500
+    tournament_size = 20  #100#100  #100
+    standard_score = 0.5
     strategy_settings = {
         #'capital': 10000000,
-        'commission': COST_MAPPING[INSTRUMENTS_CODES[g_instruments]] * 0.05,
-        'slippage': 0,  #SLIPPAGE_MAPPING[INSTRUMENTS_CODES[g_instruments]],
-        'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[g_instruments]]
+        'commission': COST_MAPPING[INSTRUMENTS_CODES[instruments]],
+        'slippage': SLIPPAGE_MAPPING[INSTRUMENTS_CODES[instruments]],
+        'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[instruments]]
     }
     configure = {
         'n_jobs': 16,
         'population_size': population_size,
         'tournament_size': tournament_size,
-        'init_depth': 3,
+        'init_depth': 4,
         'rootid': rootid,
         'generations': 3,
         'custom_params': {
-            'g_instruments': g_instruments,
+            'g_instruments': instruments,
             'dethod': method,
             'tournament_size': tournament_size,
             'standard_score': standard_score,
@@ -161,30 +167,8 @@ def train(method, g_instruments):
             'task_id': rootid,
             'method': PERFORMANCE_MAPPING[str(rootid)],
             'filter_custom': {
-                'returns':
-                FILTER_YEAR_MAPPING[INSTRUMENTS_CODES[g_instruments]]
-            },
-            'gain': {
-                'corr_threshold': 0.6,
-                'fitness_scale': 0.7,
-                'gain_threshold': 0.1
-            },
-            'adaptive': {
-                "initial_alpha": 0.02,
-                "target_penalty_ratio": 0.4,
-                "adjustment_speed": 0.05,
-                "lookback_period": 5
-            },
-            'warehouse': {
-                "n_benchmark_clusters": 200,
-                "distill_trigger_size": 20
-            },
-            'threshold': {
-                "initial_threshold": 0.9,
-                "target_percentile": 0.75,
-                "min_threshold": 0.9,
-                "max_threshold": 4.0,
-                "adjustment_speed": 0.1
+                #'returns':
+                #FILTER_YEAR_MAPPING[INSTRUMENTS_CODES[g_instruments]]
             }
         }
     }
@@ -199,49 +183,81 @@ def train(method, g_instruments):
                     strategies_sets=None)
 
 
-def merge():
-    #filename1 = os.path.join(base_path, method, g_instruments, 'merge',
-    #                        "train_data.feather")
-    #factors_data1 = pd.read_feather(filename1).sort_values(
-    #    by=['trade_time', 'code'])
-
-    filename = os.path.join('/workspace/worker/feature_future_1min_df.parquet')
-    factors_data = pd.read_parquet(filename)
-    factors_data = factors_data.reset_index()
-    factors_data = factors_data.rename(columns={'Code': 'symbol'})
-    factors_data['minTime'] = factors_data['minTime'].astype(str).str.zfill(6)
-    datetime_str = factors_data['date'].astype(
-        str) + factors_data['minTime'].astype(str)
-    factors_data['trade_time'] = pd.to_datetime(datetime_str,
-                                                format='%Y%m%d%H%M%S')
-    factors_data = factors_data.drop(columns=['date', 'minTime'])
-    regex_pattern = r'^([A-Za-z]+)'
-    factors_data['code'] = factors_data['symbol'].str.extract(regex_pattern)
-    begin_date = "2022-07-25 09:30:00"
-    end_date = "2024-05-29 13:22:00"
+def test1(method, g_instruments):
+    filename = os.path.join(base_path, method, g_instruments, 'level2',
+                            'train_data.feather')
+    total_data = pd.read_feather(filename).sort_values(
+        by=['trade_time', 'code'])
     pdb.set_trace()
-    factors_data = factors_data.set_index(
-        'trade_time').loc[begin_date:end_date].reset_index()
-    codes = factors_data.code.unique().tolist()
-    mapping = {'IM': 'ims', 'IC': 'ics', 'IF': 'ifs', 'IH': 'ihs'}
-    dirs = os.path.join(base_path, method, g_instruments, 'level2')
-    if not os.path.exists(dirs):
-        os.makedirs(dirs)
-    for code in codes:
-        instruments = mapping[code]
-        dirs = os.path.join(base_path, method, instruments, 'level2')
-        if not os.path.exists(dirs):
-            os.makedirs(dirs)
-        fd = factors_data[factors_data.code.isin([code])]
-        filename = os.path.join(dirs, "train_data.feather")
-        fd.reset_index(drop=True).to_feather(filename)
-
+    rootid = INDEX_MAPPING[INSTRUMENTS_CODES[g_instruments]]
+    total_data['trade_time'] = pd.to_datetime(total_data['trade_time'])
+    total_data = total_data.set_index('trade_time')
+    factor_columns = [
+        col for col in total_data.columns if col not in [
+            'trade_time', 'code', 'close', 'high', 'low', 'open', 'value',
+            'volume', 'openint', 'vwap'
+        ]
+    ]
+    strategy_settings = {
+        'commission': COST_MAPPING[INSTRUMENTS_CODES[g_instruments]],
+        'slippage': SLIPPAGE_MAPPING[INSTRUMENTS_CODES[g_instruments]],
+        'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[g_instruments]]
+    }
     pdb.set_trace()
-    print('-->')
+    expression = "MMIN(14,MACCBands(14,'price_imbalance_3','smart_money_out'))"
+    signal_method = 'triple_barrier_signal'
+    strategy_method = 'trailing_atr_strategy'
+    signal_params = {'roll_num': 25, 'threshold': 0.6}
+    strategy_params = {
+        'atr_multiplier': 2.0,
+        'atr_period': 10.0,
+        'holding_period': None,
+        'max_volume': 1,
+        'trailing_percent': None
+    }
+    signal_params = {
+        key: value
+        for key, value in signal_params.items() if value is not None
+    }
+    strategy_params = {
+        key: value
+        for key, value in strategy_params.items() if value is not None
+    }
+
+    indexs = ['trade_date']
+    key = 'code'
+    backup_cycle = 1
+    factor_data = calc_factor(expression, total_data, indexs, key)
+    factor_data = factor_data.replace([np.inf, -np.inf], np.nan)
+    factor_data['transformed'] = np.where(
+        np.abs(factor_data.transformed.values) > 0.000001,
+        factor_data.transformed.values, np.nan)
+    factor_data = factor_data.loc[factor_data.index.unique()[backup_cycle:]]
+
+    factor_data1 = factor_data.reset_index().set_index(['trade_time', 'code'])
+
+    cycle_total_data = total_data.copy()
+    cycle_total_data = cycle_total_data.loc[cycle_total_data.index.unique()
+                                            [backup_cycle:]]
+
+    total_data1 = cycle_total_data.reset_index().set_index(
+        ['trade_time', 'code']).unstack()
+
+    pos_data = eval(signal_method)(factor_data=factor_data1, **signal_params)
+
+    pos_data1 = eval(strategy_method)(signal=pos_data,
+                                      total_data=total_data1,
+                                      **strategy_params)
+
+    df = calculate_ful_ts_ret(pos_data=pos_data1,
+                              total_data=total_data1,
+                              strategy_settings=strategy_settings)
+
+    returns = df['a_ret']
+    fitness = empyrical.sharpe_ratio(returns=returns, period=empyrical.DAILY)
 
 
 if __name__ == '__main__':
-    method = 'aicso2'
-    g_instruments = 'ims'
-    #merge()
-    train(method=method, g_instruments=g_instruments)
+    method = 'aicso0'
+    instruments = 'rbb'
+    train(method=method, instruments=instruments)

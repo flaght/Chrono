@@ -39,7 +39,7 @@ def callback_save(factors_data, name, method, g_instruments, start_date,
     factors_data = factors_data[cond1]
     ff = factors_data.sort_index().reset_index()
     ff1 = ff  #ff.set_index(['trade_time', 'code']).unstack()
-    dirs = os.path.join(base_path, method, g_instruments, 'factors')
+    dirs = os.path.join(base_path, method, 'all', g_instruments, 'factors')
     if not os.path.exists(dirs):
         os.makedirs(dirs)
     filename = os.path.join(dirs,
@@ -103,7 +103,8 @@ def single_factors(method):
 
 
 def batch_factors(method):
-    start_date, end_date = get_dates(method)
+    #start_date, end_date = get_dates(method)
+    start_date, end_date = '2017-01-01', '2025-05-01'
     start_time = advanceDateByCalendar('china.sse', start_date,
                                        '-{0}b'.format(1)).strftime('%Y-%m-%d')
     data = fetch_main_market(begin_date=start_time,
@@ -116,12 +117,20 @@ def batch_factors(method):
             continue
         idx_slice = pd.IndexSlice
         dt = data.loc[:, idx_slice[:, code]]
+        instruments = dt.columns[0][1]
+        dirs = os.path.join(base_path, method, 'all', instruments, 'market')
+        if not os.path.exists(dirs):
+            os.makedirs(dirs)
+        filename = os.path.join(dirs, "{0}.feather".format(instruments))
+        dt.stack().reset_index().to_feather(filename)
+        '''
         calculate_factors(dt,
                           callback=callback_save,
                           method=method,
                           start_date=start_date,
-                          g_instruments=RINSTRUMENTS_CODES[code],
+                          g_instruments=instruments,#RINSTRUMENTS_CODES[code],
                           end_date=end_date)
+        '''
 
 
 # TODO: 创建因子
@@ -239,10 +248,11 @@ def merge_data(method,
 if __name__ == "__main__":
     method = 'kimto1'
     g_instruments = 'rbb'
+    batch_factors(method=method)
     #single_factors(method=method)
     #generate_yileds(method=method, g_instruments=g_instruments)
-    merge_data(method=method,
-               g_instruments=g_instruments,
-               horizon=1,
-               category=1,
-               fillna=False)
+    #merge_data(method=method,
+    #           g_instruments=g_instruments,
+    #           horizon=1,
+    #           category=1,
+    #           fillna=False)

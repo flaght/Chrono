@@ -1,3 +1,4 @@
+## 对因子进行修复，标准化处理，再进行切割
 import datetime, pdb, os, sys
 import pandas as pd
 import numpy as np
@@ -90,18 +91,18 @@ def rolling_test(val_data, test_data, features, window_size):
     return normal_test.dropna().reset_index()
 
 
-def run(method, g_instruments):
-    pdb.set_trace()
-    filename = os.path.join(base_path, method, g_instruments, 'merge',
+## 数据修复 + 切割
+def run1(method, instruments):
+    filename = os.path.join(base_path, method, instruments, 'basic',
                             "train_data.feather")
     train_data = pd.read_feather(filename).sort_values(
         by=['trade_time', 'code'])
 
-    filename = os.path.join(base_path, method, g_instruments, 'merge',
+    filename = os.path.join(base_path, method, instruments, 'basic',
                             "val_data.feather")
     val_data = pd.read_feather(filename).sort_values(by=['trade_time', 'code'])
 
-    filename = os.path.join(base_path, method, g_instruments, 'merge',
+    filename = os.path.join(base_path, method, instruments, 'basic',
                             "test_data.feather")
     test_data = pd.read_feather(filename).sort_values(
         by=['trade_time', 'code'])
@@ -114,10 +115,7 @@ def run(method, g_instruments):
         if col not in ['trade_time', 'code'] + base_columns
     ]
     ## 数据修复
-    pdb.set_trace()
-
     train2, train_report = process_features_for_window(train_data, features)
-    pdb.set_trace()
     train_report = pd.DataFrame(train_report.values())
     train_columns = train_report[train_report['status_value'] ==
                                  1]['name'].tolist()
@@ -136,21 +134,19 @@ def run(method, g_instruments):
     train2 = train2[['trade_time', 'code'] + base_columns + inter_columns]
     val2 = val2[['trade_time', 'code'] + base_columns + inter_columns]
     test2 = test2[['trade_time', 'code'] + base_columns + inter_columns]
-    pdb.set_trace()
-    ## 保存路径
-    to_path = os.path.join(base_path, method, g_instruments, 'repaired')
+    ## 保存路径 levpaired:level2 -- repaired  baspaired:basic --repaired 
+    to_path = os.path.join(base_path, method, instruments, 'baspaired')
     if not os.path.exists(to_path):
         os.makedirs(to_path)
 
-    pdb.set_trace()
-    train2.to_feather(os.path.join(to_path, "repaire_train_data.feather"))
+    train2.to_feather(os.path.join(to_path, "train_data.feather"))
 
-    val2.to_feather(os.path.join(to_path, "repaire_val_data.feather"))
+    val2.to_feather(os.path.join(to_path, "val_data.feather"))
 
-    test2.to_feather(os.path.join(to_path, "repaire_test_data.feather"))
+    test2.to_feather(os.path.join(to_path, "test_data.feather"))
 
 
 if __name__ == '__main__':
-    method = 'aicso2'
-    g_instruments = 'ims'
-    run(method=method, g_instruments=g_instruments)
+    method = 'aicso0'
+    instruments = 'ims'
+    run1(method=method, instruments=instruments)

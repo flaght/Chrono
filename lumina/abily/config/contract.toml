@@ -1,17 +1,24 @@
+ ## 200037 IM level2 因子  ## 200036 bar 分钟因子
+ ## 规则 6位数，1XXYYY，XX为 品种的序号，YYY 为不同任务情况
 [GENTIC_INDEX]
-IF=100001
-IM=200017
+IF=200017
+IM=200036
+RB=113001
+
+[DATA_KIND]
+200037 = 'level2'
+200036 = 'basic'
+113001 = 'basic'
 
 [PERFORMANCE]
-100002="profit_calmar"
-100012="profit_sharpe"
-100014="order_profit_std"
-200017="profit_sharpe"
+113001='profit_sharpe'
+200036="profit_sharpe"
+200037="profit_sharpe"
 
 
 [THRESHOLD]
-100014=0.0
-200017=1.0
+200017=0.0
+200037=1.0
 
 [FILTER_YEAR]
 IM=[['2024-01-25', '2024-02-06'],['2024-09-24', '2024-10-11']]
@@ -22,10 +29,12 @@ IF=300
 IM=200
 
 [COST]
+RB=0.00007
 IF=0.00023
 IM=0.00023#0.0008
 
 [SLIPPAGE]
+RB=0
 IF=0.0001
 IM=0#1.7e-07
 
@@ -34,3 +43,4 @@ rbb="RB"
 ims="IM"
 ics="IC"
 ifs="IF"
+mc="M"
