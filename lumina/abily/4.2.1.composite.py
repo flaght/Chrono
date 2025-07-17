@@ -11,6 +11,9 @@ from kdutils.composite.prepare import *
 from kdutils.composite.heurisitc import *
 from kdutils.composite.model import *
 from kdutils.composite.optn import *
+from kdutils.composite.models.random_forest import RandomForestClassifier
+from kdutils.composite.models.lightBGM import LightBGMClassifier
+from kdutils.composite.models.bayes import NativeBayesClassifier
 
 if __name__ == '__main__':
     method = 'aicso0'
@@ -61,17 +64,49 @@ if __name__ == '__main__':
         positions, train_positions, val_positions, test_positions = process_positions(
             positions_res=positions_res, key=key)
 
-        synthesized_positions_list = [
-            lbgm_classifer_cv(train_data=train_data,
-                             val_data=val_data,
-                             test_data=test_data,
-                             train_positions=train_positions,
-                             val_positions=val_positions,
-                             test_positions=test_positions,
-                             instruments=instruments,
-                             names=names,
-                             strategy_settings=strategy_settings)
-        ]
+        synthesized_positions_list = []
+
+        lg1 = LightBGMClassifier(instruments=instruments,
+                                 names=names,
+                                 strategy_settings=strategy_settings,
+                                 key=None)
+        lg1.run(train_data=train_data,
+                val_data=val_data,
+                train_positions=train_positions,
+                val_positions=val_positions,
+                test_positions=test_positions)
+        
+        
+        nb1 = NativeBayesClassifier(instruments=instruments,
+                                    names=names,
+                                    strategy_settings=strategy_settings,
+                                    key=None)
+        nb1.run(train_data=train_data,
+                val_data=val_data,
+                train_positions=train_positions,
+                val_positions=val_positions,
+                test_positions=test_positions)
+
+        rf1 = RandomForestClassifier(instruments=instruments,
+                                     names=names,
+                                     strategy_settings=strategy_settings,
+                                     key=None)
+        rf1.run(train_data=train_data,
+                val_data=val_data,
+                train_positions=train_positions,
+                val_positions=val_positions,
+                test_positions=test_positions)
+
+        pdb.set_trace()
+        #f1 = lbgm_classifer_cv(train_data=train_data,
+        #                       val_data=val_data,
+        #                       test_data=test_data,
+        #                       train_positions=train_positions,
+        #                       val_positions=val_positions,
+        #                       test_positions=test_positions,
+        #                       instruments=instruments,
+        #                       names=names,
+        #                       strategy_settings=strategy_settings)
         print(f"策略池 '{key}' 合成完毕，开始循环处理所有合成策略...")
         for synth_pos in synthesized_positions_list:
             print(f"  分割存储仓位: {synth_pos.name}...")
