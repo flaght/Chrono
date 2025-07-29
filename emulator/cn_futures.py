@@ -212,5 +212,3 @@ class CNFutures(object):
 
         self.turnover_order.clear()
         self.working_limit_order.clear()
-        pdb.set_trace()
-        print('-->')
