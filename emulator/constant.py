@@ -56,4 +56,10 @@ class Exchange(Enum):
     DCE = "DCE"  # Dalian Commodity Exchange
 
 
+class Slippage(Enum):
+    FIXED = "fixed" ## 固定值滑点
+    PERCENTAGE = "percentage" ## 百分比滑点
+    RANDOM = "random" ## 随机滑点
+    VOLUME = "volume" ##  成交量滑点
+
 MAPPING = {'IM': Exchange.CFFEX}
