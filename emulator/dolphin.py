@@ -49,6 +49,7 @@ class Dolphin(Strategy):
                                price=tick.last_price,
                                volume=1)
                 self._long_target -= 1
+
         ## 穿下轨 开空仓，平多仓
         elif tick.last_price < self.down_band:
             for tid, position in self._long_position.items():
@@ -61,9 +62,8 @@ class Dolphin(Strategy):
                     self._long_position_count -= 1
 
             while self._short_target > 0:
-                self.order_sell(symbol=tick.symbol,
+                self.order_short(symbol=tick.symbol,
                                 create_time=tick.create_time,
-                                tradeid=position.tradeid,
                                 price=tick.last_price,
                                 volume=1)
                 self._short_target -= 1
