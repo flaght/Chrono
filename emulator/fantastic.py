@@ -22,7 +22,22 @@ class Fantastic(object):
 
     def init_strategies(self):  ## 初始化策略池
         self.strategies_pool = OrderedDict()
-        self.strategies_pool['10001'] = Dolphin(strategy_id='10001', params={})
+        
+        # --- 新增：定义手续费率 ---
+        # 费率通常是按万分之几计算的。例如，万分之0.23 (0.23 bps) 就是 0.000023。
+        # 假设IM合约的开仓和平仓手续费率都是成交额的万分之0.23
+        im_commission_rate = {
+            'open': 0.000023, 
+            'close': 0.000023
+        }
+
+        # 定义策略参数，包括初始资金、合约乘数和手续费率
+        strategy_params = {
+            'initial_capital': 1_000_000,
+            'multiplier': 200,  # IM合约乘数是200
+            'commission_rate': im_commission_rate # 将费率字典传入
+        }
+        self.strategies_pool['10001'] = Dolphin(strategy_id='10001', params=strategy_params)
 
     def start(self):
         dates = makeSchedule(self._start_date,
@@ -30,10 +45,17 @@ class Fantastic(object):
                              calendar='China.SSE',
                              tenor='1b')
         for d in dates:
+            print(f"Backtesting for date: {d.strftime('%Y-%m-%d')}...")
             self.engine.start(trade_date=d.strftime('%Y-%m-%d'))
 
+        # 回测循环结束后，调用结果分析函数
+        print("\nBacktest finished. Calculating final performance...")
+        for name, strategy in self.engine.strategies_pool.items():
+            strategy.calc_result()
 
-uri = os.path.join("temp")
+
+# 确保你的数据文件路径正确
+uri = "temp"
 s1 = Fantastic(code='IM',
                start_date='2025-03-03',
                end_date='2025-04-30',
