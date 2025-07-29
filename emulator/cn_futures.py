@@ -1,4 +1,4 @@
-import pdb
+import pdb,random
 from collections import OrderedDict
 from loader import Loader
 from object import BarData, TradeData
@@ -85,6 +85,8 @@ class CNFutures(object):
         sell_cross_price = market_tick.bid_price_1 if market_tick.bid_price_1 > 0 else market_tick.last_price
         buy_best_price = market_tick.ask_price_1 if market_tick.ask_price_1 > 0 else market_tick.last_price
         sell_best_price = market_tick.bid_price_1 if market_tick.bid_price_1 > 0 else market_tick.last_price
+
+        orders_to_remove = []
         for oid, order in self.working_limit_order.items():
             if order.status == OrderStatus.NOT_TRADED:
                 order.status = OrderStatus.ENTRUST_TRADED  # 修正为赋值
@@ -111,9 +113,49 @@ class CNFutures(object):
                                   and order.price <= sell_cross_price
                                   and sell_cross_price > 0)
                 if buy_cross or sell_cross:
+                    # 标记此订单将在循环后被移除
+                    orders_to_remove.append(oid)
                     order.status = OrderStatus.ALL_TRADED
                     strategy = self.strategies_pool[order.strategy_id]
                     strategy.on_order(order)
+                    # ==================== 核心修改区域：滑点计算 ====================
+                    # --- 第一步：确定基准成交价 (Base Price) ---
+                    # 无论市价还是限价，能立即成交都是因为触及了对手盘价格
+                    base_price = buy_cross_price if buy_cross else sell_cross_price
+                    # --- 第二步：根据配置计算滑点值 (Slippage Amount) ---
+                    slippage_amount = 0.0
+                    # 模型1：固定值滑点
+                    if self.slippage_model == "fixed": # SlippageModel.FIXED:
+                        slippage_amount = self.slippage_fixed_value
+
+                    # 模型2：百分比滑点
+                    elif self.slippage_model == "percentage":
+                        slippage_amount = base_price * self.slippage_rate
+                    
+                    # 模型3：随机跳点滑点
+                    elif self.slippage_model == "random": # SlippageModel.RANDOM:
+                        random_ticks = random.randint(0, self.slippage_max_ticks)
+                        slippage_amount = random_ticks * self.tick_size
+                    
+                    # 模型4：交易量滑点 (简化模型)
+                    elif self.slippage_model == "volume": # SlippageModel.VOLUME:
+                        market_volume = market_tick.ask_volume_1 if buy_cross else market_tick.bid_volume_1
+                        if market_volume > 0:
+                            # 订单量超过盘口量的比例，作为滑点影响因子
+                            volume_ratio = order.volume / market_volume
+                            # 简单线性模型：滑点与超额比例和价格正相关
+                            slippage_amount = base_price * volume_ratio * self.slippage_volume_factor
+                        else: # 盘口无挂单量，可能产生极大滑点，这里简化为0
+                            slippage_amount = 0.0
+
+                    # --- 第三步：应用滑点，计算最终成交价 (Final Price) ---
+                    if buy_cross:
+                        # 买入时，滑点使成交价变高（更差）
+                        final_price = base_price + slippage_amount
+                    else: # sell_cross
+                        # 卖出时，滑点使成交价变低（更差）
+                        final_price = base_price - slippage_amount
+
                     turnover = TradeData(symbol=order.symbol,
                                          orderid=order.order_id,
                                          strategy_id=order.strategy_id,
@@ -121,17 +163,8 @@ class CNFutures(object):
                                          direction=order.direction,
                                          offset=order.offset,
                                          volume=order.volume,
+                                         price1=final_price,
                                          create_time=market_tick.create_time)
-                    if buy_cross:
-                        if order.order_type == OrderType.LIMIT:
-                            turnover.price1 = min(market_tick.last_price, buy_best_price)
-                        else:
-                            turnover.price1 = market_tick.last_price
-                    else:
-                        if order.order_type == OrderType.LIMIT:
-                            turnover.price1 = max(market_tick.last_price, sell_best_price)
-                        else:
-                            turnover.price1 = market_tick.last_price
                     if order.offset == Offset.OPEN:  # 开仓
                         self.working_limit_turnover[
                             turnover.tradeid] = turnover
@@ -147,10 +180,16 @@ class CNFutures(object):
                         strategy.on_order(order)
                         order.status = OrderStatus.NOT_TRADED
                         self.recovery_limit_order[order.order_id] = order
+                        orders_to_remove.append(oid) # 同样需要从 working_limit_order 移除
                     else:
                         order.status = OrderStatus.REJECTED
                         strategy.on_order(order)
-        self.working_limit_order.clear()
+                        orders_to_remove.append(oid) 
+        # 在循环结束后，安全地从工作队列中移除已处理的订单
+        for oid in orders_to_remove:
+            if oid in self.working_limit_order:
+                del self.working_limit_order[oid]
+        #self.working_limit_order.clear()
 
     def on_tick(self, trade_date, market_tick):
         self._recovery_to_working()
