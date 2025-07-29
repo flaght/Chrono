@@ -48,7 +48,7 @@ class Strategy(object):
 
     def on_order(self, order):  #委托通知
         if order.status == OrderStatus.ENTRUST_TRADED:  # 委托成功锁住费用
-            if order.offset == Offset.open:
+            if order.offset == Offset.OPEN:
                 pass ## 账户刷新
             else:
                 pass ## 账户刷新
