@@ -1,8 +1,9 @@
-import pdb,random
+import pdb, random
 from collections import OrderedDict
 from loader import Loader
 from object import BarData, TradeData
-from constant import Interval, OrderStatus, OrderType, Direction, Offset
+from slippage import Slippage as SlippageCalc
+from constant import Interval, OrderStatus, OrderType, Direction, Offset, Slippage
 
 
 class CNFutures(object):
@@ -118,41 +119,15 @@ class CNFutures(object):
                     order.status = OrderStatus.ALL_TRADED
                     strategy = self.strategies_pool[order.strategy_id]
                     strategy.on_order(order)
-                    # ==================== 核心修改区域：滑点计算 ====================
-                    # --- 第一步：确定基准成交价 (Base Price) ---
-                    # 无论市价还是限价，能立即成交都是因为触及了对手盘价格
+                    
                     base_price = buy_cross_price if buy_cross else sell_cross_price
-                    # --- 第二步：根据配置计算滑点值 (Slippage Amount) ---
-                    slippage_amount = 0.0
-                    # 模型1：固定值滑点
-                    if self.slippage_model == "fixed": # SlippageModel.FIXED:
-                        slippage_amount = self.slippage_fixed_value
 
-                    # 模型2：百分比滑点
-                    elif self.slippage_model == "percentage":
-                        slippage_amount = base_price * self.slippage_rate
-                    
-                    # 模型3：随机跳点滑点
-                    elif self.slippage_model == "random": # SlippageModel.RANDOM:
-                        random_ticks = random.randint(0, self.slippage_max_ticks)
-                        slippage_amount = random_ticks * self.tick_size
-                    
-                    # 模型4：交易量滑点 (简化模型)
-                    elif self.slippage_model == "volume": # SlippageModel.VOLUME:
-                        market_volume = market_tick.ask_volume_1 if buy_cross else market_tick.bid_volume_1
-                        if market_volume > 0:
-                            # 订单量超过盘口量的比例，作为滑点影响因子
-                            volume_ratio = order.volume / market_volume
-                            # 简单线性模型：滑点与超额比例和价格正相关
-                            slippage_amount = base_price * volume_ratio * self.slippage_volume_factor
-                        else: # 盘口无挂单量，可能产生极大滑点，这里简化为0
-                            slippage_amount = 0.0
-
-                    # --- 第三步：应用滑点，计算最终成交价 (Final Price) ---
+                    slippage_amount = SlippageCalc.calc(types=Slippage.FIXED,
+                                                        fixed_value=1)
                     if buy_cross:
                         # 买入时，滑点使成交价变高（更差）
                         final_price = base_price + slippage_amount
-                    else: # sell_cross
+                    else:  # sell_cross
                         # 卖出时，滑点使成交价变低（更差）
                         final_price = base_price - slippage_amount
 
@@ -180,11 +155,12 @@ class CNFutures(object):
                         strategy.on_order(order)
                         order.status = OrderStatus.NOT_TRADED
                         self.recovery_limit_order[order.order_id] = order
-                        orders_to_remove.append(oid) # 同样需要从 working_limit_order 移除
+                        orders_to_remove.append(
+                            oid)  # 同样需要从 working_limit_order 移除
                     else:
                         order.status = OrderStatus.REJECTED
                         strategy.on_order(order)
-                        orders_to_remove.append(oid) 
+                        orders_to_remove.append(oid)
         # 在循环结束后，安全地从工作队列中移除已处理的订单
         for oid in orders_to_remove:
             if oid in self.working_limit_order:
