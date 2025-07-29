@@ -69,7 +69,6 @@ class Strategy(object):
                     del self._short_position[order.tradeid]
 
             elif turnover.direction == Direction.SHORT:  # 平多头
-                pdb.set_trace()
                 if order.tradeid in self._long_position:
                     v = self._long_position[order.tradeid]
                     del self._long_position[order.tradeid]
