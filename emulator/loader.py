@@ -91,5 +91,4 @@ class FileLoader(Loader):
                          "{0}.feather".format(kwargs['trade_date'])))
 
         market_daily = UQer.dataframe(data=data)
-        pdb.set_trace()
         return market_daily
