@@ -87,13 +87,15 @@ class CNFutures(object):
         sell_best_price = market_tick.bid_price_1 if market_tick.bid_price_1 > 0 else market_tick.last_price
         for oid, order in self.working_limit_order.items():
             if order.status == OrderStatus.NOT_TRADED:
-                order.status == OrderStatus.ENTRUST_TRADED
+                order.status = OrderStatus.ENTRUST_TRADED  # 修正为赋值
                 # 委托成功推送信息给策略
                 strategy = self.strategies_pool[order.strategy_id]
                 strategy.on_order(order)
                 # 判断是否会成交
                 # 市价单和限价单判断
                 # 若对手价不存在，则改用市价单
+                buy_cross = False
+                sell_cross = False
                 if order.order_type == OrderType.MARKET or buy_cross_price == 0.0 or sell_cross_price == 0.0:
                     if order.direction == Direction.LONG:
                         buy_cross = True
@@ -101,15 +103,13 @@ class CNFutures(object):
                     elif order.direction == Direction.SHORT:
                         sell_cross = True
                         buy_cross = False
-
-                    order.order_type == OrderType.MARKET
+                    order.order_type = OrderType.MARKET  # 修正为赋值
                 elif order.order_type == OrderType.LIMIT:
                     buy_cross = (order.direction == Direction.LONG
                                  and order.price >= buy_cross_price > 0)
                     sell_cross = (order.direction == Direction.SHORT
                                   and order.price <= sell_cross_price
                                   and sell_cross_price > 0)
-
                 if buy_cross or sell_cross:
                     order.status = OrderStatus.ALL_TRADED
                     strategy = self.strategies_pool[order.strategy_id]
@@ -124,17 +124,14 @@ class CNFutures(object):
                                          create_time=market_tick.create_time)
                     if buy_cross:
                         if order.order_type == OrderType.LIMIT:
-                            turnover.price1 = min(market_tick.last_price,
-                                                  buy_best_price)
+                            turnover.price1 = min(market_tick.last_price, buy_best_price)
                         else:
                             turnover.price1 = market_tick.last_price
                     else:
                         if order.order_type == OrderType.LIMIT:
-                            turnover.price1 = (market_tick.last_price,
-                                               sell_best_price)
+                            turnover.price1 = max(market_tick.last_price, sell_best_price)
                         else:
                             turnover.price1 = market_tick.last_price
-
                     if order.offset == Offset.OPEN:  # 开仓
                         self.working_limit_turnover[
                             turnover.tradeid] = turnover
@@ -143,7 +140,6 @@ class CNFutures(object):
                             del self.working_limit_turnover[order.tradeid]
                     self.turnover_order[turnover.tradeid] = turnover
                     strategy.on_turnover(turnover, order)
-
                 else:  # 无法撮合
                     if order.is_clear == 0:  #回收委托队列
                         order.status = OrderStatus.CANCELLED
@@ -154,7 +150,6 @@ class CNFutures(object):
                     else:
                         order.status = OrderStatus.REJECTED
                         strategy.on_order(order)
-
         self.working_limit_order.clear()
 
     def on_tick(self, trade_date, market_tick):
