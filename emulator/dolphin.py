@@ -7,6 +7,7 @@ from constant import OrderStatus, Offset, Direction
 class Dolphin(Strategy):
 
     def __init__(self, strategy_id, params={}, session=0, at_id=10001):
+        # 关键：调用父类的构造函数，传递所有参数
         super(Dolphin, self).__init__(strategy_id=strategy_id,
                                       params=params,
                                       session=session,
@@ -25,6 +26,7 @@ class Dolphin(Strategy):
         super(Dolphin, self).before_market_open(date=date)
 
     def after_market_close(self, date, market_daily):
+        # 确保调用父类方法来记录每日结果
         return super().after_market_close(date, market_daily)
 
     def after_market_order(self, order):
@@ -35,11 +37,13 @@ class Dolphin(Strategy):
             return
         ## 穿上轨 开多仓，平空仓
         if tick.last_price > self.upper_band:
-            for tid, position in self._short_position.items():
+            # 平空仓时，需要传递正确的 tradeid
+            for tid, position in list(self._short_position.items()): # 使用list()避免在迭代时修改字典
                 if self._short_position_count > 0:
                     self.order_cover(symbol=tick.symbol,
                                      create_time=tick.create_time,
                                      price=tick.last_price,
+                                     tradeid=position.tradeid, # 修正：传递正确的tradeid
                                      volume=position.volume)
                     self._short_position_count -= 1
 
@@ -52,7 +56,7 @@ class Dolphin(Strategy):
 
         ## 穿下轨 开空仓，平多仓
         elif tick.last_price < self.down_band:
-            for tid, position in self._long_position.items():
+            for tid, position in list(self._long_position.items()): # 使用list()避免在迭代时修改字典
                 if self._long_position_count > 0:
                     self.order_sell(symbol=tick.symbol,
                                     create_time=tick.create_time,
@@ -67,8 +71,9 @@ class Dolphin(Strategy):
                                 price=tick.last_price,
                                 volume=1)
                 self._short_target -= 1
-
-    def on_bar(self, bar):
+    
+    # 将原on_bar的逻辑放入on_bar_logic
+    def on_bar_logic(self, bar):
         market = {
             'THIGH': bar.high_price,
             'TLOW': bar.low_price,
@@ -84,8 +89,9 @@ class Dolphin(Strategy):
             self._bar_list.pop(0)
 
         ## 计算布林带
-        self.mean = pd.DataFrame(self._bar_list)['TCLOSE'].mean()
-        self.std = pd.DataFrame(self._bar_list)['TCLOSE'].std()
+        df = pd.DataFrame(self._bar_list)
+        self.mean = df['TCLOSE'].mean()
+        self.std = df['TCLOSE'].std()
         self.upper_band = self.mean + 2 * self.std
         self.down_band = self.mean - 2 * self.std
 
@@ -103,6 +109,7 @@ class Dolphin(Strategy):
                 self._long_position_count += 1
 
     def on_turnover(self, turnover, order):
+        # 确保调用父类方法来处理持仓和计算已实现盈亏
         super(Dolphin, self).on_turnover(turnover=turnover, order=order)
         ## 开多仓
         if turnover.direction == Direction.LONG and turnover.offset == Offset.OPEN:
