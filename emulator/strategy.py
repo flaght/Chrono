@@ -62,12 +62,6 @@ class Strategy(object):
             'net_value': current_net_value
         })
 
-        # 调用具体策略逻辑
-        self.on_bar_logic(bar)
-
-    def on_bar_logic(self, bar):
-        raise NotImplementedError
-
     def on_order(self, order):
         pass  # 订单状态变化的逻辑现在主要影响交易引擎
 
@@ -82,7 +76,7 @@ class Strategy(object):
         pass
 
     def calc_result(self):
-        # 委托PerformanceCalculator进行绩效分析
+        # 委托Metrics进行绩效分析
         calculator = Metrics(self.portfolio.daily_results,
                              self.portfolio.initial_capital)
         calculator.print_summary()
