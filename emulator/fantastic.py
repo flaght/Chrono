@@ -57,7 +57,7 @@ class Fantastic(object):
 # 确保你的数据文件路径正确
 uri = "temp"
 s1 = Fantastic(code='IM',
-               start_date='2025-03-03',
+               start_date='2025-03-05',
                end_date='2025-04-30',
                uri=uri)
 s1.start()
