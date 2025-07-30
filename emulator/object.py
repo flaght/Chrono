@@ -21,6 +21,7 @@ class TradeData(BaseData):
     tradeid: str
     strategy_id: str
 
+    tradehd: str #  # 对应持仓单 (Holding ID) 
     direction: Direction = None
     offset: Offset = Offset.NONE
     price1: float = 0  ## 当时成交价
