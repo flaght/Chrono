@@ -119,7 +119,7 @@ class CNFutures(object):
                     order.status = OrderStatus.ALL_TRADED
                     strategy = self.strategies_pool[order.strategy_id]
                     strategy.on_order(order)
-                    
+
                     base_price = buy_cross_price if buy_cross else sell_cross_price
 
                     slippage_amount = SlippageCalc.calc(types=Slippage.FIXED,
@@ -135,6 +135,7 @@ class CNFutures(object):
                                          orderid=order.order_id,
                                          strategy_id=order.strategy_id,
                                          tradeid=TradeData.create_trade_id(),
+                                         tradehd=order.tradeid,
                                          direction=order.direction,
                                          offset=order.offset,
                                          volume=order.volume,
@@ -198,12 +199,30 @@ class CNFutures(object):
             del market_tick
 
         ## 通知未成交订单
+        recovery_oids = list(self.recovery_limit_order.keys())
+        for oid in recovery_oids:
+            # 检查键是否仍然存在，这是一个好的防御性编程习惯，虽然在这个特定场景下不是必须的
+            if oid in self.recovery_limit_order:
+                order = self.recovery_limit_order[oid]
+
+                # 更新订单状态并通知策略
+                order.status = OrderStatus.REJECTED
+                strategy = self.strategies_pool[order.strategy_id]
+                strategy.on_order(order)
+
+                # 从原始字典中安全地删除
+                del self.recovery_limit_order[oid]
+                # 'del order' 不是必须的，因为 order 是一个局部变量，
+                # 循环结束后会自动被垃圾回收。保留或删除都可以。
+                del order
+        '''
         for oid, order in self.recovery_limit_order.items():
             order.status = OrderStatus.REJECTED
             strategy = self.strategies_pool[order.strategy_id]
             strategy.on_order(order)
             del self.recovery_limit_order[oid]
             del order
+        '''
 
         # 结算当天交易及盘后处理
         for name, strategy in self.strategies_pool.items():
