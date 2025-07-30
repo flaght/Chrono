@@ -65,7 +65,8 @@ class Dolphin(Strategy):
                                  volume=1)
                 self._short_target -= 1
 
-    def on_bar_logic(self, bar):
+    def on_bar(self, bar):
+        super(Dolphin, self).on_bar(bar=bar)
         market = {
             'THIGH': bar.high_price,
             'TLOW': bar.low_price,
@@ -87,7 +88,6 @@ class Dolphin(Strategy):
     def on_turnover(self, turnover, order):
         # 必须调用父类方法来触发 portfolio 更新
         super(Dolphin, self).on_turnover(turnover, order)
-        print(self._long_target, self._short_target)
         if turnover.direction == Direction.LONG and turnover.offset == Offset.OPEN:  ## 开多头
             self._long_position_count += 1
         elif turnover.direction == Direction.SHORT and turnover.offset == Offset.OPEN:  ## 开空头
