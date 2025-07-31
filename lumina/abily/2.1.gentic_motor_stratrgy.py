@@ -142,8 +142,8 @@ def train(method, instruments):
         ]
     ]
 
-    population_size = 100  #500#500  #500
-    tournament_size = 20  #100#100  #100
+    population_size = 800  #500#500  #500
+    tournament_size = 150  #100#100  #100
     standard_score = 0.5
     strategy_settings = {
         #'capital': 10000000,
@@ -152,7 +152,7 @@ def train(method, instruments):
         'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[instruments]]
     }
     configure = {
-        'n_jobs': 16,
+        'n_jobs': 8,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 4,
@@ -184,7 +184,7 @@ def train(method, instruments):
 
 
 def test1(method, g_instruments):
-    filename = os.path.join(base_path, method, g_instruments, 'level2',
+    filename = os.path.join(base_path, method, g_instruments, 'basic',
                             'train_data.feather')
     total_data = pd.read_feather(filename).sort_values(
         by=['trade_time', 'code'])
@@ -204,16 +204,17 @@ def test1(method, g_instruments):
         'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[g_instruments]]
     }
     pdb.set_trace()
-    expression = "MMIN(14,MACCBands(14,'price_imbalance_3','smart_money_out'))"
-    signal_method = 'triple_barrier_signal'
+    expression = "MARGMIN(20,'rv005_10_15_1_1')"
+    signal_method = 'autocorr_signal'
+    #signal_method = 'simple_signal'
     strategy_method = 'trailing_atr_strategy'
-    signal_params = {'roll_num': 25, 'threshold': 0.6}
+    #signal_params = {'roll_num': 25, 'threshold': 0.05}
+    signal_params = {'roll_num': 25, 'threshold': 0.05, 'lag': 4}
     strategy_params = {
+        'atr_period': 25,
         'atr_multiplier': 2.0,
-        'atr_period': 10.0,
-        'holding_period': None,
         'max_volume': 1,
-        'trailing_percent': None
+        'maN': 30
     }
     signal_params = {
         key: value
@@ -245,6 +246,7 @@ def test1(method, g_instruments):
 
     pos_data = eval(signal_method)(factor_data=factor_data1, **signal_params)
 
+    pdb.set_trace()
     pos_data1 = eval(strategy_method)(signal=pos_data,
                                       total_data=total_data1,
                                       **strategy_params)
@@ -259,5 +261,6 @@ def test1(method, g_instruments):
 
 if __name__ == '__main__':
     method = 'aicso0'
-    instruments = 'rbb'
+    instruments = 'ims'
     train(method=method, instruments=instruments)
+    #test1(method=method, g_instruments=instruments)
