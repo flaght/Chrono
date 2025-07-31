@@ -32,9 +32,11 @@ import lumina.impulse.i010 as i010
 import lumina.impulse.i011 as i011
 import lumina.impulse.i012 as i012
 import lumina.impulse.i013 as i013
+import lumina.impulse.i014 as i014
 
 
-def callback_save(instruments, factors_data, name, method, start_date, end_date):
+def callback_save(instruments, factors_data, name, method, start_date,
+                  end_date):
     cond1 = (factors_data.index.get_level_values(
         level=0) >= start_date) & (factors_data.index.get_level_values(
             level=0) <= (datetime.datetime.strptime(end_date, '%Y-%m-%d') +
@@ -51,7 +53,8 @@ def callback_save(instruments, factors_data, name, method, start_date, end_date)
     ff1.sort_index().reset_index(drop=True).to_feather(filename)
 
 
-def calculate_factors(data, callback, instruments, method, start_date, end_date):
+def calculate_factors(data, callback, instruments, method, start_date,
+                      end_date):
 
     def run(data, i00, callback, instruments, method, start_date, end_date):
         res = []
@@ -74,7 +77,7 @@ def calculate_factors(data, callback, instruments, method, start_date, end_date)
 
     for i00 in [
             i001, i002, i003, i004, i005, i006, i007, i008, i009, i010, i011,
-            i012, i013
+            i012, i013, i014
     ]:
         run(data=data,
             i00=i00,
@@ -160,5 +163,5 @@ def merge(method, instruments):
                      'test_data.feather'))
 
 
-main(method='aicso0', instruments='rbb')
-merge(method='aicso0', instruments='rbb')
+main(method='aicso0', instruments='ims')
+merge(method='aicso0', instruments='ims')
