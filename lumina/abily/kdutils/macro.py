@@ -16,7 +16,7 @@ instruments_codes = {
 
 base_path = os.path.join('./', 'records')
 
-codes = instruments_codes[os.environ['INSTRUMENTS']]
+#codes = instruments_codes[os.environ['INSTRUMENTS']]
 
 ### 合约连乘数
 CONT_MULTNUM_MAPPING = {'RB': 10, 'IF': 300, 'IM': 200}
