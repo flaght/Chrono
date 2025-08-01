@@ -56,6 +56,13 @@ def fetch_times(method, task_id, instruments):
     }
 
 
+def remove_none_from_dict(d):
+    """如果输入是字典，则移除值为None的键值对"""
+    if not isinstance(d, dict):
+        return d  # 如果不是字典，原样返回
+    return {key: value for key, value in d.items() if value is not None}
+
+
 ### 根据阈值条件读取 策略评估信息
 def fetch_strategy1(task_id, **kwargs):
     dirs = os.path.join(
@@ -64,6 +71,18 @@ def fetch_strategy1(task_id, **kwargs):
 
     positions_file = os.path.join(dirs, f'programs_{task_id}.feather')
     strategy_dt = pd.read_feather(positions_file)
+
+    strategy_dt['strategy_params'] = strategy_dt['strategy_params'].apply(
+        remove_none_from_dict)
+    strategy_dt['signal_params'] = strategy_dt['signal_params'].apply(
+        remove_none_from_dict)
+    ## 参数修复
+    strategy_dt['strategy_params'] = strategy_dt['strategy_params'].apply(
+        lambda d: {
+            **d, 'max_volume': 1
+        } if isinstance(d, dict) else d)
+    pdb.set_trace()
+    ## 清理冗余参数
     strategy_dt = strategy_dt[strategy_dt.final_fitness >= kwargs['threshold']]
     return strategy_dt
 

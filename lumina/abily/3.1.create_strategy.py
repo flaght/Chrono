@@ -11,14 +11,17 @@ from lumina.genetic.process import *
 from ultron.factor.genetic.geneticist.operators import *
 import ultron.factor.empyrical as empyrical
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from kdutils.common import *
 from kdutils.macro2 import *
 
+
 ### 对比和训练集
 # ，raw_fitness 变化率
-def compare_fitness_rate(column, method, instruments, times_info, task_id, base_dirs):
+def compare_fitness_rate(column, method, instruments, times_info, task_id,
+                         base_dirs):
     strategy_settings = {
         'commission': COST_MAPPING[INSTRUMENTS_CODES[instruments]] * 0.05,
         'slippage': 0,
@@ -40,16 +43,23 @@ def compare_fitness_rate(column, method, instruments, times_info, task_id, base_
         ## 计算
         total_data1 = total_data.set_index(['trade_time'])
         total_data2 = total_data.set_index(['trade_time', 'code']).unstack()
-
+        '''
         expression = column['formual']
         signal_method = column['signal_method']
         strategy_method = column['strategy_method']
         signal_params = column['signal_params']
+        strategy_params = column['strategy_params']
+        '''
+        expression = "MSharp(10,MPERCENT(12,MMeanRes(8,'oi017_5_10_1','oi031_5_10_0')),MDPO(20,MSKEW(2,'cr035_5_10_1')))"
+        signal_method = "autocorr_signal"
+        strategy_method = "trailing_strategy"
+        signal_params = {'lag': 4.0, 'roll_num': 50, 'threshold': 0.09}
+        strategy_params = {'max_volume': 3, 'trailing_percent': 0.025}
+
         signal_params = {
             key: value
             for key, value in signal_params.items() if value is not None
         }
-        strategy_params = column['strategy_params']
         strategy_params = {
             key: value
             for key, value in strategy_params.items() if value is not None
@@ -76,13 +86,13 @@ def compare_fitness_rate(column, method, instruments, times_info, task_id, base_
 
         total_data1 = cycle_total_data.reset_index().set_index(
             ['trade_time', 'code']).unstack()
-
+        
         pos_data = eval(signal_method)(factor_data=factors_data1,
                                        **signal_params)
         pos_data1 = eval(strategy_method)(signal=pos_data,
                                           total_data=total_data1,
                                           **strategy_params)
-        
+
         df = calculate_ful_ts_ret(pos_data=pos_data1,
                                   total_data=total_data2,
                                   strategy_settings=strategy_settings)
@@ -176,7 +186,8 @@ def compare_fitness_rate(column, method, instruments, times_info, task_id, base_
 
 ### 批量生成策略
 @add_process_env_sig
-def run_position(target_column, method, instruments, times_info, task_id, base_dirs):
+def run_position(target_column, method, instruments, times_info, task_id,
+                 base_dirs):
     position_data = run_process(target_column=target_column,
                                 callback=compare_fitness_rate,
                                 method=method,
@@ -207,7 +218,7 @@ if __name__ == '__main__':
                                   instruments=instruments,
                                   threshold=threshold)
     res = []
-    k_split = 4
+    k_split = 1
 
     strategies_infos = strategy_dt.to_dict(orient='records')
     process_list = split_k(k_split, strategies_infos)
@@ -219,4 +230,5 @@ if __name__ == '__main__':
                           task_id=task_id,
                           base_dirs=base_dirs)
     res = list(itertools.chain.from_iterable(res))
+    pdb.set_trace()
     pd.DataFrame(res).to_feather(os.path.join(base_dirs, "fitness.feather"))
