@@ -1,5 +1,5 @@
 ### 通过寻优算法 挖掘策略
-import datetime, pdb, os, sys
+import datetime, pdb, os, sys, argparse
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
@@ -142,8 +142,8 @@ def train(method, instruments):
         ]
     ]
 
-    population_size = 800  #500#500  #500
-    tournament_size = 150  #100#100  #100
+    population_size = 400  #500#500  #500
+    tournament_size = 70  #100#100  #100
     standard_score = 0.5
     strategy_settings = {
         #'capital': 10000000,
@@ -152,7 +152,7 @@ def train(method, instruments):
         'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[instruments]]
     }
     configure = {
-        'n_jobs': 8,
+        'n_jobs': 2,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 4,
@@ -282,7 +282,19 @@ def test1(method, g_instruments):
 
 
 if __name__ == '__main__':
-    method = 'aicso0'
-    instruments = 'ims'
-    train(method=method, instruments=instruments)
+    parser = argparse.ArgumentParser(description='Train a model')
+
+    parser.add_argument('--method',
+                            type=str,
+                            default='aicso0',
+                            help='data method')
+    parser.add_argument('--instruments',
+                            type=str,
+                            default='rbb',
+                            help='code or instruments')
+    
+    args = parser.parse_args()
+    #method = 'aicso0'
+    #instruments = 'rbb'
+    train(method=args.method, instruments=args.instruments)
     #test1(method=method, g_instruments=instruments)
