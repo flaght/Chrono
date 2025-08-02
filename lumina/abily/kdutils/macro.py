@@ -14,7 +14,7 @@ instruments_codes = {
     'rbb': ['RB']
 }
 
-base_path = os.path.join('./', 'records')
+base_path = os.path.join(os.environ['BASE_PATH'], 'records')
 
 #codes = instruments_codes[os.environ['INSTRUMENTS']]
 
