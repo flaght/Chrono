@@ -142,8 +142,8 @@ def train(method, instruments):
         ]
     ]
 
-    population_size = 400  #500#500  #500
-    tournament_size = 70  #100#100  #100
+    population_size = 600  #500#500  #500
+    tournament_size = 150  #100#100  #100
     standard_score = 0.5
     strategy_settings = {
         #'capital': 10000000,
@@ -152,7 +152,7 @@ def train(method, instruments):
         'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[instruments]]
     }
     configure = {
-        'n_jobs': 2,
+        'n_jobs': 8,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 4,
@@ -170,27 +170,27 @@ def train(method, instruments):
                 #'returns':
                 #FILTER_YEAR_MAPPING[INSTRUMENTS_CODES[g_instruments]]
             },
-            'gain': { ## 相关性剔除
-                'corr_threshold': 0.4, ##  新策略与已选策略库的最大相关性容忍度
-                'fitness_scale': 0.7, ## 最低fitness 标准
-                'gain_threshold': 0.1 ## 增量最低值
-            },
+            #'gain': {  ## 相关性剔除
+            #    'corr_threshold': 0.4,  ##  新策略与已选策略库的最大相关性容忍度
+            #    'fitness_scale': 0.7,  ## 最低fitness 标准
+            #    'gain_threshold': 0.1  ## 增量最低值
+            #},
             #'warehouse': {
             #    "n_benchmark_clusters": 200, ## 基础库个数
             #    "distill_trigger_size": 20  ## 20次刷新一次基础库
             #},
-            'adaptive': { ## 惩罚系数
-                "initial_alpha": 0.02, ## 初始的alpha值
-                "target_penalty_ratio": 0.4, ## 目标惩罚比率
-                "adjustment_speed": 0.05, ## 调整速度，控制每次更新的步长
-                "lookback_period": 5 ## 用于计算滑动平均的历史窗口 
-            },
-            'threshold': { ## 阈值动态调整
-                "initial_threshold": 0.9, ## 初始化阈值
-                "target_percentile": 0.55, ## 目标分位数
-                "min_threshold": 0.9, ##  阈值的下限
-                "max_threshold": 4.0, ## 阈值的上限
-                "adjustment_speed": 0.1 ##  调整速度 (EMA平滑系数)
+            #'adaptive': {  ## 惩罚系数
+            #    "initial_alpha": 0.02,  ## 初始的alpha值
+            #    "target_penalty_ratio": 0.4,  ## 目标惩罚比率
+            #    "adjustment_speed": 0.05,  ## 调整速度，控制每次更新的步长
+            #    "lookback_period": 5  ## 用于计算滑动平均的历史窗口 
+            #},
+            'threshold': {  ## 阈值动态调整
+                "initial_threshold": 0.5,  ## 初始化阈值
+                "target_percentile": 0.55,  ## 目标分位数
+                "min_threshold": 0.7,  ##  阈值的下限
+                "max_threshold": 4.0,  ## 阈值的上限
+                "adjustment_speed": 0.1  ##  调整速度 (EMA平滑系数)
             }
         }
     }
@@ -285,14 +285,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train a model')
 
     parser.add_argument('--method',
-                            type=str,
-                            default='aicso0',
-                            help='data method')
+                        type=str,
+                        default='aicso0',
+                        help='data method')
     parser.add_argument('--instruments',
-                            type=str,
-                            default='rbb',
-                            help='code or instruments')
-    
+                        type=str,
+                        default='rbb',
+                        help='code or instruments')
+
     args = parser.parse_args()
     #method = 'aicso0'
     #instruments = 'rbb'
