@@ -147,6 +147,7 @@ def train(method, instruments):
     standard_score = 0.5
     strategy_settings = {
         #'capital': 10000000,
+        'mode':COST_MODEL_MAPPING[INSTRUMENTS_CODES[instruments]],
         'commission': COST_MAPPING[INSTRUMENTS_CODES[instruments]],
         'slippage': SLIPPAGE_MAPPING[INSTRUMENTS_CODES[instruments]],
         'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[instruments]]

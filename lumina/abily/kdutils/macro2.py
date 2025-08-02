@@ -1,4 +1,4 @@
 import os
 from config.contract import *
 
-base_path = os.path.join(os.environ['BASIC_PATH'], os.environ['RECORD_PATH'])
+base_path = os.path.join(os.environ['BASE_PATH'], os.environ['RECORD_PATH'])
