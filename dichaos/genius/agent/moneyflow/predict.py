@@ -7,9 +7,9 @@ from agent.moneyflow.agent import Agent
 
 class Predictor(BasePredictor):
 
-    def __init__(self, symbol, base_path, date):
+    def __init__(self, symbol, memory_path, date):
         super(Predictor, self).__init__(symbol=symbol, agent_class=Agent)
-        self.initialize_agent(base_path=base_path, symbol=symbol, date=date)
+        self.initialize_agent(memory_path=memory_path,  date=date)
 
     def prepare_data(self, begin_date, end_date):
         self.equal_factors = create_posflow(begin_date=begin_date,
