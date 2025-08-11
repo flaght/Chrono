@@ -1,7 +1,9 @@
 import os
-def create_agent_path(name, method, symbol, date):
-    path = os.path.join(os.environ['BASE_PATH'], method, name, 'brain', symbol,
-                        date)
+
+
+def create_memory_path(base_path, date, method=None):
+    path = os.path.join(base_path, method, 'memory', date) if isinstance(
+        method, str) else os.path.join(base_path, 'memory', date)
     if not os.path.exists(path):
         os.makedirs(path)
     return path
