@@ -110,6 +110,11 @@ def create_suggestion_dom(short_prompt, mid_prompt, long_prompt,
                           reflection_prompt):
 
     class DomInfo(BaseModel):
+        name: Optional[str] = Field(
+            default="",  # 提供一个默认值 None
+            description="所属策略",
+            define="",
+        )
         if len(short_prompt) > 0:
             short_memory_index: str = Field(
                 default=None,  # 提供一个默认值 None
@@ -157,6 +162,12 @@ def create_prediction_dom(short_prompt, mid_prompt, long_prompt,
                           reflection_prompt):
 
     class DomInfo(BaseModel):
+        name: Optional[str] = Field(
+            default="",  # 提供一个默认值 None
+            description="所属策略",
+            define="",
+        )
+
         if len(short_prompt) > 0:
             short_memory_index: Optional[str] = Field(
                 default=None,  # 提供一个默认值 None
