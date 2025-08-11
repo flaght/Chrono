@@ -1,1 +1,1 @@
-from genius.kdutils.model import *
+from kdutils.model import *

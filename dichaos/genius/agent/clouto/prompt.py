@@ -52,6 +52,22 @@ suggestion_human_message = """
 **一个有说服力的市场反思，需要清晰地描绘出从【**趋势动能**】的爆发，到【**市场情绪**】的演变，再到【**最终格局**】如何决定性地影响结果的全过程。分析的重点在于揭示这些层面之间的**因果关系和逻辑链条**
 
 
+**因子特性描述**
+ {factors_details}
+
+以下是短期记忆:
+{short_terms}
+
+以下是中期记忆:
+{mid_terms}
+
+以下是长期记忆:
+{long_terms}
+
+以下是过去反思记忆:
+{reflection_terms}
+
+
 观察到的金融市场事实：对于 ${ticker}， 下一个交易日与当前交易日之间出现了{signal}信号，涨跌幅为：{chg}
 
 根据短期记忆总结解释为什么 ${ticker} 出现了 {signal} {chg} 的原因？
@@ -92,7 +108,6 @@ suggestion_human_message = """
   "summary_reason": "string, 必须使用中文回复，并严格遵守上方所有分析要求。"
 }}
 """
-
 
 decision_human_message = """
 【核心分析要素】(请综合评估，寻找市场情绪动向的强共振信号)

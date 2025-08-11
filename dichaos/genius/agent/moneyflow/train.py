@@ -1,15 +1,14 @@
-import pdb
-from agent.predictor import Predictor as BasePredictor
+from agent.trainer import Trainer as BaseTrainer
+from agent.moneyflow.agent import Agent
 from factors.calculator import create_posflow
 from agent.indicator.model import FactorsList, FactorsGroup
-from agent.moneyflow.agent import Agent
 
 
-class Predictor(BasePredictor):
+class Trainer(BaseTrainer):
 
     def __init__(self, symbol, base_path, date):
-        super(Predictor, self).__init__(symbol=symbol, agent_class=Agent)
-        self.initialize_agent(base_path=base_path, symbol=symbol, date=date)
+        super(Trainer, self).__init__(symbol=symbol, agent_class=Agent)
+        self.initialize_agent(base_path=base_path, symbol=symbol)
 
     def prepare_data(self, begin_date, end_date):
         self.equal_factors = create_posflow(begin_date=begin_date,

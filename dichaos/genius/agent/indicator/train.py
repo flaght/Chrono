@@ -1,15 +1,16 @@
-from agent.predictor import Predictor as BasePredictor
-from factors.calculator import create_kline, create_indictor
-from agent.indicator.model import FactorsList, FactorsGroup
+from agent.trainer import Trainer as BaseTrainer
 from agent.indicator.agent import Agent
-import pdb
+from factors.calculator import create_indictor, create_kline
+from agent.indicator.model import FactorsList, FactorsGroup
 
 
-class Predictor(BasePredictor):
+class Trainer(BaseTrainer):
 
-    def __init__(self, symbol, memory_path, date):
-        super(Predictor, self).__init__(symbol=symbol, agent_class=Agent)
-        self.initialize_agent(memory_path=memory_path, date=date)
+    def __init__(self, symbol, config_path, memory_path, portfolio=None):
+        super(Trainer, self).__init__(symbol=symbol,
+                                      agent_class=Agent,
+                                      portfolio=portfolio)
+        self.initialize_agent(config_path=config_path, memory_path=memory_path)
 
     def prepare_data(self, begin_date, end_date):
         self.indicator_factors = create_indictor(begin_date=begin_date,

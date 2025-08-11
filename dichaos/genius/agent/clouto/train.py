@@ -1,15 +1,16 @@
-import pdb
-from agent.predictor import Predictor as BasePredictor
+from agent.trainer import Trainer as BaseTrainer
+from agent.clouto.agent import Agent
 from factors.calculator import create_heat
 from agent.indicator.model import FactorsList, FactorsGroup
-from agent.clouto.agent import Agent
 
 
-class Predictor(BasePredictor):
+class Trainer(BaseTrainer):
 
-    def __init__(self, symbol, memory_path, date):
-        super(Predictor, self).__init__(symbol=symbol, agent_class=Agent)
-        self.initialize_agent(memory_path=memory_path,  date=date)
+    def __init__(self, symbol, config_path, memory_path, portfolio=None):
+        super(Trainer, self).__init__(symbol=symbol,
+                                      agent_class=Agent,
+                                      portfolio=portfolio)
+        self.initialize_agent(config_path=config_path, memory_path=memory_path)
 
     def prepare_data(self, begin_date, end_date):
         self.xueqiu_factors = create_heat(begin_date=begin_date,

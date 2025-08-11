@@ -1,5 +1,5 @@
 from typing import Dict
-from agents import Agents
+from agent.agents import Agents
 from .model import *
 from .prompt import *
 

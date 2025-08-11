@@ -7,9 +7,9 @@ from agent.posflow.agent import Agent
 
 class Predictor(BasePredictor):
 
-    def __init__(self, symbol, base_path, date):
+    def __init__(self, symbol, memory_path, date):
         super(Predictor, self).__init__(symbol=symbol, agent_class=Agent)
-        self.initialize_agent(base_path=base_path, symbol=symbol, date=date)
+        self.initialize_agent(memory_path=memory_path,  date=date)
 
     def prepare_data(self, begin_date, end_date):
         self.equal_factors = create_posflow(begin_date=begin_date,
@@ -35,52 +35,3 @@ class Predictor(BasePredictor):
         factors_group.factors_list.append(equal_factors_list)
         factors_group.factors_list.append(weight_factors_list)
         return factors_group
-
-    def predict(self, date, future_data=None):
-        factors_group = self.create_group(date)
-        if not factors_group:
-            print(f"Skipping date {date} due to missing factor data.")
-            return
-
-        self.agent.handing_data(trade_date=date,
-                                symbol=self.symbol,
-                                factors_group=factors_group)
-
-        long_prompt, mid_prompt, short_prompt, reflection_prompt = self.agent.query_records(
-            trade_date=date, symbol=self.symbol)
-
-        factors_details = factors_group.markdown(include_value=False)
-        
-        response = self.agent.generate_prediction(
-            date=date,
-            symbol=self.symbol,
-            factors_details=factors_details,
-            long_prompt=long_prompt,
-            mid_prompt=mid_prompt,
-            short_prompt=short_prompt,
-            reflection_prompt=reflection_prompt)
-        return response
-
-    async def apredict(self, date, future_data=None):
-        factors_group = self.create_group(date)
-        if not factors_group:
-            print(f"Skipping date {date} due to missing factor data.")
-            return
-
-        self.agent.handing_data(trade_date=date,
-                                symbol=self.symbol,
-                                factors_group=factors_group)
-
-        long_prompt, mid_prompt, short_prompt, reflection_prompt = self.agent.query_records(
-            trade_date=date, symbol=self.symbol)
-
-        factors_details = factors_group.markdown(include_value=False)
-        response = await self.agent.agenerate_prediction(
-            date=date,
-            symbol=self.symbol,
-            factors_details=factors_details,
-            long_prompt=long_prompt,
-            mid_prompt=mid_prompt,
-            short_prompt=short_prompt,
-            reflection_prompt=reflection_prompt)
-        return response
