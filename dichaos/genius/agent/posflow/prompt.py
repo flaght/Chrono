@@ -103,7 +103,6 @@ suggestion_human_message = """
 }}
 """
 
-
 decision_human_message = """
 【核心分析要素】(请综合评估，寻找主力资金动向的强共振信号)
 
@@ -189,7 +188,8 @@ decision_human_message = """
 "mid_memory_index": "在这里填写确切的**中期记忆索引ID**，如果不存在则为'null'",
 "long_memory_index": "在这里填写确切的**长期记忆索引ID**，如果不存在则为'null'",
 "reflection_memory_index": "在这里填写确切的**过去反思记忆ID**，如果不存在则为'null'",
-"reasoning": "string (请在此处根据【`reasoning`决策推理指导】生成详细、有逻辑的决策理由，不少于250字)",
+"reasoning": "string (请在此处根据【`reasoning`决策推理指导】生成详细、结构化地阐述观点形成过程，不少于250字)",
+“summary”: "string  (这是一个**用于公开发表的、具有说服力的核心观点声明**。用3-4句话高度精炼`reasoning`中的关键信息，并整合`signal`和`confidence`，形成一个清晰、简洁、有力的结论。",
 "confidence": "int (在0~100之间，数值越大，置信度越高)",
 "signal": "bullish/bearish/neutral (只能是这三个选项之一)",
 "analysis_details": "string (用一句话高度浓缩决策的核心依据与风险点。例如：'核心看空依据：价格破位VWAP且ADX趋势确认；主要风险：RSI超卖与历史反思中的反转模式相似。')"

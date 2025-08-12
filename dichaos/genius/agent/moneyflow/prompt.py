@@ -54,6 +54,22 @@ suggestion_human_message = """
 **一个有说服力的市场反思，需要清晰地描绘出从【**趋势动能**】的爆发，到【**市场情绪**】的演变，再到【**最终格局**】如何决定性地影响结果的全过程。分析的重点在于揭示这些层面之间的**因果关系和逻辑链条**
 
 
+
+**因子特性描述**
+ {factors_details}
+
+以下是短期记忆:
+{short_terms}
+
+以下是中期记忆:
+{mid_terms}
+
+以下是长期记忆:
+{long_terms}
+
+以下是过去反思记忆:
+{reflection_terms}
+
 观察到的金融市场事实：对于 ${ticker}， 下一个交易日与当前交易日之间出现了{signal}信号，涨跌幅为：{chg}
 
 根据短期记忆总结解释为什么 ${ticker} 出现了 {signal} {chg} 的原因？
@@ -176,7 +192,8 @@ decision_human_message = """
 "mid_memory_index": "在这里填写确切的**中期记忆索引ID**，如果不存在则为'null'",
 "long_memory_index": "在这里填写确切的**长期记忆索引ID**，如果不存在则为'null'",
 "reflection_memory_index": "在这里填写确切的**过去反思记忆ID**，如果不存在则为'null'",
-"reasoning": "string (请在此处根据【`reasoning`决策推理指导】生成详细、有逻辑的决策理由，不少于250字)",
+"reasoning": "string (请在此处根据【`reasoning`决策推理指导】生成详细、结构化地阐述观点形成过程，不少于250字)",
+“summary”: "string  (这是一个**用于公开发表的、具有说服力的核心观点声明**。用3-4句话高度精炼`reasoning`中的关键信息，并整合`signal`和`confidence`，形成一个清晰、简洁、有力的结论。",
 "confidence": "int (在0~100之间，数值越大，置信度越高)",
 "signal": "bullish/bearish/neutral (只能是这三个选项之一)",
 "analysis_details": "string (用一句话高度浓缩决策的核心依据与风险点。例如：'核心看多依据：主力买入加速(mf005)且与散户行为背离(mf001)；主要风险：历史经验显示当前的高换手率(mf015)可能预示趋势衰竭。')"
