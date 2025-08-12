@@ -214,6 +214,11 @@ def create_prediction_dom(short_prompt, mid_prompt, long_prompt,
             description="技术分析细节, 请提供详细的解释,而且必须返回内容",
             define="string",
         )
+        summary: str = Field(
+            ...,
+            description="精确提炼推理的逻辑,需要能够为博弈时发表观点，提供相应的数据依据和理论依据。且把合并信号和置信度分数",
+            define="string",
+        )
 
         @classmethod
         def dumps(cls):
@@ -224,5 +229,29 @@ def create_prediction_dom(short_prompt, mid_prompt, long_prompt,
                 json_format += f'"{field_name}": "{field_info["define"]}"\n'
             json_format += "}"
             return json_format
+
+    return DomInfo
+
+
+def create_decision_dom():
+
+    class DomInfo(BaseModel):
+        reasoning: str = Field(
+            ...,
+            description="交易信号的理由, 请提供详细的解释,而且必须返回内容",
+            define="string",
+        )
+
+        signal: Literal["bullish", "bearish", "neutral"] = Field(
+            ...,
+            description="基于各个专家博弈结果, 请做出投资决策：买入标的、卖出标的，持有标的",
+            define="bullish/bearish/neutral",
+        )
+
+        confidence: float = Field(
+            ...,
+            description="信号置信度",
+            define="int",
+        )
 
     return DomInfo
