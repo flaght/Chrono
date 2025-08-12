@@ -72,7 +72,6 @@ class Trainer(ABC):
         if not factors_group:
             print(f"Skipping date {date} due to missing factor data.")
             return
-
         self.handing_data(trade_date=date, factors_group=factors_group)
         long_prompt, mid_prompt, short_prompt, reflection_prompt = self.agent.query_records(
             trade_date=date, symbol=self.symbol)
