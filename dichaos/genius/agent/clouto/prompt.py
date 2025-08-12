@@ -182,17 +182,18 @@ decision_human_message = """
 
 ## 【返回格式要求】
 
-必须严格按照以下JSON格式返回, `reasoning`和`analysis_details`内容必须为中文描述:
+必须严格按照以下JSON格式返回, `reasoning`和`analysis_details`, `summary`内容必须为中文描述:
 
 {{
 "short_memory_index": "在这里填写确切的**短期记忆索引ID**，如果不存在则为'null'",
 "mid_memory_index": "在这里填写确切的**中期记忆索引ID**，如果不存在则为'null'",
 "long_memory_index": "在这里填写确切的**长期记忆索引ID**，如果不存在则为'null'",
 "reflection_memory_index": "在这里填写确切的**过去反思记忆ID**，如果不存在则为'null'",
-"reasoning": "string (请在此处根据【`reasoning`决策推理指导】生成详细、有逻辑的决策理由，不少于250字)",
+"reasoning": "string (请在此处根据【`reasoning`决策推理指导】生成详细、结构化地阐述观点形成过程，不少于250字)",
+“summary”: "string  (这是一个**用于公开发表的、具有说服力的核心观点声明**。用3-4句话高度精炼`reasoning`中的关键信息，并整合`signal`和`confidence`，形成一个清晰、简洁、有力的结论。",
 "confidence": "int (在0~100之间，数值越大，置信度越高)",
 "signal": "bullish/bearish/neutral (只能是这三个选项之一)",
-"analysis_details": "string (用一句话高度浓缩决策的核心依据与风险点。例如：'核心看多依据：市场热度趋势向上(ht004)且情绪动能强劲(ht003)，形成共振；主要风险：KDJ指标(ht006)进入超买区，历史经验提示存在短期回调可能。')"
+"analysis_details": "string (用3-4句话**高度浓缩决策的核心技术依据与主要风险点**，作为`reasoning`的摘要。侧重于提及具体的指标ID或数据。例如：'核心看多依据：市场热度趋势向上(ht004)且情绪动能强劲(ht003)，形成共振；主要风险：KDJ指标(ht006)进入超买区，历史经验提示存在短期回调可能。')"
 }}
 
 
