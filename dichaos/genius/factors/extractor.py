@@ -102,6 +102,7 @@ def fetch_member_positions(begin_date, end_date, codes, category):
                           inplace=True)
     return positions_data
 
+
 def fetch_moneyflow_data(begin_date, end_date, codes, category):
     market_universe_dict = {
         'IM': 'zz1000',
@@ -117,7 +118,8 @@ def fetch_moneyflow_data(begin_date, end_date, codes, category):
     clause2 = ddb_tools.to_format("trade_date", "<=",
                                   ddb_tools.convert_date(end_date))
 
-    clause3 = ddb_tools.to_format("code", "in", [market_universe_dict[category]])
+    clause3 = ddb_tools.to_format("code", "in",
+                                  [market_universe_dict[category]])
 
     market_pure_indicator = cusomize_api.custom(
         table='index_market_moneyflow',
@@ -235,6 +237,33 @@ def fetch_moneyflow_data(begin_date, end_date, codes, category):
 
 
 def fetch_heat_data(begin_date, end_date, codes):
+    market_universe_dict = {
+        'IM': 'zz1000',
+        'IC': 'zz500',
+        'IF': 'hs300',
+        'IH': 'sz50'
+    }
+    clause1 = ddb_tools.to_format("trade_date", ">=",
+                                  ddb_tools.convert_date(begin_date))
+    clause2 = ddb_tools.to_format("trade_date", "<=",
+                                  ddb_tools.convert_date(end_date))
+    clause3 = ddb_tools.to_format("code", "in", [market_universe_dict[codes]])
+    cusomize_api = DDBAPI.cusomize_api()
+    heat_df = cusomize_api.custom(
+        table='index_clouto',
+        columns=['trade_date', 'code', 'xueqiu_postNum', "guba_postNum"],
+        clause_list=[clause1, clause2, clause3])
+
+    heat_df = heat_df.rename(columns={
+        'xueqiu_postNum': 'xueqiu',
+        'guba_postNum': 'guba'
+    })
+    heat_df['code'] = codes
+    return heat_df.set_index(['trade_date', 'code']).unstack()
+
+
+'''
+def fetch_heat_data(begin_date, end_date, codes):
     clause_begindate = ddb_tools.to_format("trade_date", ">=",
                                            ddb_tools.convert_date(begin_date))
     clause_enddate = ddb_tools.to_format("trade_date", "<=",
@@ -302,3 +331,4 @@ def fetch_heat_data(begin_date, end_date, codes):
         }, axis=1)
     heat_df = heat_df.unstack()
     return heat_df
+'''
