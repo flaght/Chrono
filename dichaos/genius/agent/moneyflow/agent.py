@@ -94,6 +94,20 @@ class Agent(Agents):
             factors_details=factors_details,
             decision_human_message=decision_human_message)
 
+    async def agenerate_prediction(self, date: str, symbol: str,
+                                   short_prompt: str, mid_prompt: str,
+                                   long_prompt: str, reflection_prompt: str,
+                                   factors_details: str):
+        return await super(Agent, self).agenerate_prediction(
+            date=date,
+            symbol=symbol,
+            short_prompt=short_prompt,
+            mid_prompt=mid_prompt,
+            long_prompt=long_prompt,
+            reflection_prompt=reflection_prompt,
+            factors_details=factors_details,
+            decision_human_message=decision_human_message)
+    
     def actions(self, response, threshold=80):
         return super(Agent, self).actions(response=response,
                                           threshold=threshold)
