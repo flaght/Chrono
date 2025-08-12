@@ -102,12 +102,56 @@ def fetch_member_positions(begin_date, end_date, codes, category):
                           inplace=True)
     return positions_data
 
+def fetch_moneyflow_data(begin_date, end_date, codes, category):
+    market_universe_dict = {
+        'IM': 'zz1000',
+        'IC': 'zz500',
+        'IF': 'hs300',
+        'IH': 'sz50',
+        'ashare': 'ashare'
+    }
 
+    cusomize_api = DDBAPI.cusomize_api()
+    clause1 = ddb_tools.to_format("trade_date", ">=",
+                                  ddb_tools.convert_date(begin_date))
+    clause2 = ddb_tools.to_format("trade_date", "<=",
+                                  ddb_tools.convert_date(end_date))
+
+    clause3 = ddb_tools.to_format("code", "in", [market_universe_dict[category]])
+
+    market_pure_indicator = cusomize_api.custom(
+        table='index_market_moneyflow',
+        columns=[
+            'trade_date', 'code', 'turnoverValue', 'turnoverVol', 'dealAmount',
+            'netFlow', 'inflow', 'outflow', 'mainFlow', 'smainFlow',
+            'mainInflow', 'mainOutflow', 'netFlowS', 'netFlowM', 'netFlowL',
+            'netFlowXL', 'inflowS', 'inflowM', 'inflowL', 'inflowXL',
+            'outflowS', 'outflowM', 'outflowL', 'outflowXL', 'netVol',
+            'buyVol', 'sellVol', 'mainBuyVol', 'mainSellVol', 'buyVolS',
+            'buyVolM', 'buyVolL', 'buyVolXL', 'sellVolS', 'sellVolM',
+            'sellVolL', 'sellVolXL', 'netOrd', 'buyOrd', 'sellOrd',
+            'mainBuyOrd', 'mainSellOrd', 'buyOrdS', 'buyOrdM', 'buyOrdL',
+            'buyOrdXL', 'sellOrdS', 'sellOrdM', 'sellOrdL', 'sellOrdXL',
+            'netFlowRate', 'inflowRate', 'outflowRate', 'mainFlowRate',
+            'smainFlowRate', 'mainInflowRate', 'mainOutflowRate',
+            'netFlowSRate', 'netFlowMRate', 'netFlowLRate', 'netFlowXLRate',
+            'inflowSRate', 'inflowMRate', 'inflowLRate', 'inflowXLRate',
+            'outflowSRate', 'outflowMRate', 'outflowLRate', 'net_in_cls',
+            'net_in_opn', 'outflowXLRate', 'netVolRate', 'buyVolRate',
+            'sellVolRate', 'mainBuyVolRate', 'mainSellVolRate', 'netOrdRate',
+            'buyOrdRate', 'sellOrdRate', 'mainBuyOrdRate', 'mainSellOrdRate'
+        ],
+        clause_list=[clause1, clause2, clause3])
+    market_pure_indicator['code'] = codes
+    market_pure_indicator = market_pure_indicator.set_index(
+        ['trade_date', 'code'])
+    return market_pure_indicator
+
+
+'''
 def fetch_moneyflow_data(begin_date, end_date, codes, category):
 
-    # start_date = advanceDateByCalendar('china.sse', begin_date,
-    #    '-{0}b'.format(1))
-    assert category == codes or category == 'all'
+    assert category == codes or category == 'ashare'
     clause_begindate = ddb_tools.to_format("trade_date", ">=",
                                            ddb_tools.convert_date(begin_date))
     clause_enddate = ddb_tools.to_format("trade_date", "<=",
@@ -154,7 +198,7 @@ def fetch_moneyflow_data(begin_date, end_date, codes, category):
         'IH': 'sz50',
     }
 
-    if category != 'all':
+    if category != 'ashare':
         market_df = cusomize_api.custom(
             table='stk_universe',
             columns=['code', 'trade_date', market_universe_dict[codes]],
@@ -187,6 +231,7 @@ def fetch_moneyflow_data(begin_date, end_date, codes, category):
     market_pure_indicator = market_pure_indicator.reset_index().set_index(
         ['trade_date', 'code'])
     return market_pure_indicator
+'''
 
 
 def fetch_heat_data(begin_date, end_date, codes):
