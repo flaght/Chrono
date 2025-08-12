@@ -216,9 +216,10 @@ def create_moneyflow(begin_date, end_date, codes, category, window, **kwargs):
                                       end_date=end_date,
                                       codes=[codes])
     returns_data = returns_data.rename({'returns': 'ret'}, axis=1)
-    moneyflow_data = moneyflow_data.merge(returns_data,
-                                          on=['trade_date', 'code']).unstack()
-    # pdb.set_trace()
+    #moneyflow_data = moneyflow_data.merge(returns_data,
+    #                                      on=['trade_date', 'code']).unstack()
+    moneyflow_data = pd.concat([moneyflow_data, returns_data],
+                               axis=1).unstack()
     create_factors(name='Mf001',
                    keys=[(10, 30, 1)],
                    kl_pd=moneyflow_data,
