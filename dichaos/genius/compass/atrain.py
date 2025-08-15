@@ -16,7 +16,7 @@ def agent_train1():
                                      '-{0}b'.format(1)).strftime('%Y-%m-%d')
     symbol = 'IM'
 
-    train = MoneyFlowTrain(config_path=os.path.join("agent"),
+    train = CloutoTrain(config_path=os.path.join("agent"),
                            memory_path=os.path.join("records"),
                            symbol=symbol)
 

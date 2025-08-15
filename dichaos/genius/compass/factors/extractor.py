@@ -250,8 +250,8 @@ def fetch_heat_data(begin_date, end_date, codes):
     clause3 = ddb_tools.to_format("code", "in", [market_universe_dict[codes]])
     cusomize_api = DDBAPI.cusomize_api()
     heat_df = cusomize_api.custom(
-        table='index_clouto',
-        columns=['trade_date', 'code', 'xueqiu_postNum', "guba_postNum"],
+        table='index_market_clouto',
+        columns=['trade_date', 'code', 'xueqiu', "guba"],
         clause_list=[clause1, clause2, clause3])
 
     heat_df = heat_df.rename(columns={
