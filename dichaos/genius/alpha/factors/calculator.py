@@ -301,3 +301,75 @@ def create_heat(begin_date, end_date, codes, category, window, **kwargs):
                    end_date=end_date,
                    factor_res=factor_res)
     return factor_res
+
+
+def create_hotmoney(begin_date, end_date, codes, window, **kwargs):
+    factor_res = {}
+    start_date = advanceDateByCalendar('china.sse', begin_date,
+                                       '-{0}b'.format(window))
+    hotmoney_data = fetch_hotmoney(begin_date=start_date.strftime('%Y-%m-%d'),
+                                   end_date=end_date,
+                                   codes=codes)
+    pdb.set_trace()
+    ### 针对不同因子对空值的处理
+    hotmoney_data1 = hotmoney_data.copy()
+    hotmoney_data2 = hotmoney_data.fillna(0)
+    hotmoney_data3 = hotmoney_data.ffill()
+
+    create_factors(name='Hm001',
+                   keys=[(1, 1, 1), (1, 2, 1)],
+                   kl_pd=hotmoney_data2,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+    
+    create_factors(name='Hm002',
+                   keys=[(1, 1, 1), (1, 5, 1)],
+                   kl_pd=hotmoney_data2,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+    
+    create_factors(name='Hm003',
+                   keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
+                   kl_pd=hotmoney_data2,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+    
+    create_factors(name='Hm004',
+                   keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
+                   kl_pd=hotmoney_data2,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+    
+    create_factors(name='Hm005',
+                   keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
+                   kl_pd=hotmoney_data2,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+    
+    create_factors(name='Hm006',
+                   keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
+                   kl_pd=hotmoney_data2,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+    
+    create_factors(name='Hm007',
+                   keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
+                   kl_pd=hotmoney_data2,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+    
+    create_factors(name='Hm008',
+                   keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
+                   kl_pd=hotmoney_data2,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+    return factor_res
+
