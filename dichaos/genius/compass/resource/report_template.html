@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DiChaos AI 分析报告</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --fg-primary: #4a6bdf; --fg-primary-dark: #3a5bdf;
+            --fg-bullish: #dc3545; --fg-bearish: #28a745; --fg-neutral: #6c757d;
+            --fg-code: #fd7e14;
+            --fg-light-bg: #f8f9fa; --fg-white: #ffffff;
+            --fg-dark-bg: #1a1d23; --fg-dark-card: #2d3748;
+            --fg-dark-text: #e2e8f0; --fg-border: #dee2e6;
+            --fg-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        }
+        [data-theme="dark"] {
+            --bs-body-bg: var(--fg-dark-bg); --bs-body-color: var(--fg-dark-text);
+            --bs-card-bg: var(--fg-dark-card); --bs-border-color: #4a5568;
+            --bs-tertiary-bg: var(--fg-dark-card);
+        }
+        html { scroll-behavior: smooth; }
+        body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; line-height: 1.6; background-color: var(--bs-body-bg, var(--fg-light-bg)); transition: all 0.3s ease; }
+        .navbar-brand { font-weight: 700; color: var(--fg-primary) !important; font-size: 1.5rem; }
+        .navbar { box-shadow: var(--fg-shadow); background-color: var(--bs-card-bg, var(--fg-white)) !important; }
+        .card { border: none; box-shadow: var(--fg-shadow); border-radius: 0.75rem; background-color: var(--bs-card-bg, var(--fg-white)); }
+        .vote-progress { height: 1.25rem; background-color: #e9ecef; border-radius: 0.75rem; overflow: hidden; display: flex; }
+        .progress-bar-bullish { background-color: var(--fg-bullish); }
+        .progress-bar-bearish { background-color: var(--fg-bearish); }
+        .progress-bar-neutral { background-color: var(--fg-neutral); }
+        .timeline { position: relative; padding: 2rem 0; }
+        .timeline::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 3px; background: linear-gradient(to bottom, var(--fg-primary), var(--fg-primary-dark)); transform: translateX(-50%); border-radius: 1.5px; }
+        .timeline-item { position: relative; margin: 2.5rem 0; }
+        .timeline-item-left .card { margin-right: 50%; margin-left: 0; transform: translateX(-1rem); }
+        .timeline-item-right .card { margin-left: 50%; margin-right: 0; transform: translateX(1rem); }
+        .timeline-item::before { content: ''; position: absolute; left: 50%; top: 1.5rem; width: 1rem; height: 1rem; background-color: var(--fg-primary); border: 3px solid var(--bs-body-bg, var(--fg-white)); border-radius: 50%; transform: translateX(-50%); z-index: 10; }
+        @media (max-width: 768px) {
+            .timeline::before, .timeline-item::before { left: 1rem; }
+            .timeline-item-left .card, .timeline-item-right .card { margin-left: 3rem; margin-right: 0; transform: none; }
+            .overview-card .col-md-6 { border: none !important; }
+        }
+        #backToTop { position: fixed; bottom: 2rem; right: 2rem; width: 3rem; height: 3rem; border-radius: 50%; background-color: var(--fg-primary); border: none; color: white; display: none; z-index: 1000; transition: all 0.3s ease; box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.2); }
+        #backToTop:hover { background-color: var(--fg-primary-dark); transform: translateY(-2px); }
+        #backToTop.show { display: flex; align-items: center; justify-content: center; }
+        .badge-signal.badge-bullish { background-color: var(--fg-bullish); color: white; }
+        .badge-signal.badge-bearish { background-color: var(--fg-bearish); color: white; }
+        .badge-signal.badge-neutral { background-color: var(--fg-neutral); color: white; }
+        .accordion-button:not(.collapsed) { background-color: var(--fg-primary); color: white; }
+        .accordion-button:focus { box-shadow: 0 0 0 0.25rem rgba(74, 107, 223, 0.25); }
+        .analysis-content { white-space: pre-wrap; word-wrap: break-word; font-family: inherit; font-size: 0.95em; }
+        .analysis-content h4, .reasoning-text h4 { font-size: 1.1rem; font-weight: bold; color: var(--fg-primary); margin-top: 1rem; margin-bottom: 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--bs-border-color); }
+        .reasoning-text p, .debate-content p, .analysis-content p { margin-bottom: 0; }
+        .analysis-content h4:first-child, .reasoning-text h4:first-child { margin-top: 0; }
+        .analysis-content ul, .reasoning-text ul, .debate-content ul { list-style-type: none; padding-left: 1.5rem; margin-top: 0.5rem; margin-bottom: 0.5rem; }
+        .analysis-content li::before, .reasoning-text li::before, .debate-content li::before { content: "•"; color: var(--fg-primary); font-weight: bold; display: inline-block; width: 1em; margin-left: -1em; }
+        code { color: var(--fg-code); background-color: rgba(253, 126, 20, 0.1); padding: 0.1em 0.3em; border-radius: 0.25rem; font-size: 0.9em; }
+        [data-theme="dark"] code { color: #ffc107; background-color: rgba(255, 193, 7, 0.15); }
+        .text-success { color: var(--fg-bullish) !important; }
+        .text-danger { color: var(--fg-bearish) !important; }
+    </style>
+</head>
+<body data-theme="light">
+    <nav class="navbar navbar-expand-lg sticky-top">
+        <div class="container">
+            <a class="navbar-brand" href="#"><i class="fas fa-chart-line me-2"></i>DiChaos</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"><span class="navbar-toggler-icon"></span></button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto align-items-center">
+                    <li class="nav-item"><a class="nav-link" href="#overview"><i class="fas fa-poll me-1"></i>概览</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#analysis"><i class="fas fa-microscope me-1"></i>分析</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#debate"><i class="fas fa-comments me-1"></i>辩论</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#disclaimer"><i class="fas fa-info-circle me-1"></i>声明</a></li>
+                    <li class="nav-item ms-2"><button id="themeToggle" class="btn btn-outline-primary btn-sm"><i class="fas fa-moon"></i></button></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+ 
+    <main class="container py-4">
+        <section id="overview" class="mb-5"></section>
+        <section id="analysis" class="mb-5"></section>
+        <section id="debate" class="mb-5"></section>
+    </main>
+    
+    <footer id="disclaimer" class="py-4 mt-5 border-top bg-tertiary">
+        <div class="container text-center"><div class="row justify-content-center"><div class="col-md-8">
+            <h5 class="fw-bold mb-3"><i class="fas fa-robot me-2 text-primary"></i>AI生成报告声明</h5>
+            <p class="mb-2">本报告由DiChaos人工智能系统自动生成，基于公开数据和算法模型进行分析。</p>
+            <p class="mb-2 text-warning fw-semibold"><i class="fas fa-exclamation-triangle me-1"></i>内容仅供参考，不构成投资建议。投资有风险，决策需谨慎。</p>
+            <p class="text-muted small mb-0">&copy; {{ current_year }} DiChaos AI分析系统. 版权所有.</p>
+        </div></div></div>
+    </footer>
+ 
+    <button id="backToTop" title="回到顶部"><i class="fas fa-arrow-up"></i></button>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const reportData = {{ report_data_json }};
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeInteractions();
+            renderPage();
+        });
+        
+        function renderPage() {
+            const symbol = reportData.symbol || 'N/A';
+            const date = reportData.date || new Date().toLocaleDateString();
+            document.querySelector('.navbar-brand').insertAdjacentHTML('afterend', `<span class="navbar-text ms-2 d-none d-lg-inline text-muted">${symbol} | ${date}</span>`);
+            
+            renderOverview();
+            renderAnalysisDetails();
+            renderDebateTimeline();
+        }
+        
+        function formatContent(content) {
+            if (!content) return '';
+            
+            const lines = content.split('\n').filter(line => line.trim() !== '');
+            let html = '';
+            let inList = false;
+
+            for (const line of lines) {
+                let processedLine = line.trim();
+
+                if (processedLine.startsWith('*')) {
+                    if (!inList) {
+                        html += '<ul>';
+                        inList = true;
+                    }
+                    processedLine = '<li>' + processedLine.substring(1).trim() + '</li>';
+                } else {
+                    if (inList) {
+                        html += '</ul>';
+                        inList = false;
+                    }
+                    if (processedLine.startsWith('####')) {
+                        processedLine = '<h4>' + processedLine.substring(4).trim() + '</h4>';
+                    } else {
+                        processedLine = '<p>' + processedLine + '</p>';
+                    }
+                }
+                html += processedLine;
+            }
+
+            if (inList) {
+                html += '</ul>';
+            }
+
+            html = html
+                .replace(/\`([^\`]+)\`/g, '<code>$1</code>')
+                .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/【(.+?)】/g, '<strong>【$1】</strong>');
+                
+            return html;
+        }
+
+        function getSignalStyle(signal) {
+            const lowerSignal = (signal || '').toLowerCase();
+            if (lowerSignal === 'bullish') return { class: 'badge-bullish', icon: 'fa-arrow-up', text: '看涨 Bullish' };
+            if (lowerSignal === 'bearish') return { class: 'badge-bearish', icon: 'fa-arrow-down', text: '看跌 Bearish' };
+            return { class: 'badge-neutral', icon: 'fa-minus', text: '中性 Neutral' };
+        }
+        
+        function renderOverview() {
+            const container = document.getElementById('overview');
+            const prediction = reportData.final_prediction;
+            const votes = reportData.battle_results.vote_results;
+            const symbol = reportData.symbol;
+
+            const bullishVotes = votes.bullish || 0;
+            const bearishVotes = votes.bearish || 0;
+            const neutralVotes = votes.neutral || 0;
+            const totalVotes = bullishVotes + bearishVotes + neutralVotes;
+
+            const bullishPct = totalVotes > 0 ? (bullishVotes / totalVotes * 100) : 0;
+            const bearishPct = totalVotes > 0 ? (bearishVotes / totalVotes * 100) : 0;
+            const neutralPct = totalVotes > 0 ? (neutralVotes / totalVotes * 100) : 0;
+            
+            let majoritySignal = prediction.signal;
+            const voteCounts = [{val: bullishVotes, sig: 'bullish'}, {val: bearishVotes, sig: 'bearish'}, {val: neutralVotes, sig: 'neutral'}];
+            voteCounts.sort((a, b) => b.val - a.val);
+            if (voteCounts[0].val > voteCounts[1].val) {
+                majoritySignal = voteCounts[0].sig;
+            }
+            
+            const majoritySignalStyle = getSignalStyle(majoritySignal);
+
+            container.innerHTML = `
+                <div class="text-center mb-4">
+                    <h1 class="display-4 fw-bold text-primary mb-2">${symbol} 综合分析报告</h1>
+                    <p class="lead text-muted">基于AI多专家协同分析</p>
+                </div>
+                <div class="card overview-card shadow-lg">
+                    <div class="card-body p-lg-4">
+                        <div class="row m-0">
+                            <div class="col-md-6 p-4">
+                                <h4 class="fw-bold mb-4 text-center"><i class="fas fa-poll me-2 text-primary"></i>专家投票结果</h4>
+                                <div class="text-center mb-4">
+                                    <span class="badge badge-signal fs-5 px-3 py-2 rounded-pill ${majoritySignalStyle.class}">
+                                        <i class="fas ${majoritySignalStyle.icon} me-1"></i> ${majoritySignalStyle.text}
+                                    </span>
+                                </div>
+                                <div class="row text-center mb-3">
+                                    <div class="col">
+                                        <div class="display-6 fw-bold text-success">${bullishVotes}</div>
+                                        <div class="text-muted small">看涨票数</div>
+                                    </div>
+                                    <div class="col">
+                                        <div class="display-6 fw-bold text-danger">${bearishVotes}</div>
+                                        <div class="text-muted small">看跌票数</div>
+                                    </div>
+                                    <div class="col">
+                                        <div class="display-6 fw-bold text-secondary">${neutralVotes}</div>
+                                        <div class="text-muted small">中性票数</div>
+                                    </div>
+                                </div>
+                                <div class="vote-progress">
+                                    <div class="progress-bar progress-bar-bullish" style="width: ${bullishPct.toFixed(1)}%" title="看涨 ${bullishPct.toFixed(1)}%"></div>
+                                    <div class="progress-bar progress-bar-neutral" style="width: ${neutralPct.toFixed(1)}%" title="中性 ${neutralPct.toFixed(1)}%"></div>
+                                    <div class="progress-bar progress-bar-bearish" style="width: ${bearishPct.toFixed(1)}%" title="看跌 ${bearishPct.toFixed(1)}%"></div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 p-4 border-start-md">
+                                <h4 class="fw-bold mb-4 text-center"><i class="fas fa-brain me-2 text-primary"></i>最终决策理由</h4>
+                                <div class="reasoning-text small text-muted" style="text-align: justify;">${formatContent(prediction.reasoning)}</div>
+                                <div class="mt-4">
+                                    <h6 class="fw-bold">置信度:</h6>
+                                    <div class="progress" style="height: 1.25rem;">
+                                        <div class="progress-bar bg-primary" role="progressbar" style="width: ${prediction.confidence || 0}%;" aria-valuenow="${prediction.confidence || 0}">${prediction.confidence || 0}%</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            if(window.innerWidth >= 768) {
+                 document.querySelector('.overview-card .col-md-6.border-start-md').classList.add('border-start');
+            }
+        }
+        
+        function renderAnalysisDetails() {
+            const container = document.getElementById('analysis');
+            const reports = reportData.reason_reports;
+            const agentVotes = reportData.battle_results.final_votes;
+            const agentIcons = { 'posflow': 'fa-coins', 'clouto': 'fa-comments-dollar', 'moneyflow': 'fa-money-bill-transfer', 'default': 'fa-user-tie' };
+            let accordionHtml = `<div class="text-center mb-4"><h2 class="fw-bold"><i class="fas fa-microscope me-2 text-primary"></i>专家独立分析</h2><p class="text-muted">各AI专家在辩论前的独立决策过程</p></div><div class="accordion" id="analysisAccordion">`;
+            Object.entries(reports).forEach(([agentName, reportContent], index) => {
+                const vote = agentVotes[agentName] || 'neutral';
+                const signalStyle = getSignalStyle(vote);
+                const icon = agentIcons[agentName] || agentIcons['default'];
+                accordionHtml += `
+                    <div class="accordion-item"><h2 class="accordion-header">
+                        <button class="accordion-button ${index !== 0 ? 'collapsed' : ''}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${agentName}">
+                            <i class="fas ${icon} me-2" style="color: var(--fg-primary);"></i>
+                            ${(agentName.charAt(0).toUpperCase() + agentName.slice(1))} 专家
+                            <span class="ms-auto badge badge-signal rounded-pill ${signalStyle.class} me-2">${signalStyle.text.split(' ')[0]}</span>
+                        </button>
+                    </h2><div id="collapse-${agentName}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}" data-bs-parent="#analysisAccordion"><div class="accordion-body">
+                        <div class="analysis-content">${formatContent(reportContent)}</div>
+                    </div></div></div>`;
+            });
+            container.innerHTML = accordionHtml + `</div>`;
+        }
+
+        function renderDebateTimeline() {
+            const container = document.getElementById('debate');
+            const history = reportData.battle_results.debate_history;
+            const agentIcons = { 'posflow': 'fa-coins', 'clouto': 'fa-comments-dollar', 'moneyflow': 'fa-money-bill-transfer', 'default': 'fa-user-tie' };
+            let timelineHtml = `<div class="text-center mb-4"><h2 class="fw-bold"><i class="fas fa-users me-2 text-primary"></i>专家辩论过程</h2><p class="text-muted">AI专家实时辩论的完整记录</p></div><div class="timeline">`;
+            history.forEach((item, index) => {
+                const side = index % 2 === 0 ? 'left' : 'right';
+                const icon = agentIcons[item.speaker] || agentIcons['default'];
+                timelineHtml += `
+                    <div class="timeline-item timeline-item-${side}"><div class="card border-0 shadow-sm">
+                        <div class="card-header bg-primary text-white"><div class="d-flex justify-content-between align-items-center">
+                            <div><i class="fas ${icon} me-2"></i><span class="fw-bold">${item.speaker}</span></div>
+                            <div class="text-end"><small class="opacity-75">第${item.round}轮</small></div>
+                        </div></div>
+                        <div class="card-body">
+                            <div class="debate-content">${formatContent(item.content)}</div>
+                            <div class="mt-3 pt-3 border-top"><small class="text-muted"><i class="fas fa-clock me-1"></i>${item.timestamp || ''}</small></div>
+                        </div>
+                    </div></div>`;
+            });
+            container.innerHTML = timelineHtml + `</div>`;
+        }
+        
+        function initializeInteractions() {
+            const themeToggle = document.getElementById('themeToggle');
+            const body = document.body;
+            themeToggle.addEventListener('click', () => {
+                const newTheme = body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                body.setAttribute('data-theme', newTheme);
+                themeToggle.querySelector('i').className = newTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+                localStorage.setItem('theme', newTheme);
+            });
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            body.setAttribute('data-theme', savedTheme);
+            themeToggle.querySelector('i').className = savedTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+            
+            const backToTop = document.getElementById('backToTop');
+            window.addEventListener('scroll', () => { backToTop.classList.toggle('show', window.pageYOffset > 400); });
+            backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+            
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    document.querySelector(this.getAttribute('href')).scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            });
+        }
+    </script>
+</body>
+</html>
