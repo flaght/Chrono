@@ -2,7 +2,7 @@ import pdb
 from agent.trainer import Trainer as BaseTrainer
 from agent.hotmoney.agent import Agent
 from factors.calculator import create_hotmoney
-from agent.indicator.model import FactorsList, FactorsGroup
+from agent.hotmoney.model import FactorsList, FactorsGroup
 
 
 class Trainer(BaseTrainer):

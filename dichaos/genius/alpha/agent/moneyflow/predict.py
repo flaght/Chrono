@@ -2,7 +2,7 @@ import pdb
 from agent.predictor import Predictor as BasePredictor
 from agent.moneyflow.agent import Agent
 from factors.calculator import create_moneyflow
-from agent.indicator.model import FactorsList, FactorsGroup
+from agent.moneyflow.model import FactorsList, FactorsGroup
 
 
 class Predictor(BasePredictor):

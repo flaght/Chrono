@@ -1,7 +1,7 @@
 from agent.trainer import Trainer as BaseTrainer
 from agent.clouto.agent import Agent
 from factors.calculator import create_heat
-from agent.indicator.model import FactorsList, FactorsGroup
+from agent.clouto.model import FactorsList, FactorsGroup
 
 
 class Trainer(BaseTrainer):

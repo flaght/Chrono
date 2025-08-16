@@ -2,7 +2,7 @@ import pdb
 from agent.trainer import Trainer as BaseTrainer
 from agent.moneyflow.agent import Agent
 from factors.calculator import create_moneyflow
-from agent.indicator.model import FactorsList, FactorsGroup
+from agent.moneyflow.model import FactorsList, FactorsGroup
 
 
 class Trainer(BaseTrainer):

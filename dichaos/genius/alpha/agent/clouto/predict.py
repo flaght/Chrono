@@ -1,7 +1,7 @@
 import pdb
 from agent.predictor import Predictor as BasePredictor
 from factors.calculator import create_heat
-from agent.indicator.model import FactorsList, FactorsGroup
+from agent.clouto.model import FactorsList, FactorsGroup
 from agent.clouto.agent import Agent
 
 

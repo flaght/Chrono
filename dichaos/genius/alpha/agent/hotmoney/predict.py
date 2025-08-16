@@ -2,7 +2,7 @@ import pdb
 from agent.predictor import Predictor as BasePredictor
 from agent.hotmoney.agent import Agent
 from factors.calculator import create_moneyflow
-from agent.indicator.model import FactorsList, FactorsGroup
+from agent.hotmoney.model import FactorsList, FactorsGroup
 
 
 class Predictor(BasePredictor):
@@ -12,7 +12,6 @@ class Predictor(BasePredictor):
         self.initialize_agent(memory_path=memory_path, date=date)
 
     def prepare_data(self, begin_date, end_date):
-        pdb.set_trace()
         self.specific_factors = create_moneyflow(begin_date=begin_date,
                                                  end_date=end_date,
                                                  codes=[self.symbol],
