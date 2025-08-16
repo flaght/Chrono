@@ -9,7 +9,7 @@ from dichaos.kdutils import kd_logger
 from dichaos.battle.environment import AsyncBattleEnvironment
 from dichaos.battle.state import BattleState
 from agent.agents import Agents
-from agent import IndicatorPredict, CloutoPredict, MoneyFlowPredict
+from agent import IndicatorPredict, CloutoPredict, MoneyFlowPredict, HotMoneyPredict, ChipPredict
 from agent.decision.agent import DecisionAgent
 from kdutils.report import ReportGenerator
 
@@ -25,7 +25,13 @@ async def run_concurrent_predictions(model_date: str, end_date: str,
                          symbol=symbol),
         MoneyFlowPredict(date=model_date,
                          memory_path=os.path.join("records"),
-                         symbol=symbol)
+                         symbol=symbol),
+        HotMoneyPredict(date=model_date,
+                        memory_path=os.path.join("records"),
+                        symbol=symbol),
+        ChipPredict(date=model_date,
+                    memory_path=os.path.join("records"),
+                    symbol=symbol)
     ]
 
     end_date = advanceDateByCalendar('china.sse', end_date,
