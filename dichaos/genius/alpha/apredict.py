@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from alphacopilot.calendars.api import advanceDateByCalendar
-from agent import IndicatorPredict, CloutoPredict, MoneyFlowPredict
+from agent import IndicatorPredict, CloutoPredict, MoneyFlowPredict, HotMoneyPredict, ChipPredict
 
 
 def agent_predict1():
@@ -12,9 +12,9 @@ def agent_predict1():
     begin_date = advanceDateByCalendar('china.sse', end_date,
                                        '-{0}b'.format(10)).strftime('%Y-%m-%d')
     symbol = '688585'  #'601519'
-    predict = IndicatorPredict(symbol=symbol,
-                               memory_path=os.path.join("records"),
-                               date='2025-01-27')
+    predict = ChipPredict(symbol=symbol,
+                          memory_path=os.path.join("records"),
+                          date='2025-01-27')
 
     predict.prepare_data(begin_date=end_date, end_date=end_date)
     predict_data = predict.create_data(date=end_date)
@@ -35,6 +35,12 @@ async def agent_predict2(symbol):
                          memory_path=os.path.join("records"),
                          symbol=symbol),
         MoneyFlowPredict(date=model_date,
+                         memory_path=os.path.join("records"),
+                         symbol=symbol),
+        HotMoneyPredict(date=model_date,
+                         memory_path=os.path.join("records"),
+                         symbol=symbol),
+        ChipPredict(date=model_date,
                          memory_path=os.path.join("records"),
                          symbol=symbol)
     ]

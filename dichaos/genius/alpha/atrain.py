@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from alphacopilot.calendars.api import advanceDateByCalendar
-from agent import IndicatorTrain, MoneyFlowTrain, CloutoTrain
+from agent import IndicatorTrain, MoneyFlowTrain, CloutoTrain, HotMoneyTrain, ChipTrain
 
 
 def agent_train1():
@@ -15,9 +15,9 @@ def agent_train1():
                                      '-{0}b'.format(1)).strftime('%Y-%m-%d')
     symbol = '601519'
 
-    train = MoneyFlowTrain(config_path=os.path.join("agent"),
-                        memory_path=os.path.join("records"),
-                        symbol=symbol)
+    train = ChipTrain(config_path=os.path.join("agent"),
+                      memory_path=os.path.join("records"),
+                      symbol=symbol)
 
     train.prepare_data(begin_date=end_date, end_date=end_date)
 
@@ -41,7 +41,13 @@ async def agent_train2(symbol):
                        symbol=symbol),
         MoneyFlowTrain(config_path=os.path.join("agent"),
                        memory_path=os.path.join("records"),
-                       symbol=symbol)
+                       symbol=symbol),
+        HotMoneyTrain(config_path=os.path.join("agent"),
+                      memory_path=os.path.join("records"),
+                      symbol=symbol),
+        ChipTrain(config_path=os.path.join("agent"),
+                  memory_path=os.path.join("records"),
+                  symbol=symbol)
     ]
     end_date = '2025-02-01'
     returns = 0.05
