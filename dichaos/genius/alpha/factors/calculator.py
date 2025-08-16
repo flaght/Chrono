@@ -1,3 +1,5 @@
+import numpy as np
+from numba import jit
 from alphacopilot.calendars.api import advanceDateByCalendar
 from .extractor import *
 import lumina.impulse.v001 as v001
@@ -310,7 +312,6 @@ def create_hotmoney(begin_date, end_date, codes, window, **kwargs):
     hotmoney_data = fetch_hotmoney(begin_date=start_date.strftime('%Y-%m-%d'),
                                    end_date=end_date,
                                    codes=codes)
-    pdb.set_trace()
     ### 针对不同因子对空值的处理
     hotmoney_data1 = hotmoney_data.copy()
     hotmoney_data2 = hotmoney_data.fillna(0)
@@ -322,50 +323,64 @@ def create_hotmoney(begin_date, end_date, codes, window, **kwargs):
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
-    
+
     create_factors(name='Hm002',
                    keys=[(1, 1, 1), (1, 5, 1)],
                    kl_pd=hotmoney_data2,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
-    
+
     create_factors(name='Hm003',
                    keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
                    kl_pd=hotmoney_data2,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
-    
+
     create_factors(name='Hm004',
                    keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
                    kl_pd=hotmoney_data2,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
-    
+
     create_factors(name='Hm005',
                    keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
                    kl_pd=hotmoney_data2,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
-    
+
     create_factors(name='Hm006',
                    keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
                    kl_pd=hotmoney_data2,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
-    
+
     create_factors(name='Hm007',
                    keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
                    kl_pd=hotmoney_data2,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
-    
+
     create_factors(name='Hm008',
+                   keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
+                   kl_pd=hotmoney_data2,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name='Hm009',
+                   keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
+                   kl_pd=hotmoney_data2,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name='Hm010',
                    keys=[(1, 1, 1), (1, 3, 1), (1, 5, 1)],
                    kl_pd=hotmoney_data2,
                    begin_date=begin_date,
@@ -373,3 +388,227 @@ def create_hotmoney(begin_date, end_date, codes, window, **kwargs):
                    factor_res=factor_res)
     return factor_res
 
+
+def create_chip(begin_date, end_date, codes, window, **kwargs):
+    factor_res = {}
+    start_date = advanceDateByCalendar('china.sse', begin_date,
+                                       '-{0}b'.format(window))
+    market_data = fetch_main_daily(begin_date=start_date.strftime("%Y-%m-%d"),
+                                   end_date=end_date,
+                                   codes=codes,
+                                   columns=[
+                                       'openPrice', 'highestPrice',
+                                       'lowestPrice', 'closePrice',
+                                       'turnoverVol', 'turnoverValue',
+                                       'turnoverRate'
+                                   ])
+    chip_data = calculator_chip(market_data=market_data)
+    market_data['chip_data'] = chip_data
+
+    create_factors(name="Cp001",
+                   keys=[()],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp002",
+                   keys=[()],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp003",
+                   keys=[(0.1,), (0.2,)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp004",
+                   keys=[(0.8,), (0.9,)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp005",
+                   keys=[(0.8, 5), (0.9, 5)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp006",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp007",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp008",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp009",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp010",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp011",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp012",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp013",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp014",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp015",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    #create_factors(name="Cp016",
+    #               keys=[(1, 0), (5, 0)],
+    #               kl_pd=market_data,
+    #               begin_date=begin_date,
+    #               end_date=end_date,
+    #               factor_res=factor_res)
+
+    create_factors(name="Cp017",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+    create_factors(name="Cp018",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp019",
+                   keys=[(1, 0), (5, 0)],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    create_factors(name="Cp020",
+                   keys=[()],
+                   kl_pd=market_data,
+                   begin_date=begin_date,
+                   end_date=end_date,
+                   factor_res=factor_res)
+
+    return factor_res
+
+
+###辅助函数
+#@jit(nopython=True)
+def fast_chip_simulation(prices, turnovers, price_bins, decay_factor):
+    """
+    使用 Numba 加速的筹-码分布计算核心循环。
+    这里的所有操作都基于 Numpy 数组，以获得最高性能。
+    """
+    num_days = len(prices)
+    num_bins = len(price_bins)
+    chip_distribution = np.zeros(num_bins, dtype=np.float64)
+    # 首次交易，假设全部筹码在当天成交
+    initial_price_index = np.searchsorted(price_bins, prices[0],
+                                          side='right') - 1
+    if 0 <= initial_price_index < num_bins:
+        chip_distribution[initial_price_index] = 1.0
+    # 从第二天开始迭代
+    for i in range(1, num_days):
+        turnover = turnovers[i]
+        avg_price = prices[i]
+
+        # 1. 计算衰减和换手
+        # a. 未换手的筹码进行衰减
+        remaining_chips = chip_distribution * (1 - turnover)
+        # b. 换手的筹码进行更强的衰减（或视为完全移除并重新分配）
+        exchanged_chips_total = chip_distribution.sum() * turnover
+
+        # 应用衰减
+        chip_distribution = remaining_chips * decay_factor
+
+        # 2. 将换手的筹码添加到新成本区
+        price_index = np.searchsorted(price_bins, avg_price, side='right') - 1
+        if 0 <= price_index < num_bins:
+            chip_distribution[price_index] += exchanged_chips_total
+
+    return chip_distribution
+
+
+def calculator_chip(market_data):
+    res = []
+    decay_factor = 0.999
+    for k, v in market_data.items():
+        v1 = v.stack()
+        v1.name = k
+        res.append(v1)
+    hist_data = pd.concat(res, axis=1)
+    hist_data['avg_price'] = (hist_data['low'] + hist_data['high']) / 2
+    # 1. 准备 Numpy 数组
+    avg_prices_np = hist_data['avg_price'].to_numpy()
+    turnovers_np = hist_data['turnover'].to_numpy()
+
+    # 2. 创建价格网格
+    price_min = hist_data['low'].min()
+    price_max = hist_data['high'].max()
+    price_bins_np = np.linspace(price_min, price_max, 201)
+
+    final_chips_np = fast_chip_simulation(avg_prices_np, turnovers_np,
+                                          price_bins_np, decay_factor)
+
+    total_chips = final_chips_np.sum()
+    if total_chips > 0:
+        final_chips_np = (final_chips_np / total_chips) * 100
+
+    result_df = pd.DataFrame({'price': price_bins_np, 'chips': final_chips_np})
+    result_df = result_df[result_df['chips'] > 0.001]
+    return result_df

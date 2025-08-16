@@ -11,7 +11,8 @@ def fetch_main_daily(begin_date, end_date, codes, columns):
         'lowestPrice': 'low',
         'closePrice': 'close',
         'turnoverVol': 'volume',
-        'turnoverValue': 'amount'
+        'turnoverValue': 'amount',
+        'turnoverRate': 'turnover'
     }
     data = RetrievalAPI.get_data_by_map(columns=columns,
                                         codes=codes,
