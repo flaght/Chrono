@@ -91,6 +91,23 @@ expression_str_md = """
 | **时序算子** | `MAPOSITIVE(window, x)` | 滚动正数均值 | 计算过去`window`周期内所有正数的均值。 |
 """
 
+features_str_md = """
+    `$open`: 开盘价, 
+    `$high`: 最高价, 
+    `$low`: 最低价, 
+    `$close`: 收盘价, 
+    `$volume`: 成交量, 
+    `$openint`:持仓量,
+    `money_flow_volume_in`: 主动买入的总成交量,
+    `money_flow_volume_out`: 主动卖出的总成交量,
+    `vwap_tick`:`单笔成交均价`,
+    `vwap_total`:时间窗⼝总成交均价,
+    `money_flow_tick_in`:主动买⼊的成交笔数
+    `money_flow_net_tick_in`:净主动买⼊笔数,
+    `money_flow_net_volume_in`:净主动买⼊成交量
+    `money_flow_smart_money_out`:聪明钱卖出⾦额（⾼于均价的主动卖单）
+"""
+
 EXPS_SYSTEM_PROMPT = """
 你是一位顶级的**量化因子构建专家**，不仅精通数学表达式，更是一位富有创造力的策略师。你的工作是基于一个核心思路，从**多个不同维度**进行发散性思考，构建出一系列**结构各异、逻辑多样**的因子。
 
@@ -100,14 +117,18 @@ EXPS_SYSTEM_PROMPT = """
 ### **第一部分：因子表达式 (expression) - 核心要求：多样性**
 *   **基础任务**: 将给定的自然语言描述，转化为一个单行的、可执行的因子表达式。
 *   **铁律 1 (唯一允许的元素)**:
-    *   **特征 (Features)**: `$open`, `$high`, `$low`, `$close`, `$volume`, `$openint`
-    *   **算子 (Operators)**: {0}
+    *   **特征 (Features)**: {0}
+    *   **算子 (Operators)**: {1}
 *   **铁律 2 (绝对禁止的行为)**:
     *   **禁止发明特征**: 严禁使用任何不在允许列表中的特征，特别是 `$market_close` 等。
-    *   **禁止使用未授权算子**: 必须严格使用上述算子列表。
+    *   **禁止使用未授权算子**: 严禁使用任何不在允许列表中的算子， 必须严格使用上述算子列表。特别是 `GT`, `CASE` 在算子列表中根本没有出现的算子
+    *   **禁止多行表达式**: 必须是完整的表达式，例如：`DIV(SUBBED($close, SHIFT(20, $close)), SHIFT(20, $close))`，坚决禁止拆分， 禁止引入任何与特征和算子无关的内容，严禁多行或者引入其他代码。 \n\n
+        严禁出现 `let`,分号等 如 : let sync_ratio = DIV(MSUM(20, IF(SIGN(DELTA(1, $volume)) == SIGN(DELTA(1, $openint)), 1, 0)), 20); let price_change_rate = DIV(DELTA(1, $close), SHIFT(1, $close)); 
+
 *   **创造性指引 (Creative Guidance)**: 为了确保10个因子的多样性，你必须尝试从以下至少3-4个不同角度进行构思：
     *   **不同指标组合**: 尝试将思路与不同的基础指标（如均线、波动率、排名）结合。例如，不是直接计算量价关系，而是计算**均线处理后的量价关系**。
-    *   **逻辑变形**: 原始思路是相乘？试试相减、相除或者构建条件逻辑（如使用 `Greater`, `Less`）。
+    *   **公式简约不简单**: 降低表达式的复杂端。要主动深挖逻辑性。表达式使用的算子严禁超过6个。
+    *   **逻辑变形**: 原始思路是相乘？试试相减、相除或者构建条件逻辑。
     *   **引入非对称性**: 考虑上涨和下跌时量价关系的不同。例如，只在上涨时计算，或对上涨和下跌赋予不同权重。
     *   **标准化/归一化**: 尝试使用 `Std` (标准差) 或 `Rank` (排名) 对因子进行处理，以消除量纲影响或增强截面可比性。
     *   **不同价量特征**: 不要只用 `$close` 和 `$volume`。尝试引入 `$high`, `$low` 与成交量的关系，或者考虑日内振幅。
@@ -136,7 +157,7 @@ EXPS_SYSTEM_PROMPT = """
 EXPS_USER_PROMPT = """
 请严格遵循系统设定中的所有规则，特别是关于**创造性和多样性**的要求。
 
-基于以下核心因子思路，请生成一个包含10个**结构不同**的因子变体的JSON输出。
+基于以下核心因子思路，请生成一个包含20个**结构不同**，**逻辑性相关系低**的因子变体的JSON输出。
 
 **因子思路描述:**
 > "{description}"
@@ -161,7 +182,7 @@ EXPS_USER_PROMPT = """
 }}
 """
 
-new_prompt = EXPS_SYSTEM_PROMPT.format(expression_str_md)
+new_prompt = EXPS_SYSTEM_PROMPT.format(features_str_md, expression_str_md)
 
 
 class DomInfo(BaseModel):
