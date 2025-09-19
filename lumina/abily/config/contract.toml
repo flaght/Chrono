@@ -2,6 +2,7 @@
  ## 规则 6位数，1XXYYY，XX为 品种的序号，YYY 为不同任务情况
 [GENTIC_INDEX]
 IF=200017
+IC=140001
 IM=200036
 RB=113001
 
@@ -9,6 +10,7 @@ RB=113001
 200037 = 'level2'
 200036 = 'basic'
 113001 = 'basic'
+140001 = 'basic'
 
 [PERFORMANCE]
 113001='profit_sharpe'
@@ -29,9 +31,13 @@ IF=300
 IM=200
 
 [COST]
-RB=0.00007
+RB=0.00005
 IF=0.00023
-IM=0.00023#0.0008
+IM=0.00012
+
+[COST_MODE]
+RB="rate"
+IM="rate"
 
 [SLIPPAGE]
 RB=0
