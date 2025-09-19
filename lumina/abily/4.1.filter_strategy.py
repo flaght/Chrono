@@ -92,6 +92,7 @@ class FilterStrategy(object):
 
     ## 快速清理掉大量不合格的策略 既要保证基础能力，也要看初步泛化
     def stage_sanity_check(self, programs, config):
+        pdb.set_trace()
         kd_logger.info("STAGE 1: Sanity Check")
         programs_pd = programs.copy()
 
@@ -133,15 +134,15 @@ class FilterStrategy(object):
                                       total_data: pd.DataFrame,
                                       custom_params: dict,
                                       config: dict) -> pd.DataFrame:
-
         positions['code'] = INSTRUMENTS_CODES[self.instruments]
         positions = positions.set_index(['trade_time', 'code'])
         kd_logger.info("STAGE 3: Rolling Stability Check")
-        initial_count = len(positions)
+        initial_count = positions.shape[1]
         # 准备 unstacked 的市场数据，以备循环内使用
         total_data = total_data.copy().reset_index().set_index(
             ['trade_time', 'code']).unstack()
 
+        res = []
         stable_survivors_names = []
         strategy_settings = custom_params.get('strategy_settings', {})
         for name in programs['name']:
@@ -185,6 +186,13 @@ class FilterStrategy(object):
                     f"  - Strategy '{name}': 滚动稳定性不达标。Std={rolling_std:.2f}, WinRate={win_rate:.2%}, MinPerf={min_perf:.2f}。剔除。"
                 )
 
+            res.append({
+                'name': name,
+                'rolling_std': rolling_std,
+                'win_rate': win_rate,
+                'min_perf': min_perf
+            })
+        pdb.set_trace()
         survivors_df = programs[programs['name'].isin(stable_survivors_names)]
         kd_logger.info(
             f"Stage 3 (Rolling Stability) 后剩余: {len(survivors_df)} / {initial_count}"
@@ -253,13 +261,13 @@ class FilterStrategy(object):
                                    > config.get('positive_sharpe_threshold',
                                                 0)).mean(axis=1)
         cv_stats['cv_worst_fold_fitness'] = performance_matrix.min(axis=1)
-
+        pdb.set_trace()
         # --- 步骤 4: 根据CV统计指标进行最终筛选 ---
         stable_strategies_mask = (
-            (cv_stats['cv_mean_fitness'] > config['min_cv_mean_fitness']) &
-            (cv_stats['cv_std_fitness'] < config['max_cv_std']) &
-            (cv_stats['cv_win_rate'] > config['min_cv_win_rate']) &
-            (cv_stats['cv_worst_fold_fitness'] > config['min_cv_worst_fold']))
+            (cv_stats['cv_mean_fitness'] >= config['min_cv_mean_fitness']) &
+            (cv_stats['cv_std_fitness'] <= config['max_cv_std']) &
+            (cv_stats['cv_win_rate'] >= config['min_cv_win_rate']) &
+            (cv_stats['cv_worst_fold_fitness'] >= config['min_cv_worst_fold']))
         stable_strategy_names = cv_stats[stable_strategies_mask].index
         survivors = programs[programs['name'].isin(
             stable_strategy_names)].copy()
@@ -619,7 +627,7 @@ def prepare_data(instruments, method, task_id):
 
 if __name__ == '__main__':
     method = 'aicso0'
-    task_id = '200037'
+    task_id = '200036'
     instruments = 'ims'
 
     programs, train_val_data, val_data, train_val_positions, val_positions = prepare_data(
@@ -631,10 +639,10 @@ if __name__ == '__main__':
             'min_train_fitness': 1.0,
 
             # 验证集夏普比率必须大于0.1，确保其在样本外有最基本的生存能力。
-            'min_val_fitness': 0.1
+            'min_val_fitness': 0.0
         },
         'stage_oc': {
-            'min_retention_rate': 0.3  # 训练集到验证集的保留率
+            'min_retention_rate': 0.1  # 训练集到验证集的保留率
         },
         'stage_rsc': {  # 使用120个交易日作为滚动窗口来计算夏普比率
             'rolling_window': 120,
@@ -646,17 +654,17 @@ if __name__ == '__main__':
             'max_rolling_std': 2.5,
 
             # 至少有60%的时间窗口内，策略的夏普是正的。
-            'min_rolling_win_rate': 0.60,
+            'min_rolling_win_rate': 0.55,
 
-            # 在表现最差的那个窗口，夏普比率也不能低于-2.0，防止策略有致命缺陷。
-            'min_worst_window_perf': -2.3
+            # 在表现最差的那个窗口，夏普比率也不能低于-3.5，防止策略有致命缺陷。
+            'min_worst_window_perf': -4.5
         },
         'stage_tcc': {
             'n_splits': 5,  # 将验证集切分成N折进行交叉验证。
             'positive_sharpe_threshold': 0.01,  ## 定义夏普大于多少算“正”，用于计算win_rate
-            'min_cv_mean_fitness': 0.8,  #策略在所有未来时间片段上的平均夏普至少要大于0.3，证明其平均泛化能力
+            'min_cv_mean_fitness': 0.3,  #策略在所有未来时间片段上的平均夏普至少要大于0.3，证明其平均泛化能力
             'max_cv_std': 4.0,  ## 不同未来时间片段上的夏普表现不能波动太大，标准差应小于2.0
-            'min_cv_win_rate': 0.6,  ## 在60%的未来时间片段上（5折中的3折），策略都必须是盈利的。
+            'min_cv_win_rate': 0.5,  ## 在60%的未来时间片段上（5折中的3折），策略都必须是盈利的。
             'min_cv_worst_fold': -6.0,  # 即使在表现最差的那个时间片段，夏普也不能低于-2.5。
         },
         'stage_na': {
@@ -691,7 +699,7 @@ if __name__ == '__main__':
     }
 
     strategy_settings = {
-        'commission': COST_MAPPING[INSTRUMENTS_CODES[instruments]] * 0.05,
+        'commission': COST_MAPPING[INSTRUMENTS_CODES[instruments]],
         'slippage': 0,  #SLIPPAGE_MAPPING[INSTRUMENTS_CODES[g_instruments]],
         'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[instruments]]
     }

@@ -18,7 +18,7 @@ from kdutils.composite.models.bayes import NativeBayesClassifier
 if __name__ == '__main__':
     method = 'aicso0'
     instruments = 'ims'
-    task_id = '200037'
+    task_id = '200036'
     config_file = os.path.join('config', 'heuristic.toml')
     strategy_pool = fetch_experiment(config_file=config_file,
                                      method=method,
@@ -66,6 +66,7 @@ if __name__ == '__main__':
 
         synthesized_positions_list = []
 
+        '''
         lg1 = LightBGMClassifier(instruments=instruments,
                                  names=names,
                                  strategy_settings=strategy_settings,
@@ -75,6 +76,7 @@ if __name__ == '__main__':
                 train_positions=train_positions,
                 val_positions=val_positions,
                 test_positions=test_positions)
+        '''
         
         
         nb1 = NativeBayesClassifier(instruments=instruments,
@@ -109,7 +111,7 @@ if __name__ == '__main__':
         #                       strategy_settings=strategy_settings)
         print(f"策略池 '{key}' 合成完毕，开始循环处理所有合成策略...")
         for synth_pos in synthesized_positions_list:
-            print(f"  分割存储仓位: {synth_pos.name}...")
+            print(f"分割存储仓位: {synth_pos.name}...")
             split_positions(base_dirs=base_dirs,
                             positions=synth_pos,
                             time_periods=time_periods,
