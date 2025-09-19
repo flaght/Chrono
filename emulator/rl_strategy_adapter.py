@@ -1,4 +1,3 @@
-# rl_strategy_adapter.py
 import numpy as np
 from collections import deque
 from typing import List
