@@ -95,6 +95,7 @@ def main(method, instruments):
     data = fetch_main_market(begin_date=start_time,
                              end_date=end_date,
                              codes=[INSTRUMENTS_CODES[instruments]])
+    pdb.set_trace()
     data = data.set_index(['trade_time', 'code']).unstack()
     calculate_factors(data,
                       instruments=instruments,
@@ -117,13 +118,16 @@ def merge(method, instruments):
                 res.append(factor_data.set_index(['trade_time', 'code']))
     factors_data = pd.concat(res, axis=1).sort_index()
     factors_data = factors_data.unstack().fillna(method='ffill')
-    factors_data = factors_data.stack().dropna().reset_index()
+    factors_data = factors_data.stack()
+    ### 先剔除全部nan的列
+    nan_columns = factors_data.columns[factors_data.isna().all()]
+    factors_data = factors_data.drop(nan_columns,axis=1)
+    factors_data = factors_data.dropna().reset_index()
     start_date = factors_data['trade_time'].min().strftime('%Y-%m-%d %H:%M:%S')
     end_date = factors_data['trade_time'].max().strftime('%Y-%m-%d %H:%M:%S')
     data = fetch_main_market(begin_date=start_date,
                              end_date=end_date,
                              codes=[INSTRUMENTS_CODES[instruments]])
-    pdb.set_trace()
     factors_data = factors_data.merge(data[[
         'trade_time', 'code', 'close', 'high', 'low', 'open', 'value',
         'volume', 'openint', 'vwap'
@@ -163,5 +167,106 @@ def merge(method, instruments):
                      'test_data.feather'))
 
 
-main(method='aicso0', instruments='ims')
-merge(method='aicso0', instruments='ims')
+def create_chg(market_data, name='vwap'):
+    pricep = market_data.set_index(['trade_time', 'code'])[name].unstack()
+    pre_pricep = pricep.shift(1)
+    ret_v2v = np.log((pricep) / pre_pricep)
+    yields_data = ret_v2v.shift(-2)
+    yields_data = yields_data.stack()
+    yields_data.name = 'chg_pct'
+    return yields_data.reset_index()
+
+
+def create_yields(data, horizon, offset=0):
+    df = data.copy()
+    df.set_index("trade_time", inplace=True)
+    ## chg为log收益
+    df['nxt1_ret'] = df['chg_pct']
+    df = df.groupby("code").rolling(
+        window=horizon, min_periods=1)['nxt1_ret'].sum().groupby(level=0)
+    df = df.shift(0).unstack().T.shift(-(horizon + offset - 1)).stack(
+        dropna=False)
+    df.name = 'nxt1_ret'
+    return df
+
+
+def fetch_returns(begin_date, end_date, codes):
+    res = []
+    horizon_sets = [1, 2, 3, 5, 10, 15]
+    market_data = fetch_main_market(begin_date=begin_date,
+                                    end_date=end_date,
+                                    codes=codes)
+    chg_data = create_chg(market_data)
+    for horizon in horizon_sets:
+        df = create_yields(data=chg_data.copy(), horizon=horizon)
+        df.name = "nxt1_ret_{0}h".format(horizon)
+        res.append(df)
+
+    data1 = pd.concat(res, axis=1)
+    weights_raw = {
+        'nxt1_ret_1h': 3,  # T+1 最大
+        'nxt1_ret_2h': 2,  # T+2 其次
+        'nxt1_ret_3h': 1  # T+3 最小
+    }
+    pdb.set_trace()
+    total_raw_weight = sum(weights_raw.values())
+    weights = {col: w / total_raw_weight for col, w in weights_raw.items()}
+
+    data1['time_weight'] = (data1['nxt1_ret_1h'] * weights['nxt1_ret_1h'] +
+                            data1['nxt1_ret_2h'] * weights['nxt1_ret_2h'] +
+                            data1['nxt1_ret_3h'] * weights['nxt1_ret_3h'])
+
+    data1['equal_weight'] = data1[weights_raw.keys()].mean(axis=1)
+    return data1
+
+
+def returns(method, instruments):
+    start_date, end_date = get_dates(method)
+    begin_date1 = advanceDateByCalendar("china.sse", start_date,
+                                        '-5b').strftime('%Y-%m-%d')
+    end_date1 = advanceDateByCalendar("china.sse", end_date,
+                                      '5b').strftime('%Y-%m-%d')
+
+    returns_data = fetch_returns(begin_date=begin_date1,
+                                 end_date=end_date1,
+                                 codes=[INSTRUMENTS_CODES[instruments]])
+    returns_data = returns_data.loc[start_date:end_date]
+    returns_data = returns_data.reset_index()
+
+    returns_data['trade_time'] = pd.to_datetime(
+        returns_data['trade_time']).dt.strftime('%Y-%m-%d %H:%M:%S')
+    returns_data = returns_data.sort_values(by=['trade_time', 'code'])
+
+    times = returns_data['trade_time'].unique().tolist()
+
+    len1 = round(len(times) * 0.7)  # 70%部分
+    len2 = round(len(times) * 0.2)  # 20%部分
+    len3 = len(times) - len1 - len2
+    pdb.set_trace()
+    ## 训练集
+    train_data = returns_data[returns_data['trade_time'].isin(times[:len1])]
+    val_data = returns_data[returns_data['trade_time'].isin(times[len1:len1 +
+                                                                  len2])]
+    test_data = returns_data[returns_data['trade_time'].isin(times[len1 +
+                                                                   len2:])]
+    ## 校验集
+    ## 测试集
+    ### 切割数据
+    target_dir = os.path.join(base_path, method, instruments, 'basic')
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir)
+    pdb.set_trace()
+    train_data.reset_index(drop=True).to_feather(
+        os.path.join(base_path, method, instruments, 'returns',
+                     'train_returns.feather'))
+    val_data.reset_index(drop=True).to_feather(
+        os.path.join(base_path, method, instruments, 'returns',
+                     'val_returns.feather'))
+    test_data.reset_index(drop=True).to_feather(
+        os.path.join(base_path, method, instruments, 'returns',
+                     'test_returns.feather'))
+
+
+main(method='bicso1', instruments='ims')
+#merge(method='bicso1', instruments='ims')
+#returns(method='bicso1', instruments='ims')

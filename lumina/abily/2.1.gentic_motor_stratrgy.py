@@ -153,7 +153,7 @@ def train(method, instruments):
         'size': CONT_MULTNUM_MAPPING[INSTRUMENTS_CODES[instruments]]
     }
     configure = {
-        'n_jobs': 8,
+        'n_jobs': 1,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 4,

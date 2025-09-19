@@ -1,21 +1,24 @@
-### 多进程计算策略仓位 收益 序列 生成文件
-### 参照 gentic fusion actuator 多进程生成，修改对应方法
+import pdb, os, argparse, itertools
 import pandas as pd
-import sqlalchemy as sa
-import itertools
-import os, pdb, sys, json, math
+import numpy as np
+from dotenv import load_dotenv
+
+from lumina.genetic.process import *
+from ultron.tradingday import advanceDateByCalendar
 from lumina.genetic.metrics.ts_pnl import calculate_ful_ts_ret
 from lumina.genetic.signal.method import *
 from lumina.genetic.strategy.method import *
 from lumina.genetic.process import *
 from ultron.factor.genetic.geneticist.operators import *
 import ultron.factor.empyrical as empyrical
-from dotenv import load_dotenv
 
 load_dotenv()
+from pymongo import InsertOne, DeleteOne
+from kdutils.mongodb import MongoDBManager
+from kdutils.composite.prepare import *
 
-from kdutils.common import *
-from kdutils.macro2 import *
+mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
+
 
 
 ### 对比和训练集
@@ -40,7 +43,6 @@ def compare_fitness_rate(column, method, instruments, times_info, task_id,
 
         total_data = total_data.drop_duplicates(
             subset=['trade_time', 'code']).reset_index(drop=True)
-        pdb.set_trace()
         ## 计算
         total_data1 = total_data.set_index(['trade_time'])
         total_data2 = total_data.set_index(['trade_time', 'code']).unstack()
@@ -49,7 +51,7 @@ def compare_fitness_rate(column, method, instruments, times_info, task_id,
         strategy_method = column['strategy_method']
         signal_params = column['signal_params']
         strategy_params = column['strategy_params']
-        
+
         #expression = "MSharp(10,MPERCENT(12,MMeanRes(8,'oi017_5_10_1','oi031_5_10_0')),MDPO(20,MSKEW(2,'cr035_5_10_1')))"
         #signal_method = "autocorr_signal"
         #strategy_method = "trailing_strategy"
@@ -64,7 +66,6 @@ def compare_fitness_rate(column, method, instruments, times_info, task_id,
             key: value
             for key, value in strategy_params.items() if value is not None
         }
-        pdb.set_trace()
         ### 保持和挖掘一致， 要做inf值处理，要做极小值处理
         factor_data = calc_factor(expression=expression,
                                   total_data=total_data1,
@@ -86,7 +87,6 @@ def compare_fitness_rate(column, method, instruments, times_info, task_id,
 
         total_data1 = cycle_total_data.reset_index().set_index(
             ['trade_time', 'code']).unstack()
-        pdb.set_trace()
         pos_data = eval(signal_method)(factor_data=factors_data1,
                                        **signal_params)
         pos_data1 = eval(strategy_method)(signal=pos_data,
@@ -184,12 +184,30 @@ def compare_fitness_rate(column, method, instruments, times_info, task_id,
     }
 
 
+
+def compare_fitness_rate_catch(column, method, instruments, times_info, task_id,
+                         base_dirs):
+    try:
+        return compare_fitness_rate(column=column, method=method, instruments=instruments,
+                             times_info=times_info,task_id=task_id,base_dirs=base_dirs)
+    except Exception as e:
+        return {
+        'name': column['name'],
+        'all_fitness': -1,
+        'train_fitness': -1,
+        'val_fitness': -1,
+        'test_fitness': -1,
+        'val_retention': -1,
+        'test_retention': -1,
+        'mark': "{0}:{1}".format(str(e),column['formual'])
+    }
+
 ### 批量生成策略
 @add_process_env_sig
 def run_position(target_column, method, instruments, times_info, task_id,
                  base_dirs):
     position_data = run_process(target_column=target_column,
-                                callback=compare_fitness_rate,
+                                callback=compare_fitness_rate_catch,
                                 method=method,
                                 instruments=instruments,
                                 times_info=times_info,
@@ -198,29 +216,58 @@ def run_position(target_column, method, instruments, times_info, task_id,
     return position_data
 
 
-if __name__ == '__main__':
-    method = 'aicso0'
-    instruments = 'ims'
-    task_id = '200036'
-    threshold = 1.1
 
+def fetch_strategy(trade_time, score, category):
+    results = mongo_client['neutron']['quvse_rulex_details'].find(
+        {
+            'score': {
+                "$gte": score
+            },
+            "timestampe": {
+                "$gte": trade_time
+            },
+            'category': category,
+        }, {
+            'expression': 1,
+            'signal_method': 1,
+            'signal_params': 1,
+            'strategy_method': 1,
+            'strategy_params': 1,
+            'score': 1,
+            'name': 1
+        })
+    data = pd.DataFrame(results)
+    return data.rename(columns={'expression':'formual'})
+
+
+def update_results(data, keys=[]):
+    insert_request = [
+        InsertOne(data) for data in data.to_dict(orient='records')
+    ]
+
+    delete_request = [
+        DeleteOne(data) for data in data[keys].to_dict(orient='records')
+    ]
+    _ = mongo_client['neutron']['abily_llm_rulex'].bulk_write(
+        delete_request + insert_request, bypass_document_validation=True)
+
+def run1(method, instruments, task_id):
     times_info = fetch_times(method=method,
                              task_id=task_id,
                              instruments=instruments)
+
     print(times_info)
-    base_dirs = os.path.join(os.path.join('temp', "{}".format(method),
-                                          task_id))
+    base_dirs = os.path.join(
+        os.path.join('temp', 'llm', "{}".format(method), task_id))
     if not os.path.exists(base_dirs):
         os.makedirs(base_dirs)
 
-    strategy_dt = fetch_strategy1(task_id=task_id,
-                                  method=method,
-                                  instruments=instruments,
-                                  threshold=threshold)
+    strategy_data = fetch_strategy(trade_time='2025-09-08',
+                                   score=5,
+                                   category='basic')
     res = []
-    k_split = 1
-
-    strategies_infos = strategy_dt.to_dict(orient='records')
+    k_split = 4
+    strategies_infos = strategy_data.to_dict(orient='records')
     process_list = split_k(k_split, strategies_infos)
     res = create_parellel(process_list=process_list,
                           callback=run_position,
@@ -230,5 +277,36 @@ if __name__ == '__main__':
                           task_id=task_id,
                           base_dirs=base_dirs)
     res = list(itertools.chain.from_iterable(res))
-    pdb.set_trace()
-    pd.DataFrame(res).to_feather(os.path.join(base_dirs, "fitness.feather"))
+    results = pd.DataFrame(res)
+    results['code'] = INSTRUMENTS_CODES[instruments]
+    results['method'] = method
+    results['task_id'] = task_id
+    update_results(data=results,
+                   keys=['name', 'method', 'task_id', 'code'])
+
+    #pdb.set_trace()
+    #pd.DataFrame(res).to_feather(os.path.join(base_dirs, "fitness.feather"))
+
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Train a model')
+
+    parser.add_argument('--method',
+                        type=str,
+                        default='aicso0',
+                        help='data method')
+    parser.add_argument('--instruments',
+                        type=str,
+                        default='ims',
+                        help='code or instruments')
+
+    parser.add_argument('--task_id',
+                        type=str,
+                        default='200036',
+                        help='code or instruments')
+
+    args = parser.parse_args()
+    run1(method=args.method,
+         instruments=args.instruments,
+         task_id=args.task_id)
