@@ -13,6 +13,7 @@ from lumina.genetic.metrics.ts_pnl import calculate_ful_ts_ret
 
 def equal_weight_synthesis(positions: pd.DataFrame):
     # 求和，得到每个时间点的净信号强度
+    pdb.set_trace()
     net_positions = positions.sum(axis=1)
     # 归一化：将信号强度缩放到[-1, 1]区间
     # 除以子策略的总数，就得到了平均信号强度。
@@ -60,8 +61,9 @@ def volatility_weight_synthesis(positions: pd.DataFrame):
 if __name__ == '__main__':
     method = 'aicso0'
     instruments = 'ims'
-    task_id = '200037'
+    task_id = '200036'
     config_file = os.path.join('config', 'heuristic.toml')
+    pdb.set_trace()
     strategy_pool = fetch_experiment(config_file=config_file,
                                      method=method,
                                      task_id=task_id)
@@ -87,14 +89,13 @@ if __name__ == '__main__':
     all_positions_res = load_positions(base_dirs=base_dirs,
                                        names=all_possible_names)
 
-    total_data = fetch_all_data(method=method,
-                                instruments=instruments,
-                                task_id=task_id)
+    total_data, train_data, val_data, test_data = fetch_all_data(
+        method=method, instruments=instruments, task_id=task_id)
 
     time_periods = fetch_times(method=method,
                                task_id=task_id,
                                instruments=instruments)
-
+    pdb.set_trace()
     for key, names in strategy_pool.items():
         print(f"\n{'='*20} 开始处理策略池: {key} {'='*20}")
         names = list(set(names))
@@ -104,8 +105,9 @@ if __name__ == '__main__':
             for k, v in all_positions_res.items() if k in names
         }
 
-        positions = process_positions(positions_res=positions_res, key=key)
-
+        positions, train_positions, val_positions, test_positions = process_positions(
+            positions_res=positions_res, key=key)
+        pdb.set_trace()
         synthesized_positions_list = [
             equal_weight_synthesis(positions=positions),
             fitness_weight_synthesis(positions=positions,
