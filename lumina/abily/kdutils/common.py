@@ -5,24 +5,25 @@ from kdutils.macro2 import *
 
 
 ### 读取数据 计算训练集，校验集，测试集，总数集的绩效
-def fetch_temp_data(method, instruments, task_id, datasets):
+def fetch_temp_data(method, instruments, datasets, category='data'):
 
     res = []
 
-    def fet(name):
+    def fet(name, category):
         #filename = os.path.join(base_path, method, instruments, 'level2',
         #                        "{0}_data.feather".format(name))
         filename = os.path.join(
             base_path, method, instruments, DATAKIND_MAPPING[str(
                 INDEX_MAPPING[INSTRUMENTS_CODES[instruments]])],
-            "{0}_data.feather".format(name))
+            "{0}_{1}.feather".format(name, category))
+        print(filename)
         factors_data = pd.read_feather(filename).sort_values(
             by=['trade_time', 'code'])
         factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
         return factors_data
 
     for n in datasets:
-        dt = fet(n)
+        dt = fet(n, category)
         res.append(dt)
 
     res = pd.concat(res, axis=0)
@@ -30,6 +31,34 @@ def fetch_temp_data(method, instruments, task_id, datasets):
     factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
     factors_data = factors_data.sort_values(by=['trade_time', 'code'])
     return factors_data
+
+
+def fetch_temp_returns(method, instruments, datasets, category='data'):
+
+    res = []
+
+    def fet(name, category):
+        #filename = os.path.join(base_path, method, instruments, 'level2',
+        #                        "{0}_data.feather".format(name))
+        filename = os.path.join(
+            base_path, method, instruments, 'returns',
+            "{0}_{1}.feather".format(name, category))
+        print(filename)
+        factors_data = pd.read_feather(filename).sort_values(
+            by=['trade_time', 'code'])
+        factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
+        return factors_data
+
+    for n in datasets:
+        dt = fet(n, category)
+        res.append(dt)
+
+    res = pd.concat(res, axis=0)
+    factors_data = res.sort_values(by=['trade_time', 'code'])
+    factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
+    factors_data = factors_data.sort_values(by=['trade_time', 'code'])
+    return factors_data
+
 
 
 ### 读取 训练集 校验集，测试集的时间范围

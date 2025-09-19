@@ -87,9 +87,12 @@ def fetch_all_data(method, instruments, task_id):
                           task_id=task_id,
                           mode='test')
     pdb.set_trace()
-    train_data = train_data.loc[train_data.index[0:2000]]
-    test_data = test_data.loc[test_data.index[0:1000]]
-    val_data = val_data.loc[val_data.index[0:1000]]
+    val_data.index = pd.to_datetime(val_data.index)
+    train_data.index = pd.to_datetime(train_data.index)
+    test_data.index = pd.to_datetime(test_data.index)
+    #train_data = train_data.loc[train_data.index[0:2000]]
+    #test_data = test_data.loc[test_data.index[0:1000]]
+    #val_data = val_data.loc[val_data.index[0:1000]]
 
     total_data = pd.concat([train_data, val_data, test_data],
                            axis=0).sort_values(by=['trade_time'])
@@ -110,9 +113,9 @@ def process_positions(positions_res, key):
         print(f"警告: 策略池 '{key}' 的训练/验证/测试仓位数据不完整，跳过此池。")
         return None
     
-    test_positions = test_positions.loc[0:1000]
-    val_positions = val_positions.loc[0:1000]
-    train_positions = train_positions.loc[0:2000]
+    #test_positions = test_positions.loc[0:1000]
+    #val_positions = val_positions.loc[0:1000]
+    #train_positions = train_positions.loc[0:2000]
     positions = pd.concat([train_positions, val_positions, test_positions],
                           axis=0).sort_values(by=['trade_time'])
     positions = positions.set_index('trade_time')
