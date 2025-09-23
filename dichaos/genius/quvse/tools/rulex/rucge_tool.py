@@ -37,7 +37,20 @@ FORGE_SYSTEM_PROMPT = """
     *   **`principle`**: 必须总结这个完整策略背后的核心交易思想或市场假说。
     *   **`score`**: 根据策略的逻辑一致性、创新性和完整性，给出一个0-10分的绝对评分，分数必须在0~10之间，可以是保留一位小数
 ---
-    
+
+*   **表达式约束:**
+    > 特征必须带引号, 如：`SUBBED('bid_ask_spread', MA(5, 'bid_ask_spread'), EMA(5,'bid_ask_spread'))`
+    > 特征名称必须可用基础特征和可用用户指定特征，不得做其他任何改变
+    > 表达式之间低相关性，包括特征低相关性，算子低相关性
+
+*    **信号函数、持仓函数约束(铁律): **
+    > **函数名精确匹配**: `signal_method` 和 `strategy_method` 的值，**必须**从用户提供的函数列表中选择一个**完全一致**的`Name`。
+    > **参数名精确匹配**: 为 `signal_params` 和 `strategy_params` ，**必须**与所选函数定义中 `KeyParameters` 列出的参数名**完全一致**。
+    > **禁止发明参数**: **绝对禁止**在 `*_params` 中使用任何未在 `KeyParameters` 中定义的参数名。
+    > **参数强制性 (MANDATORY)**: 如果一个函数的 `KeyParameters` 定义中**列出了参数**，那么其对应的 `*_params` JSON对象**绝对不能为空**。你**必须**为定义中的**每一个**参数提供一个合理的值。**不多，不少，不为空**。
+    > **max_volume**: 持仓函数的max_volume 必须为1
+--- 
+---
 ### **最终输出格式 (Final Output Format)**
 
 你的最终输出**必须是、且只能是**一个包含了上述所有策略组件和分析的JSON对象。所有文本内容必须使用中文回复。
@@ -52,9 +65,6 @@ EXPS_USER_PROMPT = """
 
 你本次设计**只能使用**以下元素：
 
-*   **可用基础特征 (Base Features):**
-    > `open`, `close`, `high`, `low`,  `volume`, `openint`
-
 *   **可用用户指定特征 (User-Provided Features, if any):**
     > {user_features}
 
@@ -62,17 +72,13 @@ EXPS_USER_PROMPT = """
     > {operators}
 
 *   **可用基础信号函数 (Base Signal Functions):**
+    你**必须**从以下函数定义中选择，并**严格提供**所有必需的参数。
     > {signal_functions}
 
 *   **可用基础持仓函数 (Base Strategy Functions):**
+    你**必须**从以下函数定义中选择，并**严格提供**所有必需的参数。
     > {strategy_functions}
 
-*   **表达式约束:**
-    > 特征必须带引号, 如：`SUBBED('bid_ask_spread', MA(5, 'bid_ask_spread'), EMA(5,'bid_ask_spread'))`
-    > 特征名称必须可用基础特征和可用用户指定特征，不得做其他任何改变
-    > 表达式之间低相关性，包括特征低相关性，算子低相关性
-
----
 ### **任务：执行完整的策略构建流程**
 
 **1. [思维链]**:
@@ -222,6 +228,7 @@ class RulexGenerator(object):
                        signal_functions: Optional[str],
                        strategy_functions: Optional[str],
                        count: Optional[int]) -> Dict[str, str]:
+
         content = await self.message_generator.generate_message_async(
             messages=[
                 HumanMessage(content=EXPS_USER_PROMPT.format(

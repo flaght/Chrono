@@ -36,7 +36,7 @@ def main(method, symbol):
     pdb.set_trace()
     total_data = load_mirso(method)
 
-    agent = Agent.from_config()
+    agent = Agent.from_config(path='./ability')
 
     portfolio = Portfolio(symbol=symbol, lookback_window_size=1)
 

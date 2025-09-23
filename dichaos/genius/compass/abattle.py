@@ -9,7 +9,7 @@ from dichaos.kdutils import kd_logger
 from dichaos.battle.environment import AsyncBattleEnvironment
 from dichaos.battle.state import BattleState
 from agent.agents import Agents
-from agent import IndicatorPredict, CloutoPredict, PosFlowPredict, MoneyFlowPredict
+from agent import IndicatorPredict, CloutoPredict, PosFlowPredict, MoneyFlowPredict, ChipPredict
 from agent.decision.agent import DecisionAgent
 from kdutils.report import ReportGenerator
 
@@ -28,7 +28,10 @@ async def run_concurrent_predictions(model_date: str, end_date: str,
                          symbol=symbol),
         MoneyFlowPredict(date=model_date,
                          memory_path=os.path.join("records"),
-                         symbol=symbol)
+                         symbol=symbol),
+        ChipPredict(date=model_date,
+                    memory_path=os.path.join("records"),
+                    symbol=symbol)
     ]
 
     end_date = advanceDateByCalendar('china.sse', end_date,
@@ -128,7 +131,7 @@ async def run_final_decision(decision_agent: DecisionAgent,
 async def main_workflow():
     symbol = 'IM'
     model_date = '2025-01-27'
-    end_date = '2025-02-14'
+    end_date = '2025-08-20'
 
     ##构建决策agent
     decision_agent = DecisionAgent.from_config(
@@ -159,7 +162,10 @@ async def main_workflow():
         "reason_reports": reason_reports
     }
     pdb.set_trace()
-    report = ReportGenerator()
+    report = ReportGenerator(output_dir=os.path.join("records", "report",
+                                                     "html", end_date),
+                             template_name=os.path.join(
+                                 "resource", "report_template.html"))
     report.run(report_data=report_data)
 
 

@@ -13,7 +13,7 @@ from dichaos.kdutils import kd_logger
 
 
 def load_mirso(method):
-    dirs = os.path.join('data', method, 'technical')
+    dirs = os.path.join('records','data', method, 'technical')
 
     filename = os.path.join(dirs, 'market_data.feather')
     market_data = pd.read_feather(filename)
@@ -97,7 +97,7 @@ def main(method, symbol):
         ## 记录操作
         actions = 1 if total_data.loc[d, symbol]['ret_o2o'] > 0 else -1
         portfolio.record_action(action={'direction': actions})
-
+        pdb.set_trace()
         response = agent.generate_suggestion(
             trade_date=d,
             symbol=symbol,

@@ -32,19 +32,19 @@ class Predictor(BasePredictor):
                                   analysis_details=response.analysis_details)
             agents_group.agents_list.append(result)
         return agents_group
-    
+
     def predict(self, date, future_data=None):
         agents_group = self.create_group(date)
         if not agents_group:
             print(f"Skipping date {date} due to missing agent data.")
             return
-        
+
         self.agent.handing_data(trade_date=date,
                                 symbol=self.symbol,
                                 agents_group=agents_group)
         long_prompt, mid_prompt, short_prompt, reflection_prompt = self.agent.query_records(
             trade_date=date, symbol=self.symbol)
-        
+
         response = self.agent.generate_prediction(
             date=date,
             symbol=self.symbol,

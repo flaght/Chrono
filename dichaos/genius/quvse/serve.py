@@ -11,6 +11,8 @@ from tools.factor import IdeaFactorTool
 from tools.factor import ExpsFactorTool
 from tools.factor import DSLFactorTool
 from tools.factor import ForgeFactorTool
+from tools.factor import InterpreFactorTool
+from tools.factor import EvolveFactorTool
 from tools.rulex import RucgeRulexTool
 
 if __name__ == "__main__":
@@ -21,6 +23,8 @@ if __name__ == "__main__":
     registry.add_tool(DSLFactorTool)
     registry.add_tool(ForgeFactorTool)
     registry.add_tool(RucgeRulexTool)
+    registry.add_tool(InterpreFactorTool)
+    registry.add_tool(EvolveFactorTool)
     parser = argparse.ArgumentParser(description="Unified FastAPI Tool Server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8001)  # 使用一个统一的端口，比如 8000

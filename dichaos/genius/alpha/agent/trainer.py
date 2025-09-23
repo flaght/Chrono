@@ -22,9 +22,30 @@ class Trainer(ABC):
         self.agent_class = agent_class
         self.portfolio = portfolio
 
-    def initialize_agent(self, config_path, memory_path):
-        self.agent = self.agent_class.from_config(
-            path=os.path.join(config_path, self.agent_class.name))
+    def initialize_agent(self, config_path, memory_path, date=None):
+        checkpoint_path = None  
+        # 步骤 1: 确定是否可以从检查点加载
+        if isinstance(date, str) and date:  # 确保 date 是一个非空字符串
+            path_to_check = create_memory_path(base_path=memory_path,
+                                               date=date)
+            if os.path.exists(path_to_check):
+                checkpoint_path = path_to_check  # 如果路径存在，则设定它为要加载的路径
+
+        # 步骤 2: 根据路径是否存在，执行加载或创建操作
+        if checkpoint_path:
+            # 如果确定了有效的检查点路径，则加载
+            print(
+                f"Loading agent from checkpoint: {checkpoint_path}")  # 建议增加日志
+            self.agent = self.agent_class.load_checkpoint(
+                path=checkpoint_path, config_path=config_path)
+        else:
+            # 否则 (date未提供、或路径不存在)，创建全新的 agent
+            agent_config_path = os.path.join(config_path,
+                                             self.agent_class.name)
+            print(f"Creating new agent from config: {agent_config_path}"
+                  )  # 建议增加日志
+            self.agent = self.agent_class.from_config(path=agent_config_path)
+
         self.memory_path = memory_path
 
     @property

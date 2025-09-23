@@ -204,7 +204,7 @@ class ForgeFactorTool(BaseTool):
                 "type": "string"
             }
         },
-        "required": ["features"]
+        "required": ["count", "category"]
     }
     _factor_generator: Optional[FactorGenerator] = None
 

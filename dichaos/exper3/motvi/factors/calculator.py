@@ -118,7 +118,6 @@ def create_indictor(begin_date, end_date, codes, window, **kwargs):
     factor_res = {}
     start_date = advanceDateByCalendar('china.sse', begin_date,
                                        '-{0}b'.format(window))
-
     market_data = fetch_main_daily(begin_date=start_date,
                                    end_date=end_date,
                                    codes=codes,

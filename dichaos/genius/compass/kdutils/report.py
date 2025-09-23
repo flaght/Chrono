@@ -58,7 +58,7 @@ class ReportGenerator(object):
             return  # 找不到模板则直接退出
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"DiChaos_Report_{symbol}_{timestamp}.html"
+        filename = f"DiChaos_Report_{symbol}.html"
         file_path = self.output_dir / filename
 
         try:

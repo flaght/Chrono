@@ -132,6 +132,13 @@ def fetch_hotmoney(begin_date, end_date, codes):
         'turnoverVol': 'hotvol',
         'turnoverValue': 'hotvalue'
     })
+
+    stocks_data = stocks_data.groupby(['trade_date', 'code']).agg({
+        'hotvol':
+        'sum',
+        'hotvalue':
+        'sum'
+    }).reset_index()
     stocks_data['on_list'] = 1  # 用户统计上榜次数
 
     clause1 = ddb_tools.to_format("trade_date", ">=",
@@ -157,3 +164,19 @@ def fetch_hotmoney(begin_date, end_date, codes):
                                             on=['trade_date', 'code'],
                                             how='left')
     return hotmoney_data.set_index(['trade_date', 'code']).unstack()
+
+
+def fetch_limitup(begin_date, end_date):
+    cusomize_api = DDBAPI.cusomize_api()
+    clause1 = ddb_tools.to_format("trade_date", ">=",
+                                  ddb_tools.convert_date(begin_date))
+    clause2 = ddb_tools.to_format("trade_date", "<=",
+                                  ddb_tools.convert_date(end_date))
+
+    df1 = cusomize_api.custom(table='stk_daily_limitup',
+                              columns=['trade_date', 'code', 'conti'],
+                              clause_list=[clause1, clause2])
+    df1['trade_date'] = pd.to_datetime(
+        df1['trade_date']).dt.strftime('%Y-%m-%d')
+    return df1[['trade_date',
+                'code']].groupby('trade_date')['code'].agg(list).to_dict()

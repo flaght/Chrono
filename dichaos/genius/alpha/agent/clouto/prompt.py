@@ -98,15 +98,20 @@ suggestion_human_message = """
 ### 3. 格式与数据引用 (分析的“规则”)
 *   **引用数值，隐藏ID**: 在分析文本中，必须【直接引用因子数值】（例如：`ht003: 72.5`），但【禁止出现】S0, R1等任何记忆索引ID。
 
+
 ---
+## 【返回格式要求】
+
+必须严格按照以下JSON格式返回, `summary_reason` 内容必须为中文描述:
 
 {{
-  "short_memory_index": "在这里填写确切的**短期记忆索引ID**，如果不存在则为'null'",
-  "mid_memory_index": "在这里填写确切的**中期记忆索引ID**，如果不存在则为'null'",
-  "long_memory_index": "在这里填写确切的**长期记忆索引ID**，如果不存在则为'null'",
-  "reflection_memory_index": "在这里填写确切的**过去反思记忆ID**，如果不存在则为'null'",
+  "short_memory_index": "在这里填写确切的**短期记忆索引ID**，如果不存在则为null",
+  "mid_memory_index": "在这里填写确切的**中期记忆索引ID**，如果不存在则为null",
+  "long_memory_index": "在这里填写确切的**长期记忆索引ID**，如果不存在则为null",
+  "reflection_memory_index": "在这里填写确切的**过去反思记忆ID**，如果不存在则为null",
   "summary_reason": "string, 必须使用中文回复，并严格遵守上方所有分析要求。"
 }}
+
 """
 
 decision_human_message = """
@@ -182,7 +187,7 @@ decision_human_message = """
 
 ## 【返回格式要求】
 
-必须严格按照以下JSON格式返回, `reasoning`和`analysis_details`, `summary`内容必须为中文描述:
+必须严格按照以下JSON格式返回, `reasoning` `analysis_details` `summary`内容必须为中文描述:
 
 {{
 "short_memory_index": "在这里填写确切的**短期记忆索引ID**，如果不存在则为'null'",

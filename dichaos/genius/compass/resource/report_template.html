@@ -181,12 +181,6 @@
             const neutralPct = totalVotes > 0 ? (neutralVotes / totalVotes * 100) : 0;
             
             let majoritySignal = prediction.signal;
-            const voteCounts = [{val: bullishVotes, sig: 'bullish'}, {val: bearishVotes, sig: 'bearish'}, {val: neutralVotes, sig: 'neutral'}];
-            voteCounts.sort((a, b) => b.val - a.val);
-            if (voteCounts[0].val > voteCounts[1].val) {
-                majoritySignal = voteCounts[0].sig;
-            }
-            
             const majoritySignalStyle = getSignalStyle(majoritySignal);
 
             container.innerHTML = `

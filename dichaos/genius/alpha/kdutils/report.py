@@ -1,4 +1,5 @@
 import json, re, pdb
+from jinja2 import Environment, FileSystemLoader
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
@@ -40,7 +41,7 @@ class ReportGenerator(object):
                  template_name: str = "report_template.html"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.template_path = template_name#Path(__file__).parent / template_name
+        self.template_path = template_name  #Path(__file__).parent / template_name
 
     def generate_and_save(self, report_data: Dict[str, Any]):
         symbol = report_data.get('symbol', 'UNKNOWN')
@@ -57,8 +58,8 @@ class ReportGenerator(object):
             )
             return  # 找不到模板则直接退出
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"DiChaos_Report_{symbol}_{timestamp}.html"
+        #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"DiChaos_Report_{symbol}.html"
         file_path = self.output_dir / filename
 
         try:
@@ -109,3 +110,60 @@ class ReportGenerator(object):
 
         # 2. 生成报告
         self.generate_and_save(report_data)
+
+
+class DetailGenerator(object):
+
+    def __init__(self,
+                 output_dir: str = "report_output_DiChaos",
+                 template_name: str = "report_template.html"):
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.template_path = template_name  #Path(__file__).parent / template_name
+
+    def process_data(self, detail_data):
+        trade_date = detail_data['trade_date'].iloc[0]
+
+        def classify_symbol(symbol):
+            # 使用正则表达式判断是否为纯数字（匹配A股代码）
+            if re.match(r'^\d{6}$', str(symbol)):
+                return 'stock'
+            # 否则，认为是股指或其他
+            return 'index'
+
+        detail_data['category'] = detail_data['symbol'].apply(classify_symbol)
+        stocks_data = detail_data[detail_data['category'] == 'stock'].to_dict(
+            orient='records')
+        indexes_data = detail_data[detail_data['category'] == 'index'].to_dict(
+            orient='records')
+
+        print(f"找到 {len(stocks_data)} 个股票信号, {len(indexes_data)} 个股指信号。")
+        return trade_date, stocks_data, indexes_data
+
+    def run(self, detail_data, end_date):
+        trade_date, stocks_data, indexes_data = self.process_data(
+            detail_data=detail_data)
+        env = Environment(loader=FileSystemLoader('.'))  # 假设模板在当前目录
+        template = env.get_template(self.template_path)
+
+        pdb.set_trace()
+        # 准备传递给模板的上下文数据
+        context = {
+            "trade_date": trade_date,
+            "stocks": stocks_data,
+            "indexes": indexes_data,
+            #"current_year":"2025"
+        }
+
+        # 渲染HTML内容
+        html_content = template.render(context)
+
+        filename = f"DiChaos_detail_{end_date}.html"
+        file_path = self.output_dir / filename
+        # --- 3. 保存到文件 ---
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            print(f"✅ 报告已成功生成: {file_path}")
+        except Exception as e:
+            print(f"❌ 生成报告时发生错误: {e}")

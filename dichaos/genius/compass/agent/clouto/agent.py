@@ -6,7 +6,7 @@ from .prompt import *
 
 class Agent(Agents):
     name = 'clouto'
-    category = 'genius'
+    category = 'compass'
 
     def __init__(self, name: str, top_k: int, vector_provider: str,
                  db_name: str, embedding_model: str, embedding_provider: str,

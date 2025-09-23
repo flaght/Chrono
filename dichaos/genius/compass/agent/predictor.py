@@ -20,9 +20,10 @@ class Predictor(ABC):
         self.symbol = symbol
         self.agent_class = agent_class
 
-    def initialize_agent(self, memory_path, date):
+    def initialize_agent(self, memory_path, config_path, date):
         self.agent = self.agent_class.load_checkpoint(
-            path=create_memory_path(base_path=memory_path, date=date))
+            path=create_memory_path(base_path=memory_path, date=date),
+            config_path=config_path)
 
     @property
     def name(self):

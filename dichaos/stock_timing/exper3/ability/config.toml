@@ -4,11 +4,11 @@ vector_provider = 'fassis'
 top_k=3
 
 [embedding]
-embedding_model="BAAI/bge-m3"
+embedding_model="text-embedding-v4"
 embedding_provider="openai"
 
 [llm]
-llm_model="deepseek-reasoner"
+llm_model="gpt-oss:20b"
 llm_provider="openai"
 
 

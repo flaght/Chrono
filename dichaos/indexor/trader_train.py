@@ -124,7 +124,8 @@ def main(method, symbol):
         ## 记录操作
         actions = 1 if total_data.loc[date, symbol]['ret_o2o'] > 0 else -1
         portfolio.record_action(action={'direction': actions})
-
+        pdb.set_trace()
+        
         response = agent.generate_suggestion(
             date=date,
             symbol=symbol,

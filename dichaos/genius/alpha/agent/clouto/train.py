@@ -2,7 +2,7 @@ from agent.trainer import Trainer as BaseTrainer
 from agent.clouto.agent import Agent
 from factors.calculator import create_heat
 from agent.clouto.model import FactorsList, FactorsGroup
-
+import pdb
 
 class Trainer(BaseTrainer):
 
@@ -25,7 +25,7 @@ class Trainer(BaseTrainer):
                                         category='guba')
 
     def create_group(self, date):
-        """为给定日期创建已包含的FactorsGroup。"""
+        """为给定日期创建已包含的FactorsGroup。""" 
         xueqiu_factors_list = self.create_model(date, self.xueqiu_factors,
                                                 "基于雪球热度的数据，计算生成的特征值",
                                                 FactorsList)

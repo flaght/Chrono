@@ -1,4 +1,4 @@
-import os
+import os,pdb
 from abc import ABC, abstractmethod
 from dichaos.agents.indexor.porfolio import Portfolio
 from motvi.kdutils.model import Factor
@@ -40,27 +40,3 @@ class Predictor(ABC):
                                      desc=v.desc)
             factors_list.factors[k] = factor_instance
         return factors_list
-
-    def prdict(self, date, future_data):
-        factors_group = self.create_group(date)
-        if not factors_group:
-            print(f"Skipping date {date} due to missing factor data.")
-            return
-
-        self.agent.handing_data(trade_date=date,
-                                symbol=self.symbol,
-                                factors_group=factors_group)
-
-        long_prompt, mid_prompt, short_prompt, reflection_prompt = self.agent.query_records(
-            trade_date=date, symbol=self.symbol)
-
-        factors_details = factors_group.markdown(include_value=False)
-        response = self.agent.generate_suggestion(
-            date=date,
-            symbol=self.symbol,
-            short_prompt=short_prompt,
-            mid_prompt=mid_prompt,
-            long_prompt=long_prompt,
-            reflection_prompt=reflection_prompt,
-            factors_details=factors_details,
-            returns=future_data['returns'].values[0])
