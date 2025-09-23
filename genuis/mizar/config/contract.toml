@@ -5,12 +5,16 @@ IF=200017
 IC=140001
 IM=200036
 RB=113001
+HC=134001
+M =104001
 
 [DATA_KIND]
 200037 = 'level2'
 200036 = 'basic'
 113001 = 'basic'
 140001 = 'basic'
+134001 = 'basic'
+104001 = 'basic'
 
 [PERFORMANCE]
 113001='profit_sharpe'
@@ -27,6 +31,8 @@ IM=[['2024-01-25', '2024-02-06'],['2024-09-24', '2024-10-11']]
 
 [CONT_MULTNUM]
 RB=10
+HC=10
+M=10
 IF=300
 IM=200
 
@@ -34,15 +40,19 @@ IM=200
 RB=0.00005
 IF=0.00023
 IM=0.00012
+HC=0.00005
+M = 0.0000
 
 [COST_MODE]
 RB="rate"
 IM="rate"
+HC="rate"
 
 [SLIPPAGE]
 RB=0
 IF=0.0001
 IM=0#1.7e-07
+HC=0
 
 [INSTRUMENTS]
 rbb="RB"
@@ -50,3 +60,4 @@ ims="IM"
 ics="IC"
 ifs="IF"
 mc="M"
+hcb = "HC"
