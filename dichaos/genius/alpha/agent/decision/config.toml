@@ -7,10 +7,21 @@ top_k=3
 embedding_model="text-embedding-v4"
 embedding_provider="openai"
 
-[llm]
-llm_model="doubao-1-5-pro-32k-250115"
-llm_provider="openai"
+#[predict]
+#llm_model = "doubao-1-5-pro-32k-250115"
+#llm_provider = "openai"
 
+[llm]
+llm_model = "gpt-oss:120b"
+llm_provider = "ollama"
+
+[predict]
+llm_model = "gpt-oss:120b"
+llm_provider = "ollama"
+
+#[predict]
+#llm_model = "deepseek-chat"
+#llm_provider = "openai"
 
 [short]
 importance_score_initialization = "sample"

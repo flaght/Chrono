@@ -106,7 +106,6 @@ def main(method, instruments):
 
 
 def merge(method, instruments):
-    pdb.set_trace()
     base_dirs = os.path.join(base_path, method, instruments, 'factors')
     res = []
     for root, dirs, files in os.walk(base_dirs):
@@ -121,7 +120,7 @@ def merge(method, instruments):
     factors_data = factors_data.stack()
     ### 先剔除全部nan的列
     nan_columns = factors_data.columns[factors_data.isna().all()]
-    factors_data = factors_data.drop(nan_columns,axis=1)
+    factors_data = factors_data.drop(nan_columns, axis=1)
     factors_data = factors_data.dropna().reset_index()
     start_date = factors_data['trade_time'].min().strftime('%Y-%m-%d %H:%M:%S')
     end_date = factors_data['trade_time'].max().strftime('%Y-%m-%d %H:%M:%S')
@@ -144,7 +143,7 @@ def merge(method, instruments):
     len3 = len(times) - len1 - len2
 
     ## 训练集
-    pdb.set_trace()
+
     train_data = factors_data[factors_data['trade_time'].isin(times[:len1])]
     val_data = factors_data[factors_data['trade_time'].isin(times[len1:len1 +
                                                                   len2])]
@@ -242,7 +241,7 @@ def returns(method, instruments):
     len1 = round(len(times) * 0.7)  # 70%部分
     len2 = round(len(times) * 0.2)  # 20%部分
     len3 = len(times) - len1 - len2
-    pdb.set_trace()
+
     ## 训练集
     train_data = returns_data[returns_data['trade_time'].isin(times[:len1])]
     val_data = returns_data[returns_data['trade_time'].isin(times[len1:len1 +
@@ -252,21 +251,18 @@ def returns(method, instruments):
     ## 校验集
     ## 测试集
     ### 切割数据
-    target_dir = os.path.join(base_path, method, instruments, 'basic')
+    target_dir = os.path.join(base_path, method, instruments, 'returns')
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
-    pdb.set_trace()
+
     train_data.reset_index(drop=True).to_feather(
-        os.path.join(base_path, method, instruments, 'returns',
-                     'train_returns.feather'))
+        os.path.join(target_dir, 'train_returns.feather'))
     val_data.reset_index(drop=True).to_feather(
-        os.path.join(base_path, method, instruments, 'returns',
-                     'val_returns.feather'))
+        os.path.join(target_dir, 'val_returns.feather'))
     test_data.reset_index(drop=True).to_feather(
-        os.path.join(base_path, method, instruments, 'returns',
-                     'test_returns.feather'))
+        os.path.join(target_dir, 'test_returns.feather'))
 
 
-#main(method='bicso0', instruments='mc')
-merge(method='bicso0', instruments='mc')
-returns(method='bicso0', instruments='mc')
+#main(method='bicso0', instruments='ac')
+merge(method='bicso0', instruments='hcb')
+returns(method='bicso0', instruments='hcb')

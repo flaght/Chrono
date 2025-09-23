@@ -19,7 +19,7 @@ def create_data(begin_date, end_date, codes):
     return returns_data
 
 
-end_date = '2025-06-27'
+end_date = '2025-07-10'
 begin_date = advanceDateByCalendar('china.sse', end_date,
                                    '-{0}b'.format(10)).strftime('%Y-%m-%d')
 symbol = 'IM'

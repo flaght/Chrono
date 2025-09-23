@@ -49,6 +49,7 @@ class Agents(BaseAgents):
             symbol=symbol,
             top_k=int(self.top_k * 1.5),
             duplicates=False)
+        ## 日期过滤
         reflection_prompt = create_whole_prompts1(reflection_records)
         return reflection_prompt
 
@@ -65,7 +66,7 @@ class Agents(BaseAgents):
 
         reflection_prompt = self.query_reflection(trade_date=trade_date,
                                                   symbol=symbol)
-        if len(reflection_prompt) == 0:
+        if len(reflection_prompt) == 0:  ## 查询agent为名字 经验
             reflection_prompt = self.query_reflection(trade_date=trade_date,
                                                       symbol=self.name)
             if len(reflection_prompt) > 0:
@@ -76,15 +77,19 @@ class Agents(BaseAgents):
 
     def update_memory(self, trade_date: str, symbol: str, response: any,
                       feedback: dict):
-        super(Agents, self).update_memory(trade_date=trade_date,
-                                          symbol=symbol,
-                                          response=response,
-                                          feedback=feedback)
-        ## 写入统一agent
-        self.brain_db.add_memory_reflection(
-            symbol=self.name,  ## 用agent名
-            date=trade_date,
-            text=response.summary_reason)
+        try:
+            super(Agents, self).update_memory(trade_date=trade_date,
+                                              symbol=symbol,
+                                              response=response,
+                                              feedback=feedback)
+            ## 写入统一agent
+            self.brain_db.add_memory_reflection(
+                symbol=self.name,  ## 用agent名
+                date=trade_date,
+                text="【标的:${0} date:{1}】  {2}".format(symbol, trade_date,
+                                              response.summary_reason))
+        except Exception as e:
+            print("error:{0}".format(str(e)))
 
     def actions(self, response, threshold=80):
         if 'signal' in response.__dict__ and 'confidence' in response.__dict__:

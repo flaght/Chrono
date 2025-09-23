@@ -1,4 +1,4 @@
-import pdb
+import pdb, os
 from agent.predictor import Predictor as BasePredictor
 from factors.calculator import create_posflow
 from agent.indicator.model import FactorsList, FactorsGroup
@@ -7,9 +7,12 @@ from agent.posflow.agent import Agent
 
 class Predictor(BasePredictor):
 
-    def __init__(self, symbol, memory_path, date):
+    def __init__(self, symbol, memory_path, config_path, date):
         super(Predictor, self).__init__(symbol=symbol, agent_class=Agent)
-        self.initialize_agent(memory_path=memory_path,  date=date)
+        self.initialize_agent(memory_path=memory_path,
+                              config_path=os.path.join(config_path,
+                                                       self.agent_class.name),
+                              date=date)
 
     def prepare_data(self, begin_date, end_date):
         self.equal_factors = create_posflow(begin_date=begin_date,

@@ -1,4 +1,4 @@
-import json, time, pdb
+import json, time, pdb, asyncio
 from typing import Dict
 from pydantic import BaseModel
 from dichaos.kdutils.logger import logger
@@ -111,11 +111,52 @@ class Agents(BaseAgents):
                 continue
         return response
 
+    async def agenerate_prediction(self, date: str, symbol: str,
+                                   short_prompt: str, mid_prompt: str,
+                                   long_prompt: str, reflection_prompt: str,
+                                   factors_details: str,
+                                   decision_human_message: str):
+        DomInfo2 = create_prediction_dom(short_prompt=short_prompt,
+                                         mid_prompt=mid_prompt,
+                                         long_prompt=long_prompt,
+                                         reflection_prompt=reflection_prompt)
+        json_format = DomInfo2.dumps()
+        for i in range(5):
+            try:
+                response = await self.agenerate_message(
+                    decision_human_message,
+                    params={
+                        "ticker": symbol,
+                        "date": date,
+                        "short_terms": short_prompt,
+                        "mid_terms": mid_prompt,
+                        "long_terms": long_prompt,
+                        "reflection_terms": reflection_prompt,
+                        "json_format": json_format,
+                        "factors_details": factors_details
+                    },
+                    default={},
+                    response_schema=DomInfo2)
+
+                # 检查响应是否有效
+                if response and hasattr(
+                        response,
+                        '__dict__') and 'reasoning' in response.__dict__:
+                    break  # 成功，跳出循环
+                else:
+                    logger.info(f'Retrying... (Attempt {i+1}/5)')
+                    await asyncio.sleep(5)  # 使用异步休眠，不会阻塞事件循环
+            except Exception as e:
+                logger.info(f'Error on attempt {i+1}/5: {e}')
+                await asyncio.sleep(5)  # 发生错误时也使用异步休眠
+
+        return response
+
     def generate_prediction(self, date: str, symbol: str, short_prompt: str,
                             mid_prompt: str, long_prompt: str,
                             reflection_prompt: str, factors_details: str,
                             decision_human_message: str):
-        
+
         DomInfo2 = create_prediction_dom(short_prompt=short_prompt,
                                          mid_prompt=mid_prompt,
                                          long_prompt=long_prompt,
@@ -150,6 +191,57 @@ class Agents(BaseAgents):
                 logger.info('error:{0}'.format(e))
                 time.sleep(5)
                 continue
+        return response
+
+    async def agenerate_suggestion(self, date: str, symbol: str,
+                                   short_prompt: str, mid_prompt: str,
+                                   long_prompt: str, reflection_prompt: str,
+                                   factors_details: str, returns: float,
+                                   suggestion_human_message: str):
+        pdb.set_trace()
+        DomInfo1 = create_suggestion_dom(short_prompt=short_prompt,
+                                         mid_prompt=mid_prompt,
+                                         long_prompt=long_prompt,
+                                         reflection_prompt=reflection_prompt)
+        signal = "平盘" if abs(returns) < 0.00001 else (
+            "上涨" if returns > 0 else "下跌")
+        json_format = DomInfo1.dumps()
+
+        response = None  # 初始化 response
+        for i in range(5):
+            try:
+                response = await self.agenerate_message(
+                    suggestion_human_message,
+                    params={
+                        "ticker": symbol,
+                        "date": date,
+                        "chg": round(returns, 4),
+                        "signal": signal,
+                        "short_terms": short_prompt,
+                        "mid_terms": mid_prompt,
+                        "long_terms": long_prompt,
+                        "reflection_terms": reflection_prompt,
+                        "factors_details": factors_details,
+                        "json_format": json_format
+                    },
+                    default={},
+                    response_schema=DomInfo1  #,
+                    #is_structured=True
+                )
+
+                # 检查响应是否有效
+                if response and hasattr(
+                        response,
+                        '__dict__') and 'summary_reason' in response.__dict__:
+                    break  # 成功，跳出循环
+                else:
+                    logger.info(f'Retrying... (Attempt {i+1}/5)')
+                    await asyncio.sleep(5)  # 使用异步休眠，不会阻塞事件循环
+
+            except Exception as e:
+                logger.info(f'Error on attempt {i+1}/5: {e}')
+                await asyncio.sleep(5)  # 发生错误时也使用异步休眠
+
         return response
 
     def update_memory(self, trade_date: str, symbol: str, response: any,

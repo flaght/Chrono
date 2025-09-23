@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional, Literal
 import pdb
 
+
 class Factor(BaseModel):
     name: str  ## 因子名称
     value: float  ## 因子值
@@ -75,9 +76,9 @@ class FactorsGroup(BaseModel):
     def format(self, types: str = "short"):
         desc = {"short": "短期记忆", "mid": "中期记忆", "long": "长期记忆"}
         sidx = {"short": "S", "mid": "M", "long": "L"}
-        
+
         texts = "**{0}索引ID**: {1}{2}\n".format(desc[types], sidx[types],
-                                           self.index)
+                                               self.index)
         for factor_list in self.factors_list:
             texts += factor_list.text(include_head=True)
         return texts
@@ -112,30 +113,29 @@ def create_suggestion_dom(short_prompt, mid_prompt, long_prompt,
     class DomInfo(BaseModel):
         if len(short_prompt) > 0:
             short_memory_index: str = Field(
-                ...,
+                default=None,  # 提供一个默认值 None
                 description="短期记忆的索引ID,格式必须为:'S1,S2,S3',如果没有引用，则不返回 不能随意添加",
                 define="S1,S2,S3",
             )
         if len(mid_prompt) > 0:
-            mid_memory_index: str = Field(
-                ...,
+            mid_memory_index: Optional[str] = Field(
+                default=None,  # 提供一个默认值 None
                 description="中期记忆的索引ID,格式必须为:'M1,M2,M3',如果没有引用，则不返回 不能随意添加",
                 define="M1,M2,M3",
             )
         if len(long_prompt) > 0:
-            long_memory_index: str = Field(
-                ...,
+            long_memory_index: Optional[str] = Field(
+                default=None,  # 提供一个默认值 None
                 description="长期记忆的索引ID,格式必须为:'L1,L2,L3',如果没有引用，则不返回 不能随意添加",
                 define="L1,L2,L3",
             )
         if len(reflection_prompt) > 0:
-            reflection_memory_index: str = Field(
-                ...,
+            reflection_memory_index: Optional[str] = Field(
+                default=None,  # 提供一个默认值 None
                 description="过去反思记忆的索引ID,格式必须为:'R1,R2,R3',如果没有引用，则不返回 不能随意添加",
                 define="R1,R2,R3",
             )
         summary_reason: str = Field(
-            ...,
             description=
             "推理细节, 根据专业交易员的交易建议，您能否向我详细解释为什么会根据您提供的信息做出这样的决定。尽可能包含推理逻辑，使用到有效的因子",
             define="string",
@@ -159,26 +159,26 @@ def create_prediction_dom(short_prompt, mid_prompt, long_prompt,
 
     class DomInfo(BaseModel):
         if len(short_prompt) > 0:
-            short_memory_index: str = Field(
-                ...,
+            short_memory_index: Optional[str] = Field(
+                default=None,  # 提供一个默认值 None
                 description="短期记忆的索引ID,格式必须为:'S1,S2,S3',如果没有引用，则不返回 不能随意添加",
                 define="S1,S2,S3",
             )
         if len(mid_prompt) > 0:
-            mid_memory_index: str = Field(
-                ...,
+            mid_memory_index: Optional[str] = Field(
+                default=None,  # 提供一个默认值 None
                 description="中期记忆的索引ID,格式必须为:'M1,M2,M3',如果没有引用，则不返回 不能随意添加",
                 define="M1,M2,M3",
             )
         if len(long_prompt) > 0:
-            long_memory_index: str = Field(
-                ...,
+            long_memory_index: Optional[str] = Field(
+                default=None,  # 提供一个默认值 None
                 description="长期记忆的索引ID,格式必须为:'L1,L2,L3',如果没有引用，则不返回 不能随意添加",
                 define="L1,L2,L3",
             )
         if len(reflection_prompt) > 0:
-            reflection_memory_index: str = Field(
-                ...,
+            reflection_memory_index: Optional[str] = Field(
+                default=None,  # 提供一个默认值 None
                 description="过去反思记忆的索引ID,格式必须为:'R1,R2,R3',如果没有引用，则不返回 不能随意添加",
                 define="R1,R2,R3",
             )

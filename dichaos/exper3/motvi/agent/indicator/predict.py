@@ -58,3 +58,28 @@ class Predictor(BasePredictor):
             short_prompt=short_prompt,
             reflection_prompt=reflection_prompt)
         return response
+
+    async def apredict(self, date, future_data=None):
+        factors_group = self.create_group(date)
+        if not factors_group:
+            print(f"Skipping date {date} due to missing factor data.")
+            return
+
+        self.agent.handing_data(trade_date=date,
+                                symbol=self.symbol,
+                                factors_group=factors_group)
+
+        long_prompt, mid_prompt, short_prompt, reflection_prompt = self.agent.query_records(
+            trade_date=date, symbol=self.symbol)
+
+        factors_details = factors_group.markdown(include_value=False)
+
+        response = await self.agent.agenerate_prediction(
+            date=date,
+            symbol=self.symbol,
+            factors_details=factors_details,
+            long_prompt=long_prompt,
+            mid_prompt=mid_prompt,
+            short_prompt=short_prompt,
+            reflection_prompt=reflection_prompt)
+        return response

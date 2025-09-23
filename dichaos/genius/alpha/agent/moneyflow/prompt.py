@@ -103,6 +103,10 @@ suggestion_human_message = """
 
 ---
 
+## 【返回格式要求】
+
+必须严格按照以下JSON格式返回, `summary_reason` 内容必须为中文描述:
+
 {{
   "short_memory_index": "在这里填写确切的**短期记忆索引ID**，如果不存在则为null",
   "mid_memory_index": "在这里填写确切的**中期记忆索引ID**，如果不存在则为null",
@@ -185,7 +189,7 @@ decision_human_message = """
 
 ## 【返回格式要求】
 
-必须严格按照以下JSON格式返回, `reasoning`和`analysis_details`内容必须为中文描述:
+必须严格按照以下JSON格式返回, `reasoning` `analysis_details` `summary`内容必须为中文描述:
 
 {{
 "short_memory_index": "在这里填写确切的**短期记忆索引ID**，如果不存在则为'null'",

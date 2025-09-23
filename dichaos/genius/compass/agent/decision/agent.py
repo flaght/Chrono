@@ -27,7 +27,6 @@ class DecisionAgent(BaseAgents):
     # ### 新增：专门用于综合辩论的异步方法
     async def agenerate_prediction(self, debate_transcript: str, symbol: str,
                                    date: str):
-        pdb.set_trace()
         DomInfo3 = create_decision_dom()
         for i in range(5):
             try:

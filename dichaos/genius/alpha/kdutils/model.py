@@ -118,25 +118,29 @@ def create_suggestion_dom(short_prompt, mid_prompt, long_prompt,
         if len(short_prompt) > 0:
             short_memory_index: str = Field(
                 default=None,  # 提供一个默认值 None
-                description="短期记忆的索引ID,格式必须为:'S1,S2,S3',如果没有引用，则不返回 不能随意添加",
+                description=
+                "短期记忆的索引ID,必须是【逗号分隔的字符串】格式，例如: \"S1\" 或 \"S1,S2\"。 如果没有引用，则为 null。",
                 define="S1,S2,S3",
             )
         if len(mid_prompt) > 0:
             mid_memory_index: Optional[str] = Field(
                 default=None,  # 提供一个默认值 None
-                description="中期记忆的索引ID,格式必须为:'M1,M2,M3',如果没有引用，则不返回 不能随意添加",
+                description=
+                "中期记忆的索引ID,必须是【逗号分隔的字符串】格式，例如: \"M1\" 或 \"M1,M2\"。 如果没有引用，则为 null。",
                 define="M1,M2,M3",
             )
         if len(long_prompt) > 0:
             long_memory_index: Optional[str] = Field(
                 default=None,  # 提供一个默认值 None
-                description="长期记忆的索引ID,格式必须为:'L1,L2,L3',如果没有引用，则不返回 不能随意添加",
+                description=
+                "长期记忆的索引ID,必须是【逗号分隔的字符串】格式，例如: \"L1\" 或 \"L1,L2\"。 如果没有引用，则为 null。",
                 define="L1,L2,L3",
             )
         if len(reflection_prompt) > 0:
             reflection_memory_index: Optional[str] = Field(
                 default=None,  # 提供一个默认值 None
-                description="过去反思记忆的索引ID,格式必须为:'R1,R2,R3',如果没有引用，则不返回 不能随意添加",
+                description=
+                "过去反思记忆的索引ID,必须是【逗号分隔的字符串】格式，例如: \"R1\" 或 \"R1,R2\"。 如果没有引用，则为 null。",
                 define="R1,R2,R3",
             )
         summary_reason: str = Field(

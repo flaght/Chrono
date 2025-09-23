@@ -12,15 +12,61 @@ def slice_with_metadata(series, start=None, end=None):
     return sliced_series
 
 
+### T 期特征--> T+1期vwap价格与T+1期vwap价格 算收益率
+def create_return(codes, begin_date, end_date):
+    start_date = advanceDateByCalendar('china.sse', begin_date,
+                                       '-{0}b'.format(2))
+    finish_date = advanceDateByCalendar('china.sse', end_date,
+                                        '{0}b'.format(2))
+    market_data = fetch_main_daily(begin_date=start_date.strftime('%Y-%m-%d'),
+                                   end_date=finish_date.strftime('%Y-%m-%d'),
+                                   codes=codes,
+                                   columns=[
+                                       'openPrice', 'highestPrice',
+                                       'lowestPrice', 'closePrice',
+                                       'turnoverVol', 'turnoverValue'
+                                   ])
+
+    market_data['vwap'] = market_data['amount'] / market_data[
+        'volume']  ## 出现了成交量 成交额为0
+    market_data['returns'] = np.log(market_data['vwap'].shift(2) /
+                                    market_data['vwap'].shift(1)).shift(-2)
+    returns = market_data['returns']
+    returns.name = 'returns'
+    returns = returns.loc[begin_date:end_date]
+    returns.index = pd.to_datetime(returns.index).strftime('%Y-%m-%d')
+    return returns.loc[begin_date:end_date].to_dict()
+
+
+def create_chg(codes, begin_date, end_date):
+    start_date = advanceDateByCalendar('china.sse', begin_date,
+                                       '-{0}b'.format(2))
+    finish_date = advanceDateByCalendar('china.sse', end_date,
+                                        '{0}b'.format(2))
+    market_data = fetch_main_daily(begin_date=start_date.strftime('%Y-%m-%d'),
+                                   end_date=finish_date.strftime('%Y-%m-%d'),
+                                   codes=codes,
+                                   columns=[
+                                       'openPrice', 'highestPrice',
+                                       'lowestPrice', 'closePrice', 'ret'
+                                   ])
+    returns = market_data['ret']
+    returns.name = 'returns'
+    returns = returns.loc[begin_date:end_date]
+    returns.index = pd.to_datetime(returns.index).strftime('%Y-%m-%d')
+    return returns.loc[begin_date:end_date].to_dict()
+
+
 def create_factors(name, keys, kl_pd, begin_date, end_date, factor_res):
     impulse = getattr(v001, 'Impulse{0}'.format(name))(keys=keys)
     factors = impulse.calc_impulse(kl_pd=kl_pd)
     ## 对齐因子
+    new_factors = {}
     for k, v in factors.items():
-        factors[k] = slice_with_metadata(series=v,
-                                         start=begin_date,
-                                         end=end_date)
-    factor_res.update(factors)
+        series = slice_with_metadata(series=v, start=begin_date, end=end_date)
+        if not series.empty:
+            new_factors[k] = series
+    factor_res.update(new_factors)
 
 
 def create_kline(begin_date, end_date, codes, window, **kwargs):
@@ -260,38 +306,39 @@ def create_moneyflow(begin_date, end_date, codes, window, **kwargs):
 def create_heat(begin_date, end_date, codes, category, window, **kwargs):
     factor_res = {}
     start_date = advanceDateByCalendar('china.sse', begin_date,
-                                       '-{0}b'.format(window))
+                                       '-{0}b'.format(window * 2))
     clouto_data = fetch_clouto_data(begin_date=start_date,
                                     end_date=end_date,
                                     codes=codes)
     create_factors(name='Ht001',
-                   keys=[(category, 1, 5, 1), (category, 1, 10, 1),
-                         (category, 1, 20, 1)],
+                   keys=[(category, 1, 5, 1), (category, 1, 5, 0),
+                         (category, 1, 10, 1)],
                    kl_pd=clouto_data,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
     create_factors(name='Ht002',
-                   keys=[(category, 1, 5, 1), (category, 1, 10, 1),
-                         (category, 1, 20, 1)],
+                   keys=[(category, 1, 5, 1), (category, 1, 5, 0),
+                         (category, 1, 10, 1)],
                    kl_pd=clouto_data,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
+
     create_factors(name='Ht003',
-                   keys=[(category, 1, 14, 1)],
+                   keys=[(category, 1, 4, 1)],
                    kl_pd=clouto_data,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
     create_factors(name='Ht004',
-                   keys=[(category, 1, 12, 26, 9, 1)],
+                   keys=[(category, 1, 6, 13, 5, 1)],
                    kl_pd=clouto_data,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
     create_factors(name='Ht005',
-                   keys=[(category, 1, 20, 1)],
+                   keys=[(category, 1, 10, 1)],
                    kl_pd=clouto_data,
                    begin_date=begin_date,
                    end_date=end_date,
@@ -420,14 +467,14 @@ def create_chip(begin_date, end_date, codes, window, **kwargs):
                    factor_res=factor_res)
 
     create_factors(name="Cp003",
-                   keys=[(0.1,), (0.2,)],
+                   keys=[(0.1, ), (0.2, )],
                    kl_pd=market_data,
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
 
     create_factors(name="Cp004",
-                   keys=[(0.8,), (0.9,)],
+                   keys=[(0.8, ), (0.9, )],
                    kl_pd=market_data,
                    begin_date=begin_date,
                    end_date=end_date,
@@ -460,7 +507,6 @@ def create_chip(begin_date, end_date, codes, window, **kwargs):
                    begin_date=begin_date,
                    end_date=end_date,
                    factor_res=factor_res)
-
     create_factors(name="Cp009",
                    keys=[(1, 0), (5, 0)],
                    kl_pd=market_data,

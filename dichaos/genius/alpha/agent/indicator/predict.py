@@ -2,14 +2,17 @@ from agent.predictor import Predictor as BasePredictor
 from factors.calculator import create_kline, create_indictor
 from agent.indicator.model import FactorsList, FactorsGroup
 from agent.indicator.agent import Agent
-import pdb
+import pdb,os
 
 
 class Predictor(BasePredictor):
 
-    def __init__(self, symbol, memory_path, date):
+    def __init__(self, symbol, memory_path, config_path, date):
         super(Predictor, self).__init__(symbol=symbol, agent_class=Agent)
-        self.initialize_agent(memory_path=memory_path, date=date)
+        self.initialize_agent(memory_path=memory_path,
+                              config_path=os.path.join(config_path,
+                                                       self.agent_class.name),
+                              date=date)
 
     def prepare_data(self, begin_date, end_date):
         self.indicator_factors = create_indictor(begin_date=begin_date,
