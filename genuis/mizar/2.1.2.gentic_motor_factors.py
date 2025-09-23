@@ -28,8 +28,10 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
     session = custom_params['session']
     best_programs = [program.output() for program in best_programs]
     best_programs = pd.DataFrame(best_programs)
-    dirs = os.path.join(base_path, "gentic", dethod, method,
-                        custom_params['g_instruments'], return_name)
+    #dirs = os.path.join(base_path, "gentic", dethod, method,
+    #                    custom_params['g_instruments'], return_name)
+    dirs = os.path.join(base_path, method, custom_params['g_instruments'],
+                        "gentic", dethod, return_name)
     if not os.path.exists(dirs):
         os.makedirs(dirs)
     names = rootid
@@ -239,7 +241,7 @@ def train(method, instruments, period, session):
         'NORMINV', 'CEIL', 'FLOOR', 'ROUND', 'TANH', 'RELU', 'SHIFT', 'DELTA',
         'SIGMOID', 'LAST'
     ]
-
+    pdb.set_trace()
     rootid = INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
     ## 加载数据
     ## 加载因子+ 基础数据
@@ -252,14 +254,24 @@ def train(method, instruments, period, session):
                                        datasets=['train', 'val'],
                                        category='returns')
     total_data = total_factors.merge(total_returns, on=['trade_time', 'code'])
+
+    total_data.filter(regex="^nxt1").columns.to_list()
     nxt1_columns = total_data.filter(regex="^nxt1").columns.to_list()
     basic_columns = [
         'close', 'high', 'low', 'open', 'value', 'volume', 'openint'
     ]
+
+    regex_pattern = r'^[^_]+_(5|10|15)_.*'
+    not_columns = total_data.columns[total_data.columns.str.contains(
+        regex_pattern)]
+    pdb.set_trace()
     factor_columns = [
         col for col in total_data.columns
-        if col not in ['trade_time', 'code'] + nxt1_columns + basic_columns
-    ]
+        if col not in ['trade_time', 'code'] + nxt1_columns + basic_columns +
+        not_columns.tolist()
+    ][80:200]
+
+    ''' 
     factor_columns = [
         'tc017_1_2_1', 'ixy001_1_2_1', 'cr028_1_2_0', 'oi011_1_2_0',
         'dv007_1_2_0', 'cr029_1_2_0', 'tf002_1_2_0', 'cj003_1_2_0',
@@ -318,9 +330,10 @@ def train(method, instruments, period, session):
         'tv018_1_2_1', 'oi025_1_2_1', 'cr007_2_3_1', 'oi003_1_2_1',
         'tf001_1_2_1', 'ixy007_1_2_0', 'rv006_2_3_1_2', 'oi036_1_2_1',
         'rv005_1_2_0_1'
-    ]
+    ][0:100]
+    '''
     return_name = "nxt1_ret_{}h".format(period)
-
+    pdb.set_trace()
     ### 评估是才聚合
     '''
     ### 聚合处理 K线数据
@@ -351,7 +364,7 @@ def train(method, instruments, period, session):
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
     operators_sets = two_operators_sets + one_operators_sets
     operators_sets = custom_transformer(operators_sets)
-    rootid = '200036'
+    #rootid = '200036'
     population_size = 80
     tournament_size = 20
     standard_score = 0.1
@@ -443,12 +456,12 @@ if __name__ == '__main__':
                         help='data method')
     parser.add_argument('--instruments',
                         type=str,
-                        default='ims',
+                        default='rbb',
                         help='code or instruments')
 
     parser.add_argument('--period', type=int, default=5, help='period')
 
-    parser.add_argument('--session', type=str, default=20250919, help='period')
+    parser.add_argument('--session', type=str, default=202509221, help='period')
     args = parser.parse_args()
     #method = 'aicso0'
     #instruments = 'rbb'
