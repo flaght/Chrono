@@ -13,6 +13,7 @@ class Conor(object):
 
     def __init__(self, qubits, codes, name='ctp'):
         self.name = name
+        pdb.set_trace()
         self._mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
         self.event_engine = EventEngine()
         self.event_engine.register(EVENT_LOG, self.process_log_event)
@@ -28,6 +29,7 @@ class Conor(object):
             getway_module = module_class.__getattribute__(getway_name)
         except ImportError as e:
             raise (str(e))
+        pdb.set_trace()
         self.main_engine.add_gateway(getway_module)
         self._state_list = {STATE.INIT}  ##  状态机
         self.codes = codes
@@ -35,6 +37,8 @@ class Conor(object):
         for code in codes:
             if code in MAIN_CONTRACT_MAPPING:
                 self._subscribe.append(MAIN_CONTRACT_MAPPING[code])
+            else:
+                self._subscribe.append(code)
         self.contracts = {}
         self.bars = {}
         for symbol in self._subscribe:
@@ -56,6 +60,21 @@ class Conor(object):
         _ = self._mongo_client['neutron'][table_name].bulk_write(
             delete_request + insert_request, bypass_document_validation=True)
 
+    def update_tick(self, data, table_name):
+        insert_request = [
+            InsertOne(data)  # for data in data.to_dict(orient='records')
+        ]
+        delete_request = [
+            DeleteOne({
+                'symbol': data['symbol'],
+                'exchange': data['exchange'],
+                'datetime': data['datetime']
+            })
+        ]
+        print(data)
+        _ = self._mongo_client['neutron'][table_name].bulk_write(
+            delete_request + insert_request, bypass_document_validation=True)
+
     def process_log_event(self, event):
         log = event.data
         print(f"{log.time}\t{log.msg}")
@@ -73,7 +92,7 @@ class Conor(object):
                 contract = self.contracts[symbol]
                 req = SubscribeRequest(symbol=contract.symbol,
                                        exchange=contract.exchange)
-                #print(req)
+                print(req)
                 self.main_engine.subscribe(req, contract.getway_name)
 
     def process_contract(self, event):
@@ -90,9 +109,11 @@ class Conor(object):
         if STATE.MARKET_TICK not in self._state_list:
             self._state_list.add(STATE.MARKET_TICK)
         data = event.data.__dict__
-
         data['exchange'] = data['exchange'].value
         data['datetime'] = data['datetime'].strftime('%Y-%m-%d %H:%M:%S')
+        self.update_tick(data=data, table_name='market_tick')
+        for qubit in self.qubits:
+            qubit.on_tick(data)
 
         cache_bar = self.bars[event.data.symbol]
 
@@ -108,13 +129,13 @@ class Conor(object):
                     .format(tickMinute, cache_bar.minute, tickMinute,
                             cache_bar.bar.__dict__))
                 data = cache_bar.bar.__dict__
-                print(data)
                 ## vwap
                 current_time = datetime.datetime.strptime(
                     cache_bar.bar.datetime, '%Y-%m-%d %H:%M:%S')
                 data['vwap'] = data['value'] / data['volume'] / int(
                     CONT_MULTNUM_MAPPING[SYMBOL_CONTRANCT_MAPPING[
-                        data['symbol']]]) if data['volume'] != 0.0 else 0
+                        data['symbol']]]) if data['volume'] != 0.0 and data[
+                            'symbol'] in SYMBOL_CONTRANCT_MAPPING else 0
                 #self.update_bar(data=data, table_name='market_bar')
                 for qubit in self.qubits:
                     qubit.run(symbol=data['symbol'], trade_time=current_time)
