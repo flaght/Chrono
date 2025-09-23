@@ -58,6 +58,6 @@ class Fantastic(object):
 uri = "temp"
 s1 = Fantastic(code='IM',
                start_date='2025-03-05',
-               end_date='2025-04-30',
+               end_date='2025-03-10',
                uri=uri)
 s1.start()
