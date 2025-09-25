@@ -13,7 +13,7 @@ from lib.iux001 import fetch_data, aggregation_data
 from lib.aux001 import calc_expression
 from lib.cux001 import FactorEvaluate1
 
-leg_mappping = {"rbb": ["hcb"]}
+leg_mappping = {"rbb": ["hcb"], "ims": ["ics"]}
 
 
 def load_factors(method, instruments, period, session, category='gentic'):
@@ -145,7 +145,6 @@ def run1(method, instruments, period, session, datasets=['train', 'val']):
 
 ### 筛选后的因子和对应品种品种匹配
 def run2(method, instruments, period, session, datasets=['train', 'val']):
-    pdb.set_trace()
     run(method=method,
         instruments=instruments,
         period=period,
@@ -164,18 +163,18 @@ if __name__ == '__main__':
 
     parser.add_argument('--method',
                         type=str,
-                        default='bicso0',
+                        default='aicso0',
                         help='data method')
     parser.add_argument('--instruments',
                         type=str,
-                        default='rbb',
+                        default='ims',
                         help='code or instruments')
 
     parser.add_argument('--period', type=int, default=5, help='period')
 
     parser.add_argument('--session',
                         type=str,
-                        default=20250919,
+                        default=202509221,
                         help='session')
     args = parser.parse_args()
 

@@ -254,7 +254,7 @@ def returns(method, instruments):
     target_dir = os.path.join(base_path, method, instruments, 'returns')
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
-
+    pdb.set_trace()
     train_data.reset_index(drop=True).to_feather(
         os.path.join(target_dir, 'train_returns.feather'))
     val_data.reset_index(drop=True).to_feather(
@@ -263,6 +263,6 @@ def returns(method, instruments):
         os.path.join(target_dir, 'test_returns.feather'))
 
 
-#main(method='bicso0', instruments='ac')
-merge(method='bicso0', instruments='hcb')
-returns(method='bicso0', instruments='hcb')
+#main(method='bicso0', instruments='hcb')
+#merge(method='aicso0', instruments='ics')
+returns(method='cicso0', instruments='ics')

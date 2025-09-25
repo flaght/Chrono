@@ -291,11 +291,11 @@ if __name__ == '__main__':
                         help='data method')
     parser.add_argument('--instruments',
                         type=str,
-                        default='rbb',
+                        default='ims',
                         help='code or instruments')
 
     args = parser.parse_args()
-    #method = 'aicso0'
-    #instruments = 'rbb'
+    method = 'aicso0'
+    instruments = 'rbb'
     train(method=args.method, instruments=args.instruments)
     #test1(method=method, g_instruments=instruments)
