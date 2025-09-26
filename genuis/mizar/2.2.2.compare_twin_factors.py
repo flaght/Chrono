@@ -122,7 +122,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--method',
                         type=str,
-                        default='aicso0',
+                        default='cicso0',
                         help='data method')
     parser.add_argument('--instruments',
                         type=str,
@@ -133,7 +133,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509221,
+                        default=202509225,
                         help='session')
     args = parser.parse_args()
 
