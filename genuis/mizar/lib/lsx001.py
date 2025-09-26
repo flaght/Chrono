@@ -1,16 +1,26 @@
 import os, pdb, math, itertools
 import pandas as pd
 from ultron.factor.genetic.geneticist.operators import *
+from kdutils.macro2 import *
 from lib.iux001 import fetch_data, aggregation_data, fetch_times
 from lib.aux001 import calc_expression
 
 
+## 加载选中
+def fetch_chosen_factors(method, instruments):
+    filename = os.path.join(base_path, method, instruments, "rulex",
+                            str(INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]),
+                            "chosen.csv")
+    return pd.read_csv(filename).to_dict(orient='records')
+
+
+## 加载数据
 def fetch_data1(method, instruments, datasets, period, expressions):
     total_data = fetch_data(method=method,
                             instruments=instruments,
                             datasets=datasets)
-    program_list = list(expressions.keys())
-    features = [eval(program)._dependency for program in program_list]
+    #program_list = list(expressions.keys())
+    features = [eval(program['formula'])._dependency for program in expressions]
     features = list(itertools.chain.from_iterable(features))
     features = list(set(features))
     total_data = total_data[['trade_time', 'code'] + features +
@@ -18,16 +28,18 @@ def fetch_data1(method, instruments, datasets, period, expressions):
     return total_data
 
 
+## 计算因子
 def create_factors(total_data, expressions):
     res = []
     total_data1 = total_data.set_index('trade_time')
-    for program, direction in expressions.items():
-        print(program)
-        factor_data = calc_expression(expression=program,
+    #for program, direction in expressions.items():
+    for expression in expressions:
+        print(expression['formula'])
+        factor_data = calc_expression(expression=expression['formula'],
                                       total_data=total_data1)
-        factor_data['transformed'] = factor_data['transformed'] * direction
+        factor_data['transformed'] = factor_data['transformed'] * expression['direction']
         factor_data = factor_data.set_index(['trade_time', 'code'])
-        factor_data.rename(columns={'transformed': program}, inplace=True)
+        factor_data.rename(columns={'transformed': expression['formula']}, inplace=True)
         res.append(factor_data)
     factors_data = pd.concat(res, axis=1)
     return factors_data
@@ -41,17 +53,7 @@ def create_equal(factors_data, total_data, period):
     return final_data
 
 
-
-
-
-
-
-
-
-
-
-
-#### 
+####
 def equal_weight(method,
                  instruments,
                  period,
