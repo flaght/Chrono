@@ -122,18 +122,18 @@ if __name__ == '__main__':
 
     parser.add_argument('--method',
                         type=str,
-                        default='aicso0',
+                        default='bicso0',
                         help='data method')
     parser.add_argument('--instruments',
                         type=str,
-                        default='ims',
+                        default='rbb',
                         help='code or instruments')
 
     parser.add_argument('--period', type=int, default=5, help='period')
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509221,
+                        default=20250919,
                         help='session')
     args = parser.parse_args()
 
