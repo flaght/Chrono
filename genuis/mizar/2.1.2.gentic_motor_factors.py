@@ -417,10 +417,10 @@ def train(method, instruments, period, session):
         'init_depth': 4,
         'evaluate': 'both_evaluate',
         'method': 'fitness',
-        'crossover': 0.4,
+        'crossover': 0.2,
         'point_replace': 0.2,
-        'hoist_mutation': 0.1,
-        'subtree_mutation': 0.1,
+        'hoist_mutation': 0.2,
+        'subtree_mutation': 0.2,
         'point_mutation': 0.2,
         'generations': 4,
         'standard_score': 0.1,
@@ -450,7 +450,6 @@ def train(method, instruments, period, session):
                     save_model=callback_models,
                     custom_params=configure['custom_params'])
 
-    pdb.set_trace()
     factors_data = factors_data.set_index('trade_time')
     engine.train(total_data=factors_data)
 
@@ -472,8 +471,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509225,
-                        help='period')
+                        default=202509226,
+                        help='session')
     args = parser.parse_args()
     #method = 'aicso0'
     #instruments = 'rbb'
