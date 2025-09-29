@@ -250,6 +250,22 @@ class FactorEvaluate1(object):
             raise RuntimeError(
                 "Please run the 'run()' method before plotting.")
 
+        def set_sequential_xticks(ax, series, num_ticks=7):
+            """
+            为一个使用整数索引绘图的坐标轴设置日期标签。
+            ax: a matplotlib axis object.
+            series: The original pandas Series with a DatetimeIndex.
+            num_ticks: The desired number of date labels on the x-axis.
+            """
+            # 计算刻度的整数位置
+            tick_positions = np.linspace(0, len(series) - 1, num_ticks, dtype=int)
+            # 获取这些位置对应的日期标签
+            tick_labels = [series.index[i].strftime('%Y-%m-%d') for i in tick_positions]
+            
+            ax.set_xticks(tick_positions)
+            ax.set_xticklabels(tick_labels, rotation=30, ha='right')
+
+
         fig, axes = plt.subplots(3, 2, figsize=(18, 16))
         fig.suptitle(
             f"Factor Evaluation: {self.factor_name} vs {self.ret_name}",
@@ -257,18 +273,24 @@ class FactorEvaluate1(object):
 
         # 1. 净值曲线 (NAV)
         ax1 = axes[0, 0]
-        self.factor_data['nav'].dropna().plot(ax=ax1,
-                                              label='Net Asset Value (NAV)',
-                                              color='blue')
-        (1 + self.factor_data['gross_ret']).dropna().cumprod().plot(
-            ax=ax1,
-            label='Cumulative Gross Return',
-            color='orange',
-            linestyle='--')
+        nav_data = self.factor_data['nav'].dropna()
+        gross_ret_data = (1 + self.factor_data['gross_ret']).cumprod().dropna()
+
+        # 使用 use_index=False 来忽略时间轴，绘制连续序列
+        nav_data.plot(ax=ax1, label='Net Asset Value (NAV)', color='blue', use_index=False)
+        gross_ret_data.plot(ax=ax1, label='Cumulative Gross Return', color='orange', linestyle='--', use_index=False)
+        
+        # 使用辅助函数设置X轴标签
+        set_sequential_xticks(ax1, nav_data)
+        
         ax1.set_title("Performance")
         ax1.set_ylabel("NAV")
+        ax1.set_xlabel("trade_time (sequential)") # 标签提示X轴是序列
         ax1.legend()
         ax1.grid(True)
+
+
+
 
         # 2. 绩效指标表格
         ax_table = axes[0, 1]
@@ -314,20 +336,24 @@ class FactorEvaluate1(object):
 
         # 3. IC 和 累计IC
         ax3 = axes[1, 0]
-        self.factor_data['ic'].plot(ax=ax3,
-                                    label='Rolling IC',
-                                    color='steelblue',
-                                    alpha=0.8)
+        ic_data = self.factor_data['ic'].dropna()
+        cumsum_ic_data = self.factor_data['cumsum_ic'].dropna()
+        
+        ic_data.plot(ax=ax3, label='Rolling IC', color='steelblue', alpha=0.8, use_index=False)
+        set_sequential_xticks(ax3, ic_data)
+        
         ax3.set_ylabel("Rolling IC", color='steelblue')
         ax3_twin = ax3.twinx()
-        self.factor_data['cumsum_ic'].plot(ax=ax3_twin,
-                                           label='Cumulative IC',
-                                           color='black',
-                                           linestyle='--')
+        
+        cumsum_ic_data.plot(ax=ax3_twin, label='Cumulative IC', color='black', linestyle='--', use_index=False)
+        
         ax3_twin.set_ylabel("Cumulative IC", color='black')
         ax3.set_title("IC Analysis")
+        ax3.set_xlabel("trade_time (sequential)")
         ax3.axhline(0, color='red', linestyle='--', linewidth=1)
         ax3.grid(True)
+
+
 
         # 4. 因子 vs. 收益率散点图
         ax4 = axes[1, 1]
@@ -345,32 +371,42 @@ class FactorEvaluate1(object):
 
         # 5. 每日收益率与回撤
         ax5 = axes[2, 0]
-        drawdown = (self.factor_data['nav'] / self.factor_data['nav'].cummax()
-                    - 1) * 100  # 乘以100转为百分比
-        drawdown.plot(ax=ax5, color='red', alpha=0.8)
+        drawdown_data = ((self.factor_data['nav'] / self.factor_data['nav'].cummax() - 1) * 100).dropna()
+        
+        drawdown_data.plot(ax=ax5, color='red', alpha=0.8, use_index=False)
+        # fill_between 需要 numpy 数组
+        ax5.fill_between(np.arange(len(drawdown_data)), drawdown_data.values, 0, color='red', alpha=0.2)
+        set_sequential_xticks(ax5, drawdown_data)
+        
         ax5.set_title(f"Drawdown Over Time (Max = {self.stats['max_dd']:.2%})")
-        ax5.set_ylabel("Drawdown (%)")  # 明确标签
-        ax5.fill_between(drawdown.index, drawdown, 0, color='red',
-                         alpha=0.2)  # 填充区域更美观
-        ax5.set_ylim(bottom=None, top=0.5)  # 强制Y轴最大值略高于0，确保0线清晰
+        ax5.set_ylabel("Drawdown (%)")
+        ax5.set_xlabel("trade_time (sequential)")
+        ax5.set_ylim(bottom=None, top=0.5)
         ax5.grid(True)
+
+
 
         # 6. 换手率时序图
         ax6 = axes[2, 1]
-        self.factor_data['turnover'].plot(ax=ax6, color='teal')
+        turnover_data = self.factor_data['turnover'].dropna()
+        
+        turnover_data.plot(ax=ax6, color='teal', use_index=False)
+        set_sequential_xticks(ax6, turnover_data)
+        
         ax6.set_title(
             f"Turnover Over Time (Mean = {self.stats['turnover']:.3f})")
         ax6.set_ylabel("Turnover")
+        ax6.set_xlabel("trade_time (sequential)")
         ax6.grid(True)
 
-        locator = mdates.AutoDateLocator()  # 自动选择刻度位置
-        #formatter = mdates.ConciseDateFormatter(locator)  # 智能格式化 (推荐)
-        formatter = mdates.DateFormatter('%Y-%m') # 或者手动指定格式
+        locator = mdates.AutoDateLocator()
+        formatter = mdates.DateFormatter('%Y-%m')
+
 
         # 2. 将格式应用到所有需要时间轴的子图
-        for ax in [ax1, ax3, ax5, ax6]:
-            ax.xaxis.set_major_locator(locator)
-            ax.xaxis.set_major_formatter(formatter)
+        #for ax in [ax1, ax3, ax5, ax6]:
+        #    ax.xaxis.set_major_locator(locator)
+        #    ax.xaxis.set_major_formatter(formatter)
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.96])
         plt.show()
