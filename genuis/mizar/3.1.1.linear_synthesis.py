@@ -38,10 +38,5 @@ if __name__ == '__main__':
 
     parser.add_argument('--period', type=int, default=5, help='period')
 
-    parser.add_argument('--session',
-                        type=str,
-                        default=202509221,
-                        help='session')
-
     args = parser.parse_args()
     run(method=args.method, instruments=args.instruments, period=args.period)
