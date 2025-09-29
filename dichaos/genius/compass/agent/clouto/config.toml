@@ -20,7 +20,6 @@ llm_model = "deepseek-chat"
 llm_provider = "openai"
 
 
-
 [short]
 importance_score_initialization = "sample"
 decay_recency_factor=3.0
