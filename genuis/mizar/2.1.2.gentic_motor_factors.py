@@ -369,6 +369,7 @@ def train(method, instruments, period, session):
                                           'trade_time', 'code', return_name
                                       ]],
                                       on=['trade_time', 'code'])
+    pdb.set_trace()
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
     operators_sets = two_operators_sets + one_operators_sets
     operators_sets = custom_transformer(operators_sets)
@@ -467,11 +468,11 @@ if __name__ == '__main__':
                         default='ims',
                         help='code or instruments')
 
-    parser.add_argument('--period', type=int, default=5, help='period')
+    parser.add_argument('--period', type=int, default=15, help='period')
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509226,
+                        default=202509229,
                         help='session')
     args = parser.parse_args()
     #method = 'aicso0'
