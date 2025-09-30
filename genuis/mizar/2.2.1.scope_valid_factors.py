@@ -40,7 +40,6 @@ def valid_programs(method,
                    calmar=5,
                    sharpe2=1.5,
                    abs_ic=0.02):
-    pdb.set_trace()
     total_data = fetch_data(method=method,
                             instruments=instruments,
                             datasets=datasets)
@@ -94,7 +93,6 @@ def run(method,
         abs_ic,
         is_compare,
         datasets=['train', 'val']):
-    pdb.set_trace()
     programs = load_factors(method=method,
                             instruments=instruments,
                             period=period,
@@ -174,7 +172,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509227,
+                        default=202509229,
                         help='session')
     args = parser.parse_args()
 
