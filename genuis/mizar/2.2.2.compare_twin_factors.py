@@ -126,7 +126,7 @@ if __name__ == '__main__':
                         help='data method')
     parser.add_argument('--instruments',
                         type=str,
-                        default='ims',
+                        default='rbb',
                         help='code or instruments')
 
     parser.add_argument('--period', type=int, default=15, help='period')

@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import pdb, argparse
+import pdb, argparse, random
 import os, pdb, math, itertools
 from scipy import stats  # 用于计算秩相关IC
 from dotenv import load_dotenv
@@ -224,7 +224,7 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     return fitness
 
 
-def train(method, instruments, period, session):
+def train(method, instruments, period, session, count=0):
     two_operators_sets = [
         'MConVariance', 'MMASSI', 'MACCBands', 'MPWMA', 'MIChimoku', 'MRes',
         'MMeanRes', 'MCORR', 'MCoef', 'MSLMean', 'MSmart', 'MSharp',
@@ -269,6 +269,14 @@ def train(method, instruments, period, session):
         if col not in ['trade_time', 'code', 'symbol'] + nxt1_columns +
         basic_columns + ['time_weight', 'equal_weight'] + not_columns.tolist()
     ]  #[80:200]
+
+    ## 随机取个数
+
+    ##
+    #if feature_count > 0:
+    #    pdb.set_trace()
+    factor_columns = factor_columns if count == 0 else random.sample(
+        factor_columns, count)
     pdb.set_trace()
     ''' 
     factor_columns = [
@@ -374,8 +382,8 @@ def train(method, instruments, period, session):
     operators_sets = two_operators_sets + one_operators_sets
     operators_sets = custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 100
-    tournament_size = 40
+    population_size = 50
+    tournament_size = 10
     standard_score = 0.1
     custom_params = {
         'horizon': str(period),
@@ -412,7 +420,7 @@ def train(method, instruments, period, session):
     }
 
     configure = {
-        'n_jobs': 2,
+        'n_jobs': 1,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 4,
@@ -460,12 +468,12 @@ if __name__ == '__main__':
 
     parser.add_argument('--method',
                         type=str,
-                        default='cicso0',
+                        default='bicso0',
                         help='data method')
 
     parser.add_argument('--instruments',
                         type=str,
-                        default='ims',
+                        default='rbb',
                         help='code or instruments')
 
     parser.add_argument('--period', type=int, default=15, help='period')
@@ -474,10 +482,12 @@ if __name__ == '__main__':
                         type=str,
                         default=202509230,
                         help='session')
+    parser.add_argument('--count', type=int, default=150, help='count')
     args = parser.parse_args()
     #method = 'aicso0'
     #instruments = 'rbb'
     train(method=args.method,
           instruments=args.instruments,
           period=args.period,
-          session=args.session)
+          session=args.session,
+          count=args.count)
