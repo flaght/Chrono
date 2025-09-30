@@ -1,3 +1,4 @@
+import pdb
 import numpy as np
 from lib.aux001 import fetch_market
 
@@ -14,7 +15,6 @@ aggregation_rules = {
 
 
 def fetch_data(method, instruments, datasets=['train', 'val', 'test']):
-
     factors_data, returns_data = fetch_market(instruments, method, datasets)
     total_data = factors_data.merge(returns_data, on=['trade_time', 'code'])
     '''
