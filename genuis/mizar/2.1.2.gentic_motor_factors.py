@@ -418,11 +418,11 @@ def train(method, instruments, period, session):
         'init_depth': 4,
         'evaluate': 'both_evaluate',
         'method': 'fitness',
-        'crossover': 0.2,
-        'point_replace': 0.2,
-        'hoist_mutation': 0.2,
-        'subtree_mutation': 0.2,
-        'point_mutation': 0.2,
+        'crossover': 0.3,
+        'point_replace': 0.3,
+        'hoist_mutation': 0.1,
+        'subtree_mutation': 0.1,
+        'point_mutation': 0.3,
         'generations': 4,
         'standard_score': 0.1,
         'stopping_criteria': 5,
@@ -472,7 +472,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509229,
+                        default=202509230,
                         help='session')
     args = parser.parse_args()
     #method = 'aicso0'
