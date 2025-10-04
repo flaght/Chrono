@@ -97,10 +97,10 @@ def run2(method, instruments, period, session, datasets=['train']):
                              datasets=datasets,
                              features=features,
                              period=period)
-    pdb.set_trace()
     task_id = INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
     outputs = os.path.join("records", method, left_symbol, 'rulex',
-                           str(task_id), str(session))
+                           str(task_id), "nxt1_ret_{}h".format(str(period)),
+                           str(session))
     if not os.path.exists(outputs):
         os.makedirs(outputs)
     pdb.set_trace()
@@ -129,11 +129,11 @@ if __name__ == '__main__':
                         default='rbb',
                         help='code or instruments')
 
-    parser.add_argument('--period', type=int, default=5, help='period')
+    parser.add_argument('--period', type=int, default=15, help='period')
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509225,
+                        default=202509229,
                         help='session')
     args = parser.parse_args()
 

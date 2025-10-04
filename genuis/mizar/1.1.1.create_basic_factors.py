@@ -92,7 +92,6 @@ def main(method, instruments):
     start_date, end_date = get_dates(method)
     start_time = advanceDateByCalendar('china.sse', start_date,
                                        '-{0}b'.format(1)).strftime('%Y-%m-%d')
-    pdb.set_trace()
     data = fetch_main_market(begin_date=start_time,
                              end_date=end_date,
                              codes=[INSTRUMENTS_CODES[instruments]])
@@ -263,6 +262,6 @@ def returns(method, instruments):
         os.path.join(target_dir, 'test_returns.feather'))
 
 
-#main(method='bicso0', instruments='hcb')
-#merge(method='aicso0', instruments='ics')
-returns(method='cicso0', instruments='ics')
+main(method='cicso0', instruments='ics')
+merge(method='cicso0', instruments='ics')
+#returns(method='cicso0', instruments='ics')

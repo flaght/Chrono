@@ -377,6 +377,7 @@ def train(method, instruments, period, session, count=0):
                                           'trade_time', 'code', return_name
                                       ]],
                                       on=['trade_time', 'code'])
+    pdb.set_trace()
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
     operators_sets = two_operators_sets + one_operators_sets
     operators_sets = custom_transformer(operators_sets)
@@ -425,11 +426,11 @@ def train(method, instruments, period, session, count=0):
         'init_depth': 4,
         'evaluate': 'both_evaluate',
         'method': 'fitness',
-        'crossover': 0.2,
-        'point_replace': 0.2,
-        'hoist_mutation': 0.2,
-        'subtree_mutation': 0.2,
-        'point_mutation': 0.2,
+        'crossover': 0.3,
+        'point_replace': 0.3,
+        'hoist_mutation': 0.1,
+        'subtree_mutation': 0.1,
+        'point_mutation': 0.3,
         'generations': 4,
         'standard_score': 0.1,
         'stopping_criteria': 5,
@@ -475,15 +476,13 @@ if __name__ == '__main__':
                         default='rbb',
                         help='code or instruments')
 
-    parser.add_argument('--period', type=int, default=5, help='period')
+    parser.add_argument('--period', type=int, default=15, help='period')
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509225,
-                        help='period')
-
+                        default=202509230,
+                        help='session')
     parser.add_argument('--count', type=int, default=150, help='count')
-
     args = parser.parse_args()
     #method = 'aicso0'
     #instruments = 'rbb'
