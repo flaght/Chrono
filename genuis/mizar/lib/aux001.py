@@ -42,10 +42,11 @@ def fetch_times(method, task_id, instruments):
 
 
 ### 读取 相关数据
-def fetch_market(instruments, method, datasets):
+def fetch_market(instruments, method, task_id, datasets):
     factors_data = fetch_temp_data(
         method=method,
         instruments=instruments,
+        task_id=task_id,
         datasets=datasets if isinstance(datasets, list) else [datasets])
 
     returns_data = fetch_temp_returns(

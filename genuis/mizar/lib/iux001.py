@@ -14,8 +14,14 @@ aggregation_rules = {
 }
 
 
-def fetch_data(method, instruments, datasets=['train', 'val', 'test']):
-    factors_data, returns_data = fetch_market(instruments, method, datasets)
+def fetch_data(method,
+               instruments,
+               task_id,
+               datasets=['train', 'val', 'test']):
+    factors_data, returns_data = fetch_market(instruments=instruments,
+                                              method=method,
+                                              task_id=task_id,
+                                              datasets=datasets)
     total_data = factors_data.merge(returns_data, on=['trade_time', 'code'])
     '''
     nxt1_columns = total_data.filter(regex="^nxt1").columns.to_list()
@@ -45,16 +51,19 @@ def aggregation_data(factor_data, returns_data, period):
     return dt
 
 
-def fetch_times(method, instruments):
+def fetch_times(method, task_id, instruments):
     train_data = fetch_data(method=method,
-                                 instruments=instruments,
-                                 datasets=['train'])
+                            task_id=task_id,
+                            instruments=instruments,
+                            datasets=['train'])
     val_data = fetch_data(method=method,
-                               instruments=instruments,
-                               datasets=['val'])
+                          task_id=task_id,
+                          instruments=instruments,
+                          datasets=['val'])
     test_data = fetch_data(method=method,
-                                instruments=instruments,
-                                datasets=['test'])
+                           task_id=task_id,
+                           instruments=instruments,
+                           datasets=['test'])
     return {
         'train_time':
         (train_data['trade_time'].min(), train_data['trade_time'].max()),
