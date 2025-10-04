@@ -17,7 +17,10 @@ def build_factors(method,
                   instruments,
                   period,
                   datasets=['train', 'val', 'test']):
-    expressions = fetch_chosen_factors(method=method, instruments=instruments)
+    pdb.set_trace()
+    expressions = fetch_chosen_factors(method=method,
+                                       instruments=instruments,
+                                       period=period)
     total_data = fetch_data1(method=method,
                              instruments=instruments,
                              datasets=datasets,
@@ -25,7 +28,7 @@ def build_factors(method,
                              expressions=expressions)
     factors_data = create_factors(total_data=total_data,
                                   expressions=expressions)
-    dirs = os.path.join(base_path, method, instruments, 'temp', "tree",
+    dirs = os.path.join(base_path, method, instruments, 'temp', "model",
                         str(period))
     if not os.path.exists(dirs):
         os.makedirs(dirs)
@@ -36,11 +39,13 @@ def build_factors(method,
     final_data.to_feather(filename)
 
 
-def train_model(method, instruments, period):
+def train_model(method, task_id, instruments, period):
     random_state = 42
-    time_array = fetch_times(method=method, instruments=instruments)
+    time_array = fetch_times(method=method,
+                             task_id=task_id,
+                             instruments=instruments)
     dirs = os.path.join(base_path, method, instruments, 'temp', "model",
-                        str(period))
+                        str(task_id), str(period))
     filename = os.path.join(dirs, "final_data.feather")
     final_data = pd.read_feather(filename).set_index(['trade_time', 'code'])
     ## 切割训练集 校验集 测试集
@@ -154,6 +159,12 @@ if __name__ == '__main__':
                         type=str,
                         default='cicso0',
                         help='data method')
+
+    parser.add_argument('--task_id',
+                        type=str,
+                        default='200037',
+                        help='task id')
+
     parser.add_argument('--instruments',
                         type=str,
                         default='ims',
@@ -162,7 +173,11 @@ if __name__ == '__main__':
     parser.add_argument('--period', type=int, default=5, help='period')
 
     args = parser.parse_args()
-    #build_factors(method=args.method, instruments=args.instruments, period=args.period)
+    #build_factors(method=args.method,
+    #              task_id=args.task_id,
+    #              instruments=args.instruments,
+    #              period=args.period)
     train_model(method=args.method,
+                task_id=args.task_id,
                 instruments=args.instruments,
                 period=args.period)

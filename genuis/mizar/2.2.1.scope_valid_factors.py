@@ -16,15 +16,19 @@ from lib.cux001 import FactorEvaluate1
 leg_mappping = {"rbb": ["hcb"], "ims": ["ics"]}
 
 
-def load_factors(method, instruments, period, session, category='gentic'):
+def load_factors(method,
+                 instruments,
+                 period,
+                 task_id,
+                 session,
+                 category='gentic'):
     dirs = os.path.join(base_path, method, instruments, category, 'ic',
-                        "nxt1_ret_{}h".format(str(period)), str(session))
+                        str(task_id), "nxt1_ret_{}h".format(str(period)),
+                        str(session))
     filename = os.path.join(
-        dirs, "programs_{0}_{1}.feather".format(
-            INDEX_MAPPING[INSTRUMENTS_CODES[instruments]], str(session)))
+        dirs, "programs_{0}_{1}.feather".format(str(task_id), str(session)))
 
     programs = pd.read_feather(filename)
-    pdb.set_trace()
     programs = programs[programs['final_fitness'] > 0.02][[
         'name', 'formual', 'final_fitness'
     ]]
@@ -34,6 +38,7 @@ def load_factors(method, instruments, period, session, category='gentic'):
 def valid_programs(method,
                    instruments,
                    period,
+                   task_id,
                    datasets,
                    features,
                    programs,
@@ -41,6 +46,7 @@ def valid_programs(method,
                    sharpe2=1.5,
                    abs_ic=0.02):
     total_data = fetch_data(method=method,
+                            task_id=task_id,
                             instruments=instruments,
                             datasets=datasets)
     total_data = total_data[['trade_time', 'code'] + features +
@@ -72,7 +78,7 @@ def valid_programs(method,
     perf_data = pd.DataFrame(res)[[
         'name', 'expression', 'ic_mean', 'calmar', 'sharpe2'
     ]]
-    pdb.set_trace()
+  
     perf_data['abs_ic'] = np.abs(perf_data['ic_mean'])
     perf_data = perf_data[(perf_data['calmar'] > calmar)
                           & (perf_data['sharpe2'] > sharpe2) &
@@ -86,6 +92,7 @@ def run(method,
         instruments,
         period,
         session,
+        task_id,
         sategory,
         dategory,
         calmar,
@@ -96,8 +103,10 @@ def run(method,
     programs = load_factors(method=method,
                             instruments=instruments,
                             period=period,
+                            task_id=task_id,
                             session=session,
                             category=sategory)
+    pdb.set_trace()
     features = [
         eval(program.formual)._dependency for program in programs.itertuples()
     ]
@@ -106,6 +115,7 @@ def run(method,
 
     validated_programs = valid_programs(
         method=method,
+        task_id=task_id,
         instruments=leg_mappping[instruments][0]
         if is_compare else instruments,
         period=period,
@@ -116,21 +126,27 @@ def run(method,
         sharpe2=sharpe2,
         abs_ic=abs_ic)
     dirs = os.path.join(base_path, method, instruments, dategory, 'ic',
-                        "nxt1_ret_{}h".format(str(period)), str(session))
+                        str(task_id), "nxt1_ret_{}h".format(str(period)),
+                        str(session))
 
     if not os.path.exists(dirs):
         os.makedirs(dirs)
     filename = os.path.join(
-        dirs, "programs_{0}_{1}.feather".format(
-            INDEX_MAPPING[INSTRUMENTS_CODES[instruments]], str(session)))
+        dirs, "programs_{0}_{1}.feather".format(task_id, str(session)))
     validated_programs.reset_index(drop=True).to_feather(filename)
 
 
 ### 过滤挖掘后的因子
-def run1(method, instruments, period, session, datasets=['train', 'val']):
+def run1(method,
+         instruments,
+         period,
+         task_id,
+         session,
+         datasets=['train', 'val']):
     run(method=method,
         instruments=instruments,
         period=period,
+        task_id=task_id,
         session=session,
         sategory='gentic',
         dategory='eligible',
@@ -142,10 +158,16 @@ def run1(method, instruments, period, session, datasets=['train', 'val']):
 
 
 ### 筛选后的因子和对应品种品种匹配
-def run2(method, instruments, period, session, datasets=['train', 'val']):
+def run2(method,
+         instruments,
+         period,
+         task_id,
+         session,
+         datasets=['train', 'val']):
     run(method=method,
         instruments=instruments,
         period=period,
+        task_id=task_id,
         session=session,
         sategory='eligible',
         dategory='valid',
@@ -163,20 +185,27 @@ if __name__ == '__main__':
                         type=str,
                         default='cicso0',
                         help='data method')
+
+    parser.add_argument('--task_id',
+                        type=str,
+                        default='200037',
+                        help='task id')
+
     parser.add_argument('--instruments',
                         type=str,
                         default='ims',
                         help='code or instruments')
 
-    parser.add_argument('--period', type=int, default=15, help='period')
+    parser.add_argument('--period', type=int, default=5, help='period')
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509229,
+                        default=202509226,
                         help='session')
     args = parser.parse_args()
 
     run2(method=args.method,
          instruments=args.instruments,
          period=args.period,
+         task_id=args.task_id,
          session=args.session)
