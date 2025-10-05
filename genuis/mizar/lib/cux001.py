@@ -103,6 +103,10 @@ class FactorEvaluate1(object):
             sg = x.iloc[:win].std()
             self.factor_data['f_scaled'] = (
                 (x - mu) / sg.clip(lower=1e-8)).clip(-3, 3) / 3
+            
+        elif self.scale_method == 'raw':
+            # 直接使用原始值，不进行任何缩放，假设为已经处理好的因子值，离散值为[-1,0,1], 连续值为[-1，1]
+            self.factor_data['f_scaled'] = x
         else:
             raise ValueError('Unknown scale_method')
 
