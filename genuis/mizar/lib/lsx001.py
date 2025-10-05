@@ -80,6 +80,7 @@ def build_factors(method,
     final_data = factors_data.reset_index().merge(
         total_data[['trade_time', 'code', 'nxt1_ret_{0}h'.format(period)]],
         on=['trade_time', 'code'])
+    print(filename)
     final_data.to_feather(filename)
 
 
