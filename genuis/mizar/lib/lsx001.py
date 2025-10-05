@@ -7,20 +7,27 @@ from lib.aux001 import calc_expression
 
 
 ## 加载选中
-def fetch_chosen_factors(method, instruments):
+def fetch_chosen_factors(method, instruments, task_id, period):
     filename = os.path.join(base_path, method, instruments, "rulex",
-                            str(INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]),
+                            str(task_id), "nxt1_ret_{0}h".format(period),
                             "chosen.csv")
-    return pd.read_csv(filename).to_dict(orient='records')
+    pdb.set_trace()
+    expressions =  pd.read_csv(filename).to_dict(orient='records')
+    expressions = {item['formula']: item for item in expressions}
+    expressions = list(expressions.values())
+    return expressions
 
 
 ## 加载数据
-def fetch_data1(method, instruments, datasets, period, expressions):
+def fetch_data1(method, task_id, instruments, datasets, period, expressions):
     total_data = fetch_data(method=method,
+                            task_id=task_id,
                             instruments=instruments,
                             datasets=datasets)
     #program_list = list(expressions.keys())
-    features = [eval(program['formula'])._dependency for program in expressions]
+    features = [
+        eval(program['formula'])._dependency for program in expressions
+    ]
     features = list(itertools.chain.from_iterable(features))
     features = list(set(features))
     total_data = total_data[['trade_time', 'code'] + features +
@@ -37,12 +44,44 @@ def create_factors(total_data, expressions):
         print(expression['formula'])
         factor_data = calc_expression(expression=expression['formula'],
                                       total_data=total_data1)
-        factor_data['transformed'] = factor_data['transformed'] * expression['direction']
+        factor_data['transformed'] = factor_data['transformed'] * expression[
+            'direction']
         factor_data = factor_data.set_index(['trade_time', 'code'])
-        factor_data.rename(columns={'transformed': expression['formula']}, inplace=True)
+
+        factor_data.rename(columns={'transformed': expression['formula']},
+                           inplace=True)
         res.append(factor_data)
     factors_data = pd.concat(res, axis=1)
     return factors_data
+
+
+def build_factors(method,
+                  instruments,
+                  task_id,
+                  period,
+                  datasets=['train', 'val', 'test']):
+    expressions = fetch_chosen_factors(method=method,
+                                       instruments=instruments,
+                                       task_id=task_id,
+                                       period=period)
+    total_data = fetch_data1(method=method,
+                             task_id=task_id,
+                             instruments=instruments,
+                             datasets=datasets,
+                             period=period,
+                             expressions=expressions)
+    factors_data = create_factors(total_data=total_data,
+                                  expressions=expressions)
+    dirs = os.path.join(base_path, method, instruments, 'temp', "model",
+                        str(task_id), str(period))
+    if not os.path.exists(dirs):
+        os.makedirs(dirs)
+    filename = os.path.join(dirs, "final_data.feather")
+    final_data = factors_data.reset_index().merge(
+        total_data[['trade_time', 'code', 'nxt1_ret_{0}h'.format(period)]],
+        on=['trade_time', 'code'])
+    print(filename)
+    final_data.to_feather(filename)
 
 
 ## 因子等权合成降频

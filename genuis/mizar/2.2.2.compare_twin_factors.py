@@ -46,12 +46,17 @@ def run_evalute(target_column, period, left_data, right_data, left_symbol,
     return status_data
 
 
-def load_factors(method, instruments, period, session, category='gentic'):
+def load_factors(method,
+                 instruments,
+                 period,
+                 task_id,
+                 session,
+                 category='gentic'):
     dirs = os.path.join(base_path, method, instruments, category, 'ic',
-                        "nxt1_ret_{}h".format(str(period)), str(session))
+                        str(task_id), "nxt1_ret_{}h".format(str(period)),
+                        str(session))
     filename = os.path.join(
-        dirs, "programs_{0}_{1}.feather".format(
-            INDEX_MAPPING[INSTRUMENTS_CODES[instruments]], str(session)))
+        dirs, "programs_{0}_{1}.feather".format(str(task_id), str(session)))
 
     programs = pd.read_feather(filename)
 
@@ -61,22 +66,24 @@ def load_factors(method, instruments, period, session, category='gentic'):
     return programs
 
 
-def fetch_data1(method, instruments, datasets, features, period):
+def fetch_data1(method, instruments, datasets, features, task_id, period):
     total_data = fetch_data(method=method,
                             instruments=instruments,
+                            task_id=task_id,
                             datasets=datasets)
     total_data = total_data[['trade_time', 'code'] + features +
                             ['nxt1_ret_{}h'.format(period)]]
     return total_data
 
 
-def run2(method, instruments, period, session, datasets=['train']):
+def run2(method, instruments, period, task_id, session, datasets=['train']):
     left_symbol = instruments
     right_symbol = leg_mappping[instruments][0]
     pdb.set_trace()
     programs = load_factors(method=method,
                             instruments=instruments,
                             period=period,
+                            task_id=task_id,
                             session=session,
                             category='valid')
 
@@ -90,14 +97,16 @@ def run2(method, instruments, period, session, datasets=['train']):
                             instruments=left_symbol,
                             datasets=datasets,
                             features=features,
+                            task_id=task_id,
                             period=period)
 
     right_data = fetch_data1(method=method,
                              instruments=right_symbol,
                              datasets=datasets,
                              features=features,
+                             task_id=task_id,
                              period=period)
-    task_id = INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
+    #task_id = INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
     outputs = os.path.join("records", method, left_symbol, 'rulex',
                            str(task_id), "nxt1_ret_{}h".format(str(period)),
                            str(session))
@@ -124,20 +133,27 @@ if __name__ == '__main__':
                         type=str,
                         default='cicso0',
                         help='data method')
+
+    parser.add_argument('--task_id',
+                        type=str,
+                        default='200037',
+                        help='task id')
+
     parser.add_argument('--instruments',
                         type=str,
-                        default='rbb',
+                        default='ims',
                         help='code or instruments')
 
-    parser.add_argument('--period', type=int, default=15, help='period')
+    parser.add_argument('--period', type=int, default=5, help='period')
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509229,
+                        default=202509226,
                         help='session')
     args = parser.parse_args()
 
     run2(method=args.method,
          instruments=args.instruments,
          period=args.period,
+         task_id=args.task_id,
          session=args.session)

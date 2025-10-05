@@ -26,12 +26,17 @@ def generate_simple_id(formula: str) -> str:
     return hasher.hexdigest()
 
 
-def load_programs(method, instruments, period, session, category='gentic'):
+def load_programs(method,
+                  instruments,
+                  period,
+                  task_id,
+                  session,
+                  category='gentic'):
     dirs = os.path.join(base_path, method, instruments, category, 'ic',
-                        "nxt1_ret_{}h".format(str(period)), str(session))
+                        str(task_id), "nxt1_ret_{}h".format(str(period)),
+                        str(session))
     filename = os.path.join(
-        dirs, "programs_{0}_{1}.feather".format(
-            INDEX_MAPPING[INSTRUMENTS_CODES[instruments]], str(session)))
+        dirs, "programs_{0}_{1}.feather".format(str(task_id), str(session)))
 
     programs = pd.read_feather(filename)
 

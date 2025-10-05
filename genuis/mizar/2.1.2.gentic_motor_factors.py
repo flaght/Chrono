@@ -30,19 +30,19 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
     best_programs = pd.DataFrame(best_programs)
     #dirs = os.path.join(base_path, "gentic", dethod, method,
     #                    custom_params['g_instruments'], return_name)
-    dirs = os.path.join(base_path, method, custom_params['g_instruments'],
-                        "gentic", dethod, return_name, str(session))
+    dirs = os.path.join(base_path, method,
+                        custom_params['g_instruments'], "gentic", dethod,
+                        str(rootid), return_name, str(session))
     if not os.path.exists(dirs):
         os.makedirs(dirs)
-    names = rootid
 
     programs_filename = os.path.join(dirs,
-                                     f'programs_{names}_{session}.feather')
+                                     f'programs_{rootid}_{session}.feather')
     if os.path.exists(programs_filename):
         old_programs = pd.read_feather(programs_filename)
         best_programs = pd.concat([old_programs, best_programs], axis=0)
 
-    factors_file = os.path.join(dirs, f'factors_{names}_{session}.feather')
+    factors_file = os.path.join(dirs, f'factors_{rootid}_{session}.feather')
     if os.path.exists(factors_file):
         old_factors = pd.read_feather(factors_file).set_index(
             ['trade_time', 'code'])
@@ -224,7 +224,7 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     return fitness
 
 
-def train(method, instruments, period, session, count=0):
+def train(method, instruments, period, session, task_id, count=0):
     two_operators_sets = [
         'MConVariance', 'MMASSI', 'MACCBands', 'MPWMA', 'MIChimoku', 'MRes',
         'MMeanRes', 'MCORR', 'MCoef', 'MSLMean', 'MSmart', 'MSharp',
@@ -242,10 +242,11 @@ def train(method, instruments, period, session, count=0):
         'NORMINV', 'CEIL', 'FLOOR', 'ROUND', 'TANH', 'RELU', 'SHIFT', 'DELTA',
         'SIGMOID', 'LAST'
     ]
-    rootid = INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
+    rootid = task_id  #INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
     ## 加载数据
     ## 加载因子+ 基础数据
     total_factors = fetch_temp_data(method=method,
+                                    task_id=rootid,
                                     instruments=instruments,
                                     datasets=['train', 'val'])
 
@@ -275,9 +276,9 @@ def train(method, instruments, period, session, count=0):
     ##
     #if feature_count > 0:
     #    pdb.set_trace()
+    pdb.set_trace()
     factor_columns = factor_columns if count == 0 else random.sample(
         factor_columns, count)
-    pdb.set_trace()
     ''' 
     factor_columns = [
         'tc017_1_2_1', 'ixy001_1_2_1', 'cr028_1_2_0', 'oi011_1_2_0',
@@ -377,13 +378,13 @@ def train(method, instruments, period, session, count=0):
                                           'trade_time', 'code', return_name
                                       ]],
                                       on=['trade_time', 'code'])
-    pdb.set_trace()
+
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
     operators_sets = two_operators_sets + one_operators_sets
     operators_sets = custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 50
-    tournament_size = 10
+    population_size = 100
+    tournament_size = 40
     standard_score = 0.1
     custom_params = {
         'horizon': str(period),
@@ -468,19 +469,24 @@ if __name__ == '__main__':
 
     parser.add_argument('--method',
                         type=str,
-                        default='bicso0',
+                        default='cicso0',
                         help='data method')
+
+    parser.add_argument('--task_id',
+                        type=str,
+                        default='200037',
+                        help='task id')
 
     parser.add_argument('--instruments',
                         type=str,
-                        default='rbb',
+                        default='ims',
                         help='code or instruments')
 
-    parser.add_argument('--period', type=int, default=15, help='period')
+    parser.add_argument('--period', type=int, default=5, help='period')
 
     parser.add_argument('--session',
                         type=str,
-                        default=202509230,
+                        default=202509226,
                         help='session')
     parser.add_argument('--count', type=int, default=150, help='count')
     args = parser.parse_args()
@@ -489,5 +495,6 @@ if __name__ == '__main__':
     train(method=args.method,
           instruments=args.instruments,
           period=args.period,
+          task_id=args.task_id,
           session=args.session,
           count=args.count)
