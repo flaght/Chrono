@@ -7,9 +7,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-#os.environ['INSTRUMENTS'] = 'ims'
-#g_instruments = os.environ['INSTRUMENTS']
-
 from alphacopilot.api.calendars import advanceDateByCalendar
 from kdutils.ttimes import get_dates
 from kdutils.macro import base_path
