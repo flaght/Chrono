@@ -6,6 +6,8 @@ from scipy import stats  # 用于计算秩相关IC
 from dotenv import load_dotenv
 
 load_dotenv()
+from kdutils.tactix import Tactix
+
 from ultron.factor.genetic.geneticist.operators import custom_transformer
 from lumina.evolution.genetic import merge_factors
 from lumina.evolution.engine import Engine
@@ -360,6 +362,7 @@ def train(method, instruments, period, session, task_id, count=0):
         '{0}T'.format(period), label='right',
         closed='right').agg(aggregation_rules)
     '''
+    pdb.set_trace()
     if str(rootid) != '200037':
         agg_market_data = total_data[['trade_time', 'code'] + basic_columns]
         ###使用原始因子
@@ -383,8 +386,8 @@ def train(method, instruments, period, session, task_id, count=0):
     operators_sets = two_operators_sets + one_operators_sets
     operators_sets = custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 100
-    tournament_size = 40
+    population_size = 30
+    tournament_size = 10
     standard_score = 0.1
     custom_params = {
         'horizon': str(period),
@@ -465,6 +468,7 @@ def train(method, instruments, period, session, task_id, count=0):
 
 
 if __name__ == '__main__':
+    '''
     parser = argparse.ArgumentParser(description='Train a model')
 
     parser.add_argument('--method',
@@ -492,9 +496,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
     #method = 'aicso0'
     #instruments = 'rbb'
-    train(method=args.method,
-          instruments=args.instruments,
-          period=args.period,
-          task_id=args.task_id,
-          session=args.session,
-          count=args.count)
+    '''
+    variant = Tactix().start()
+    train(method=variant.method,
+          instruments=variant.instruments,
+          period=variant.period,
+          task_id=variant.task_id,
+          session=variant.session,
+          count=variant.count)
