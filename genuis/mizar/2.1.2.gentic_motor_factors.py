@@ -424,7 +424,7 @@ def train(method, instruments, period, session, task_id, count=0):
     }
 
     configure = {
-        'n_jobs': 1,
+        'n_jobs': 4,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 4,
