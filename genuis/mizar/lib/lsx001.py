@@ -11,8 +11,7 @@ def fetch_chosen_factors(method, instruments, task_id, period):
     filename = os.path.join(base_path, method, instruments, "rulex",
                             str(task_id), "nxt1_ret_{0}h".format(period),
                             "chosen.csv")
-    pdb.set_trace()
-    expressions =  pd.read_csv(filename).to_dict(orient='records')
+    expressions = pd.read_csv(filename).to_dict(orient='records')
     expressions = {item['formula']: item for item in expressions}
     expressions = list(expressions.values())
     return expressions
