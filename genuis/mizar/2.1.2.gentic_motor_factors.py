@@ -271,7 +271,7 @@ def train(method, instruments, period, session, task_id, count=0):
         col for col in total_data.columns
         if col not in ['trade_time', 'code', 'symbol'] + nxt1_columns +
         basic_columns + ['time_weight', 'equal_weight'] + not_columns.tolist()
-    ]  #[80:200]
+    ]
 
     ## 随机取个数
 
