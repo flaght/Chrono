@@ -64,15 +64,12 @@ def fetch_temp_returns(method, instruments, datasets, category='data'):
 ### 读取 训练集 校验集，测试集的时间范围
 def fetch_times(method, task_id, instruments):
     train_data = fetch_temp_data(method=method,
-                                 task_id=task_id,
                                  instruments=instruments,
                                  datasets=['train'])
     val_data = fetch_temp_data(method=method,
-                               task_id=task_id,
                                instruments=instruments,
                                datasets=['val'])
     test_data = fetch_temp_data(method=method,
-                                task_id=task_id,
                                 instruments=instruments,
                                 datasets=['test'])
     return {
