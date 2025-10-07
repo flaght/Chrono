@@ -34,7 +34,6 @@ def compare_fitness_rate(column, method, instruments, times_info, task_id,
         backup_cycle = 1
         total_data = fetch_temp_data(
             method=method,
-            task_id=task_id,
             instruments=instruments,
             datasets=name if isinstance(name, list) else [name])
 
@@ -49,7 +48,7 @@ def compare_fitness_rate(column, method, instruments, times_info, task_id,
         strategy_method = column['strategy_method']
         signal_params = column['signal_params']
         strategy_params = column['strategy_params']
-        
+
         #expression = "MSharp(10,MPERCENT(12,MMeanRes(8,'oi017_5_10_1','oi031_5_10_0')),MDPO(20,MSKEW(2,'cr035_5_10_1')))"
         #signal_method = "autocorr_signal"
         #strategy_method = "trailing_strategy"
@@ -220,7 +219,7 @@ if __name__ == '__main__':
     res = []
     k_split = 1
 
-    strategies_infos = strategy_dt.to_dict(orient='records')
+    strategies_infos = strategy_dt.to_dict(orient='records')[10:]
     process_list = split_k(k_split, strategies_infos)
     res = create_parellel(process_list=process_list,
                           callback=run_position,

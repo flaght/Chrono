@@ -386,8 +386,8 @@ def train(method, instruments, period, session, task_id, count=0):
     operators_sets = two_operators_sets + one_operators_sets
     operators_sets = custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 30
-    tournament_size = 10
+    population_size = 80
+    tournament_size = 30
     standard_score = 0.1
     custom_params = {
         'horizon': str(period),
@@ -424,7 +424,7 @@ def train(method, instruments, period, session, task_id, count=0):
     }
 
     configure = {
-        'n_jobs': 1,
+        'n_jobs': 4,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 4,

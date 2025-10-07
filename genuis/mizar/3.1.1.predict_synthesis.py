@@ -13,7 +13,7 @@ if __name__ == '__main__':
                       instruments=variant.instruments,
                       task_id=variant.task_id,
                       period=variant.period)
-
+    
     elif variant.form == 'linear':
         linear_train_model(method=variant.method,
                            instruments=variant.instruments,
