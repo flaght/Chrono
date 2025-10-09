@@ -1,5 +1,5 @@
 ### 加载因子文件
-import os
+import os, pdb
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,14 +7,14 @@ import pandas as pd
 from ultron.factor.genetic.geneticist.operators import calc_factor
 from lumina.genetic.metrics.evaluate import FactorEvaluate
 from kdutils.common import fetch_temp_data, fetch_temp_returns
-
-
+'''
 def fetch_expression_file(method):
     temp1 = os.path.join('temp', method, '200036', 'evolution',
                          'programs_{0}.feather'.format('200036'))
     ms1 = pd.read_feather(temp1).drop(['update_time'],
                                       axis=1)[['name', 'formual']]
     return ms1.rename(columns={'formual': 'expression'})
+'''
 
 
 ### 读取 训练集 校验集，测试集的时间范围
@@ -69,6 +69,9 @@ def calc_expression(expression, total_data):
     factor_data['transformed'] = np.where(
         np.abs(factor_data.transformed.values) > 0.000001,
         factor_data.transformed.values, np.nan)
+    ##前置填充
+    #factor_data = factor_data.assign(transformed=factor_data.groupby('code')
+    #                                 ['transformed'].ffill()).dropna()
     factor_data = factor_data.loc[factor_data.index.unique()[1:]]
     factors_data1 = factor_data.reset_index()
     return factors_data1
