@@ -54,6 +54,7 @@ def create_factors(total_data, expressions):
     return factors_data
 
 
+### 缺失数据前置填充
 def build_factors(method,
                   instruments,
                   task_id,
@@ -71,6 +72,13 @@ def build_factors(method,
                              expressions=expressions)
     factors_data = create_factors(total_data=total_data,
                                   expressions=expressions)
+    factors_data = factors_data.unstack().fillna(method='ffill').stack()
+    '''
+    numeric_df = factors_data.select_dtypes(include=np.number)
+    bad_values_mask = numeric_df.isnull() | np.isinf(numeric_df)
+    bad_counts = bad_values_mask.sum()
+    problematic_columns = bad_counts[bad_counts > 0]
+    '''
     dirs = os.path.join(base_path, method, instruments, 'temp', "model",
                         str(task_id), str(period))
     if not os.path.exists(dirs):
