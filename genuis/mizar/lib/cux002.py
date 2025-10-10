@@ -1,3 +1,4 @@
+import pdb
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -51,23 +52,42 @@ class StrategyEvaluate1(object):
     def run(self, agg=False):
         ## 时序收益
         daily_returns, min_returns = self.timesequence_returns()
-        self.daily_returns = daily_returns  #['a_ret']
+        #self.daily_returns = daily_returns  #['a_ret']
         self.min_returns = min_returns  #['a_ret']
+      
+        turnover = np.abs(
+            np.diff(self.pos_data.values.reshape(-1, ), prepend=0)).mean()
 
-        turnover = np.abs(np.diff(self.pos_data, prepend=0)).mean()
-        sharpe_ratio = empyrical.sharpe_ratio(returns=daily_returns['a_ret'],
-                                              period=empyrical.DAILY)
-        calmar_ratio = empyrical.calmar_ratio(returns=daily_returns['a_ret'],
-                                              period=empyrical.DAILY)
         max_drawdown = empyrical.max_drawdown(returns=min_returns['a_ret'])
-        annual_return = empyrical.annual_return(returns=daily_returns['a_ret'],
-                                                period=empyrical.DAILY)
         final_return = empyrical.cum_returns_final(
             returns=min_returns['a_ret'])
+
+        annual_return = empyrical.annual_return(returns=daily_returns['a_ret'],
+                                                period=empyrical.DAILY)
         annual_volatility = empyrical.annual_volatility(
             returns=daily_returns['a_ret'], period=empyrical.DAILY)
         downside_risk = empyrical.downside_risk(returns=daily_returns['a_ret'],
                                                 period=empyrical.DAILY)
+
+        sharpe_ratio = empyrical.sharpe_ratio(returns=daily_returns['a_ret'],
+                                              period=empyrical.DAILY)
+        '''
+        sharpe_ratio = empyrical.sharpe_ratio(returns=daily_returns['a_ret'],
+                                              period=empyrical.DAILY)
+        calmar_ratio = empyrical.calmar_ratio(returns=daily_returns['a_ret'],
+                                              period=empyrical.DAILY)
+
+        annual_return = empyrical.annual_return(returns=daily_returns['a_ret'],
+                                                period=empyrical.DAILY)
+        annual_volatility = empyrical.annual_volatility(
+            returns=daily_returns['a_ret'], period=empyrical.DAILY)
+        downside_risk = empyrical.downside_risk(returns=daily_returns['a_ret'],
+                                                period=empyrical.DAILY)
+        '''
+        final_return = empyrical.cum_returns_final(
+            returns=min_returns['a_ret'])
+        calmar_ratio = final_return / abs(
+            max_drawdown) if max_drawdown != 0 else np.nan
 
         win_ratio = empyrical.win_ratio(min_returns['a_ret'])
 
@@ -105,7 +125,10 @@ class StrategyEvaluate1(object):
             ax.set_xticks(tick_positions)
             ax.set_xticklabels(tick_labels, rotation=30, ha='right')
 
-        fig, axes = plt.subplots(2, 2, figsize=(18, 12), constrained_layout=True)
+        fig, axes = plt.subplots(2,
+                                 2,
+                                 figsize=(18, 12),
+                                 constrained_layout=True)
         fig.suptitle(
             f"Strategy Evaluation  {self.strategy_name} vs {self.ret_name}",
             fontsize=18)
@@ -152,7 +175,7 @@ class StrategyEvaluate1(object):
             f"{'Sharpe Ratio':<20}: {self.stats['sharpe_ratio']:.2f}\n"
             f"{'Calmar Ratio':<20}: {self.stats.get('calmar_ratio', float('nan')):.2f}\n"
             f"{'Profit/Loss Ratio':<20}: {self.stats['p/l_ratio']:.2f}\n"
-            #f"{'Win Ratio':<20}: {self.stats['win_ratio']:.2%}\n"
+            f"{'Win Ratio':<20}: {self.stats['win_ratio']:.2%}\n"
             f"{'Mean Turnover':<20}: {self.stats['turnover']:.4f}\n"
             f"{'Max Drawdown':<20}: {self.stats['max_drawdown']:.2%}\n"
             #f"{'Downside Risk':<20}: {self.stats['downside_risk']:.2%}\n"
@@ -193,21 +216,41 @@ class StrategyEvaluate1(object):
 
         # 7. 信号与收益关系图
         ax4 = axes[1, 1]
-        merged_df = pd.concat([self.pos_data.stack().droplevel(level=1), self.min_returns['a_ret']], axis=1).dropna()
+        merged_df = pd.concat([
+            self.pos_data.stack().droplevel(level=1), self.min_returns['a_ret']
+        ],
+                              axis=1).dropna()
         merged_df.columns = ['pos', 'ret']
         try:
-            merged_df['pos_bin'] = pd.qcut(merged_df['pos'], q=10, duplicates='drop', labels=False)
-            bin_labels_series = pd.qcut(merged_df['pos'], q=10, duplicates='drop')
-            bin_labels = [f'{b.left:.2f} to {b.right:.2f}' for b in bin_labels_series.categories]
-            sns.boxplot(x='pos_bin', y='ret', data=merged_df, ax=ax4, palette='vlag')
+            merged_df['pos_bin'] = pd.qcut(merged_df['pos'],
+                                           q=10,
+                                           duplicates='drop',
+                                           labels=False)
+            bin_labels_series = pd.qcut(merged_df['pos'],
+                                        q=10,
+                                        duplicates='drop')
+            bin_labels = [
+                f'{b.left:.2f} to {b.right:.2f}'
+                for b in bin_labels_series.categories
+            ]
+            sns.boxplot(x='pos_bin',
+                        y='ret',
+                        data=merged_df,
+                        ax=ax4,
+                        palette='vlag')
             ax4.set_xticklabels(bin_labels, rotation=45, ha='right')
             ax4.set_xlabel("Position Bin (Quantiles)")
         except Exception:
-            sns.scatterplot(x='pos', y='ret', data=merged_df, ax=ax4, alpha=0.2)
+            sns.scatterplot(x='pos',
+                            y='ret',
+                            data=merged_df,
+                            ax=ax4,
+                            alpha=0.2)
             ax4.set_xlabel("Position")
         ax4.axhline(0, color='black', linestyle='--', linewidth=1)
         ax4.set_title("7. Return vs. Previous Position")
-        ax4.set_ylabel("Next Minute's Net Return"); ax4.grid(True)
+        ax4.set_ylabel("Next Minute's Net Return")
+        ax4.grid(True)
 
         # 4. 换手率
         '''
