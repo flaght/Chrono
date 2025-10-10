@@ -259,6 +259,6 @@ def returns(method, instruments):
         os.path.join(target_dir, 'test_returns.feather'))
 
 
-main(method='cicso0', instruments='ics')
-merge(method='cicso0', instruments='ics')
-#returns(method='cicso0', instruments='ics')
+#main(method='cicso0', instruments='ics')
+#merge(method='cicso0', instruments='ics')
+returns(method='cicso0', instruments='ims')
