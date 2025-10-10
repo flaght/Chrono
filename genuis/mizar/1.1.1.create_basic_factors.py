@@ -7,9 +7,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-#os.environ['INSTRUMENTS'] = 'ims'
-#g_instruments = os.environ['INSTRUMENTS']
-
 from alphacopilot.api.calendars import advanceDateByCalendar
 from kdutils.ttimes import get_dates
 from kdutils.macro import base_path
@@ -92,7 +89,6 @@ def main(method, instruments):
     start_date, end_date = get_dates(method)
     start_time = advanceDateByCalendar('china.sse', start_date,
                                        '-{0}b'.format(1)).strftime('%Y-%m-%d')
-    pdb.set_trace()
     data = fetch_main_market(begin_date=start_time,
                              end_date=end_date,
                              codes=[INSTRUMENTS_CODES[instruments]])
@@ -254,7 +250,7 @@ def returns(method, instruments):
     target_dir = os.path.join(base_path, method, instruments, 'returns')
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)
-
+    pdb.set_trace()
     train_data.reset_index(drop=True).to_feather(
         os.path.join(target_dir, 'train_returns.feather'))
     val_data.reset_index(drop=True).to_feather(
@@ -263,6 +259,6 @@ def returns(method, instruments):
         os.path.join(target_dir, 'test_returns.feather'))
 
 
-#main(method='bicso0', instruments='ac')
-merge(method='bicso0', instruments='hcb')
-returns(method='bicso0', instruments='hcb')
+#main(method='cicso0', instruments='ics')
+#merge(method='cicso0', instruments='ics')
+returns(method='cicso0', instruments='ims')

@@ -368,7 +368,7 @@ class Report(object):
 
 
 model_date = '2022-09-05'
-trade_date = '2025-09-23'  ##预测日期
+trade_date = '2025-09-29'  ##预测日期
 debate_rounds = 4
 ### 并发预测
 
@@ -400,4 +400,3 @@ base_path = "/workspace/worker/temp/nginx/opts/dichaos/futures"
 resource_path = "resource"
 report = Report(symbol='IM', base_path=base_path, resource_path=resource_path)
 report.run(end_date=trade_date)
-

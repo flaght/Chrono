@@ -11,19 +11,14 @@ embedding_provider = "openai"
 llm_model = "gpt-oss:120b"
 llm_provider = "ollama"
 
+#[predict]
+#llm_model = "gpt-oss:120b"
+#llm_provider = "ollama"
+
 [predict]
-llm_model = "gpt-oss:120b"
-llm_provider = "ollama"
+llm_model = "deepseek-chat"
+llm_provider = "openai"
 
-#[predict]
-#llm_model = "deepseek-chat"
-#llm_provider = "openai"
-
-
-
-#[predict]
-#llm_model = "deepseek-chat"
-#llm_provider = "openai"
 
 
 [short]

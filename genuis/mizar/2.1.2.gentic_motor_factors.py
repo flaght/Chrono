@@ -1,11 +1,13 @@
 import pandas as pd
 import numpy as np
-import pdb, argparse
+import pdb, argparse, random
 import os, pdb, math, itertools
 from scipy import stats  # 用于计算秩相关IC
 from dotenv import load_dotenv
 
 load_dotenv()
+from kdutils.tactix import Tactix
+
 from ultron.factor.genetic.geneticist.operators import custom_transformer
 from lumina.evolution.genetic import merge_factors
 from lumina.evolution.engine import Engine
@@ -30,19 +32,19 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
     best_programs = pd.DataFrame(best_programs)
     #dirs = os.path.join(base_path, "gentic", dethod, method,
     #                    custom_params['g_instruments'], return_name)
-    dirs = os.path.join(base_path, method, custom_params['g_instruments'],
-                        "gentic", dethod, return_name)
+    dirs = os.path.join(base_path, method,
+                        custom_params['g_instruments'], "gentic", dethod,
+                        str(rootid), return_name, str(session))
     if not os.path.exists(dirs):
         os.makedirs(dirs)
-    names = rootid
 
     programs_filename = os.path.join(dirs,
-                                     f'programs_{names}_{session}.feather')
+                                     f'programs_{rootid}_{session}.feather')
     if os.path.exists(programs_filename):
         old_programs = pd.read_feather(programs_filename)
         best_programs = pd.concat([old_programs, best_programs], axis=0)
 
-    factors_file = os.path.join(dirs, f'factors_{names}_{session}.feather')
+    factors_file = os.path.join(dirs, f'factors_{rootid}_{session}.feather')
     if os.path.exists(factors_file):
         old_factors = pd.read_feather(factors_file).set_index(
             ['trade_time', 'code'])
@@ -85,6 +87,7 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
         (best_programs['final_fitness'] > standard_score)
         & (best_programs['final_fitness'] > 0)]
 
+    final_programs = final_programs.drop_duplicates(subset=['features'])
     if final_programs.shape[0] < tournament_size:
         best_programs = best_programs.sort_values('final_fitness',
                                                   ascending=False)
@@ -160,7 +163,7 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
             stats_df['sharpe1']) or stats_df['sharpe1'] <= 0:
         return 0.0
 
-    if stats_df['calmar'] < 1.3 or stats_df['sharpe2'] < 1.3:
+    if stats_df['calmar'] < 1.1 or stats_df['sharpe2'] < 1.1:
         return 0.0
     ## ic 绝对值大于1 不正常
     if fitness >= 1:
@@ -223,7 +226,7 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     return fitness
 
 
-def train(method, instruments, period, session):
+def train(method, instruments, period, session, task_id, count=0):
     two_operators_sets = [
         'MConVariance', 'MMASSI', 'MACCBands', 'MPWMA', 'MIChimoku', 'MRes',
         'MMeanRes', 'MCORR', 'MCoef', 'MSLMean', 'MSmart', 'MSharp',
@@ -241,11 +244,11 @@ def train(method, instruments, period, session):
         'NORMINV', 'CEIL', 'FLOOR', 'ROUND', 'TANH', 'RELU', 'SHIFT', 'DELTA',
         'SIGMOID', 'LAST'
     ]
-    pdb.set_trace()
-    rootid = INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
+    rootid = task_id  #INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
     ## 加载数据
     ## 加载因子+ 基础数据
     total_factors = fetch_temp_data(method=method,
+                                    task_id=rootid,
                                     instruments=instruments,
                                     datasets=['train', 'val'])
 
@@ -264,13 +267,20 @@ def train(method, instruments, period, session):
     regex_pattern = r'^[^_]+_(5|10|15)_.*'
     not_columns = total_data.columns[total_data.columns.str.contains(
         regex_pattern)]
-    pdb.set_trace()
     factor_columns = [
         col for col in total_data.columns
-        if col not in ['trade_time', 'code'] + nxt1_columns + basic_columns +
-        not_columns.tolist()
-    ][80:200]
+        if col not in ['trade_time', 'code', 'symbol'] + nxt1_columns +
+        basic_columns + ['time_weight', 'equal_weight'] + not_columns.tolist()
+    ]
 
+    ## 随机取个数
+
+    ##
+    #if feature_count > 0:
+    #    pdb.set_trace()
+    pdb.set_trace()
+    factor_columns = factor_columns if count == 0 else random.sample(
+        factor_columns, count)
     ''' 
     factor_columns = [
         'tc017_1_2_1', 'ixy001_1_2_1', 'cr028_1_2_0', 'oi011_1_2_0',
@@ -333,7 +343,6 @@ def train(method, instruments, period, session):
     ][0:100]
     '''
     return_name = "nxt1_ret_{}h".format(period)
-    pdb.set_trace()
     ### 评估是才聚合
     '''
     ### 聚合处理 K线数据
@@ -353,20 +362,32 @@ def train(method, instruments, period, session):
         '{0}T'.format(period), label='right',
         closed='right').agg(aggregation_rules)
     '''
-    agg_market_data = total_data[['trade_time', 'code'] + basic_columns]
-    ###使用原始因子
-    factors_data = total_data[['trade_time', 'code'] + factor_columns].merge(
-        agg_market_data,
-        on=['trade_time',
-            'code']).merge(total_returns[['trade_time', 'code', return_name]],
-                           on=['trade_time', 'code'])
+    pdb.set_trace()
+    if str(rootid) != '200037':
+        agg_market_data = total_data[['trade_time', 'code'] + basic_columns]
+        ###使用原始因子
+        factors_data = total_data[['trade_time', 'code'] +
+                                  factor_columns].merge(
+                                      agg_market_data,
+                                      on=['trade_time', 'code'
+                                          ]).merge(total_returns[[
+                                              'trade_time', 'code', return_name
+                                          ]],
+                                                   on=['trade_time', 'code'])
+    else:
+        factors_data = total_data[['trade_time', 'code'] +
+                                  factor_columns].merge(
+                                      total_returns[[
+                                          'trade_time', 'code', return_name
+                                      ]],
+                                      on=['trade_time', 'code'])
 
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
     operators_sets = two_operators_sets + one_operators_sets
     operators_sets = custom_transformer(operators_sets)
     #rootid = '200036'
     population_size = 80
-    tournament_size = 20
+    tournament_size = 30
     standard_score = 0.1
     custom_params = {
         'horizon': str(period),
@@ -403,17 +424,17 @@ def train(method, instruments, period, session):
     }
 
     configure = {
-        'n_jobs': 1,
+        'n_jobs': 4,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 4,
         'evaluate': 'both_evaluate',
         'method': 'fitness',
-        'crossover': 0.4,
-        'point_replace': 0.2,
+        'crossover': 0.3,
+        'point_replace': 0.3,
         'hoist_mutation': 0.1,
         'subtree_mutation': 0.1,
-        'point_mutation': 0.2,
+        'point_mutation': 0.3,
         'generations': 4,
         'standard_score': 0.1,
         'stopping_criteria': 5,
@@ -442,30 +463,44 @@ def train(method, instruments, period, session):
                     save_model=callback_models,
                     custom_params=configure['custom_params'])
 
-    pdb.set_trace()
     factors_data = factors_data.set_index('trade_time')
     engine.train(total_data=factors_data)
 
 
 if __name__ == '__main__':
+    '''
     parser = argparse.ArgumentParser(description='Train a model')
 
     parser.add_argument('--method',
                         type=str,
-                        default='bicso0',
+                        default='cicso0',
                         help='data method')
+
+    parser.add_argument('--task_id',
+                        type=str,
+                        default='200037',
+                        help='task id')
+
     parser.add_argument('--instruments',
                         type=str,
-                        default='rbb',
+                        default='ims',
                         help='code or instruments')
 
     parser.add_argument('--period', type=int, default=5, help='period')
 
-    parser.add_argument('--session', type=str, default=202509221, help='period')
+    parser.add_argument('--session',
+                        type=str,
+                        default=202509226,
+                        help='session')
+    parser.add_argument('--count', type=int, default=150, help='count')
     args = parser.parse_args()
     #method = 'aicso0'
     #instruments = 'rbb'
-    train(method=args.method,
-          instruments=args.instruments,
-          period=args.period,
-          session=args.session)
+    '''
+    variant = Tactix().start()
+    train(method=variant.method,
+          instruments=variant.instruments,
+          period=variant.period,
+          task_id=variant.task_id,
+          session=variant.session,
+          count=variant.count)

@@ -16,9 +16,9 @@ def merge(method):
         pdb.set_trace()
         codes = factors_data.code.unique().tolist()
         mapping = {'IM': 'ims', 'IC': 'ics', 'IF': 'ifs', 'IH': 'ihs'}
-        dirs = os.path.join(base_path, method, instruments, 'level2')
-        if not os.path.exists(dirs):
-            os.makedirs(dirs)
+        #dirs = os.path.join(base_path, method, instruments, 'level2')
+        #if not os.path.exists(dirs):
+        #    os.makedirs(dirs)
         for code in codes:
             instruments = mapping[code]
             dirs = os.path.join(base_path, method, instruments, 'level2')
