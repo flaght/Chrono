@@ -1,5 +1,6 @@
 import os, pdb, math, itertools
 import pandas as pd
+import numpy as np
 from kdutils.macro2 import *
 from kdutils.common import fetch_temp_returns
 from lib.lsx001 import fetch_times
@@ -35,11 +36,13 @@ def normal1_factors(method, instruments, task_id, period, window):
                                              min_periods=1).mean()
     data_rolling_std = current_data.rolling(window=window,
                                             min_periods=1).std().replace(
-                                                0, 1e-6)
+                                                0, 1e-8)
     normal_data = (current_data - data_rolling_mean) / data_rolling_std
-
+    pdb.set_trace()
+    normal_data = normal_data.clip(-3, 3) / 3
     normal_data = pd.concat([normal_data, returns_data], axis=1)
     normal_data = normal_data.stack()
+    normal_data.replace([np.inf, -np.inf], np.nan, inplace=True)
     normal_data = normal_data = normal_data.dropna().reset_index().loc[window:]
 
     normal_data = normal_data.rename(columns={
@@ -57,16 +60,18 @@ def normal1_factors(method, instruments, task_id, period, window):
                    ] + ["f{0}".format(i)
                         for i in range(0, len(features))] + ['nxt1_ret']
     normal_data.columns = new_columns
+
+
     train_data = normal_data.loc[
         time_array['train_time'][0]:time_array['train_time'][1]].reset_index()
     val_data = normal_data.loc[
         time_array['val_time'][0]:time_array['val_time'][1]].reset_index()
     test_data = normal_data.loc[
         time_array['test_time'][0]:time_array['test_time'][1]].reset_index()
-
-    train_data.reset_index().to_feather(
+    pdb.set_trace()
+    train_data.to_feather(
         os.path.join(dirs, "normal_train_data.feather"))
-    val_data.reset_index().to_feather(
+    val_data.to_feather(
         os.path.join(dirs, "normal_val_data.feather"))
-    test_data.reset_index().to_feather(
+    test_data.to_feather(
         os.path.join(dirs, "normal_test_data.feather"))
