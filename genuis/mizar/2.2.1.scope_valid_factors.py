@@ -6,6 +6,7 @@ import os, pdb, math, itertools
 from dotenv import load_dotenv
 
 load_dotenv()
+from kdutils.tactix import Tactix
 from ultron.factor.genetic.geneticist.operators import *
 
 from kdutils.macro2 import *
@@ -179,6 +180,7 @@ def run2(method,
 
 
 if __name__ == '__main__':
+    '''
     parser = argparse.ArgumentParser(description='Train a model')
 
     parser.add_argument('--method',
@@ -204,8 +206,22 @@ if __name__ == '__main__':
                         help='session')
     args = parser.parse_args()
 
-    run2(method=args.method,
+    run1(method=args.method,
          instruments=args.instruments,
          period=args.period,
          task_id=args.task_id,
          session=args.session)
+    '''
+    variant = Tactix().start()
+    if variant.form == 'first':
+        run1(method=variant.method,
+         instruments=variant.instruments,
+         period=variant.period,
+         task_id=variant.task_id,
+         session=variant.session)
+    elif variant.form == 'second':
+        run2(method=variant.method,
+         instruments=variant.instruments,
+         period=variant.period,
+         task_id=variant.task_id,
+         session=variant.session)
