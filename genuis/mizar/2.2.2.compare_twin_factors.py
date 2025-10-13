@@ -6,6 +6,7 @@ import os, pdb, math, itertools
 from dotenv import load_dotenv
 
 load_dotenv()
+from kdutils.tactix import Tactix
 from ultron.factor.genetic.geneticist.operators import *
 from lumina.genetic.process import *
 from kdutils.macro2 import *
@@ -76,7 +77,7 @@ def fetch_data1(method, instruments, datasets, features, task_id, period):
     return total_data
 
 
-def run2(method, instruments, period, task_id, session, datasets=['train']):
+def run2(method, instruments, period, task_id, session, datasets=['train','val']):
     left_symbol = instruments
     right_symbol = leg_mappping[instruments][0]
     pdb.set_trace()
@@ -127,6 +128,7 @@ def run2(method, instruments, period, task_id, session, datasets=['train']):
 
 
 if __name__ == '__main__':
+    '''
     parser = argparse.ArgumentParser(description='Train a model')
 
     parser.add_argument('--method',
@@ -157,3 +159,10 @@ if __name__ == '__main__':
          period=args.period,
          task_id=args.task_id,
          session=args.session)
+    '''
+    variant = Tactix().start()
+    run2(method=variant.method,
+         instruments=variant.instruments,
+         period=variant.period,
+         task_id=variant.task_id,
+         session=variant.session)
