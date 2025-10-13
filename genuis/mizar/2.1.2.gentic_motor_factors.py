@@ -163,7 +163,7 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
             stats_df['sharpe1']) or stats_df['sharpe1'] <= 0:
         return 0.0
 
-    if stats_df['calmar'] < 1.1 or stats_df['sharpe2'] < 1.1:
+    if stats_df['calmar'] < 1.0 or stats_df['sharpe2'] < 1.0:
         return 0.0
     ## ic 绝对值大于1 不正常
     if fitness >= 1:
