@@ -65,8 +65,8 @@ def standard_features(prepare_features, method, win):
     predict_data = prepare_features.copy()
     for f in features:
         scale_factors(predict_data=predict_data,
-                      method='roll_zscore',
-                      win=240,
+                      method=method,
+                      win=win,
                       factor_name=f)
         prepare_features[f] = predict_data['transformed']
     return prepare_features
