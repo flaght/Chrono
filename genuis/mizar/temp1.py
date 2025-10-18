@@ -40,6 +40,7 @@ def run(method, instruments, period, task_id, name, signal_method,
     print(eval1.run())
 
 
+
 if __name__ == '__main__':
     method = 'cicso0'
     instruments = 'ims'
