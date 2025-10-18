@@ -40,7 +40,6 @@ def train_model(method, task_id, instruments, period):
 
     # 定义交叉验证的折数
     N_SPLITS = 5
-    pdb.set_trace()
     # 【新增】计算每一折验证集的大小
     # n_splits=5 会把数据分成 5+1=6 块，每块作为一次验证集
     test_fold_size = len(X) // (N_SPLITS + 1)
