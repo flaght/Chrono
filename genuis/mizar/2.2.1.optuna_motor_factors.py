@@ -1,4 +1,4 @@
-import os, math, random, hashlib
+import os, math, hashlib
 import pandas as pd
 import numpy as np
 from lumina.genetic.util import create_id
@@ -53,43 +53,97 @@ def objective_func(expression: str,
                    period: int,
                    total_data: pd.DataFrame,
                    total_data1: pd.DataFrame,
-                   optimize_rule=None):
-    factor_data = calc_expression(expression=expression,
-                                  total_data=total_data1)
-    dt = aggregation_data(factor_data=factor_data,
-                          returns_data=total_data,
-                          period=period)
+                   optimize_rule=None,
+                   verbose=True,
+                   logger=None,
+                   trial_num=None):
+    """
+    目标函数，带详细日志
+    
+    Args:
+        verbose: 是否打印详细日志（默认True）
+        logger: OptimizationLogger 实例（用于统计）
+        trial_num: 当前 trial 编号
+    """
+    # 缩短表达式用于日志显示
+    expr_short = expression[:80] + "..." if len(expression) > 80 else expression
+    
+    try:
+        # 第1步：计算因子
+        factor_data = calc_expression(expression=expression,
+                                      total_data=total_data1)
+        dt = aggregation_data(factor_data=factor_data,
+                              returns_data=total_data,
+                              period=period)
 
-    evaluate1 = FactorEvaluate1(factor_data=dt,
-                                factor_name='transformed',
-                                ret_name='nxt1_ret_{0}h'.format(period),
-                                roll_win=15,
-                                fee=0.000,
-                                scale_method='roll_zscore',
-                                expression=expression)
+        # 第2步：评估因子
+        evaluate1 = FactorEvaluate1(factor_data=dt,
+                                    factor_name='transformed',
+                                    ret_name='nxt1_ret_{0}h'.format(period),
+                                    roll_win=15,
+                                    fee=0.000,
+                                    scale_method='roll_zscore',
+                                    expression=expression)
 
-    result = evaluate1.run()
-    result['ic_mean'] = math.fabs(result['ic_mean'])
+        result = evaluate1.run()
+        result['ic_mean'] = math.fabs(result['ic_mean'])
 
-    values = [0.0 for v in optimize_rule.values()]
-    min_ic_threshold = 0.001
-    if not np.isfinite(result['ic_mean']):
+        # 初始化返回值
+        values = [0.0 for v in optimize_rule.values()]
+        min_ic_threshold = 0.001
+
+        # 验证1: IC是否有效
+        if not np.isfinite(result['ic_mean']):
+            if verbose:
+                print(f"❌ [FILTER-1] IC无效(NaN/Inf) | {expr_short}")
+            if logger and trial_num is not None:
+                logger.log_trial(trial_num, 'filter_1', values, expression)
+            return values
+
+        # 验证2: IC是否足够大
+        if abs(result['ic_mean']) < min_ic_threshold:
+            if verbose:
+                print(f"❌ [FILTER-2] IC太小({result['ic_mean']:.6f} < {min_ic_threshold}) | {expr_short}")
+            if logger and trial_num is not None:
+                logger.log_trial(trial_num, 'filter_2', values, expression)
+            return values
+
+        # 验证3: Calmar是否有效
+        calmar_val = result.get('calmar', np.nan)
+        if not np.isfinite(calmar_val) or np.isnan(calmar_val) or calmar_val <= 0:
+            if verbose:
+                print(f"❌ [FILTER-3] Calmar无效({calmar_val}) | {expr_short}")
+            if logger and trial_num is not None:
+                logger.log_trial(trial_num, 'filter_3', values, expression)
+            return values
+
+        # 验证4: Sharpe1是否有效
+        sharpe1_val = result.get('sharpe1', np.nan)
+        if not np.isfinite(sharpe1_val) or np.isnan(sharpe1_val) or sharpe1_val <= 0:
+            if verbose:
+                print(f"❌ [FILTER-4] Sharpe1无效({sharpe1_val}) | {expr_short}")
+            if logger and trial_num is not None:
+                logger.log_trial(trial_num, 'filter_4', values, expression)
+            return values
+
+        # 所有验证通过
+        values = [result['ic_mean'], result['sharpe2'], result['calmar']]
+        
+        if verbose:
+            print(f"✅ [VALID] IC={result['ic_mean']:.4f}, Sharpe2={result['sharpe2']:.4f}, "
+                  f"Calmar={result['calmar']:.4f} | {expr_short}")
+        if logger and trial_num is not None:
+            logger.log_trial(trial_num, 'valid', values, expression)
+        
         return values
-
-    if abs(result['ic_mean']) < min_ic_threshold:
+        
+    except Exception as e:
+        if verbose:
+            print(f"❌ [EXCEPTION] {str(e)[:100]} | {expr_short}")
+        values = [0.0 for v in optimize_rule.values()]
+        if logger and trial_num is not None:
+            logger.log_trial(trial_num, 'exception', values, expression)
         return values
-
-    if not np.isfinite(result['calmar']) or np.isnan(
-            result['calmar']) or result['calmar'] <= 0:
-        return values
-
-    if not np.isfinite(result['sharpe1']) or np.isnan(
-            result['sharpe1']) or result['sharpe1'] <= 0:
-        return values
-
-    values = [result['ic_mean'], result['sharpe2'], result['calmar']]
-
-    return values
 
 
 def train(method, instruments, period, session, task_id, expressions):
@@ -140,7 +194,7 @@ def train(method, instruments, period, session, task_id, expressions):
         results = optimizer.optimize_expression(
             expression=expression,
             objective_function=objective_func,
-            n_trials=40,  # 多目标优化需要更多试验
+            n_trials=10,  # 多目标优化需要更多试验
             total_data=total_data,
             total_data1=total_data1,
             period=period,
@@ -168,14 +222,14 @@ def train(method, instruments, period, session, task_id, expressions):
     if os.path.exists(programs_filename):
         old_programs = pd.read_feather(programs_filename)
         final_programs = pd.concat([old_programs, final_programs], axis=0)
-
+        
     final_programs = final_programs.drop_duplicates(subset=['name'])
-    final_programs.to_feather(programs_filename)
+    final_programs.reset_index(drop=True).to_feather(programs_filename)
 
 
 if __name__ == '__main__':
     expressions = [
-        "SUBBED(MCORR(20, 'close', 'volume'), AVG(MCORR(20, 'close', 'volume')))",
+        #"SUBBED(MCORR(20, 'close', 'volume'), AVG(MCORR(20, 'close', 'volume')))",
         "MA(20, 'close')", "DELTA(5, 'close')", "MA(10, 'volume')",
         "DIV(MA(5, 'close'), MA(5, 'volume'))"
     ]
