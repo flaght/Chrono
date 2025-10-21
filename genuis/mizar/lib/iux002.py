@@ -246,7 +246,7 @@ def calc_all(expression, total_data1, period):
     evaluate1 = FactorEvaluate1(factor_data=dt,
                                 factor_name='transformed',
                                 ret_name='nxt1_ret_{0}h'.format(period),
-                                roll_win=240,
+                                roll_win=15,
                                 fee=0.000,
                                 scale_method='roll_zscore',
                                 expression=expression)
