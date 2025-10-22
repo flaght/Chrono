@@ -1,7 +1,6 @@
 ## 200037 IM level2 因子  ## 200036 bar 分钟因子
 ## 规则 6位数，1XXYYY，XX为 品种的序号，YYY 为不同任务情况
 [GENTIC_INDEX]
-
 IF=200017
 IC=140002
 IM=200037
@@ -17,6 +16,7 @@ M =104001
 140002 = 'level2'
 134001 = 'basic'
 104001 = 'basic'
+
 
 [PERFORMANCE]
 113001 = 'profit_sharpe'
@@ -39,7 +39,7 @@ IF=300
 IM=200
 
 [COST]
-RB=0.00005
+RB=0.0001
 IF=0.000023
 IM=0.000012
 HC=0.00005
