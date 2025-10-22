@@ -30,6 +30,7 @@ def load_factors(method,
         dirs, "programs_{0}_{1}.feather".format(str(task_id), str(session)))
 
     programs = pd.read_feather(filename)
+    pdb.set_trace()
     programs = programs[programs['final_fitness'] > 0.02][[
         'name', 'formual', 'final_fitness'
     ]]
@@ -68,7 +69,7 @@ def valid_programs(method,
         evaluate1 = FactorEvaluate1(factor_data=dt,
                                     factor_name='transformed',
                                     ret_name='nxt1_ret_{0}h'.format(period),
-                                    roll_win=240,
+                                    roll_win=15,
                                     fee=0.000,
                                     scale_method='roll_zscore',
                                     expression=program.formual)
@@ -79,7 +80,7 @@ def valid_programs(method,
     perf_data = pd.DataFrame(res)[[
         'name', 'expression', 'ic_mean', 'calmar', 'sharpe2'
     ]]
-  
+
     perf_data['abs_ic'] = np.abs(perf_data['ic_mean'])
     perf_data = perf_data[(perf_data['calmar'] > calmar)
                           & (perf_data['sharpe2'] > sharpe2) &

@@ -1,12 +1,20 @@
 import pandas as pd
-import optuna, pdb
+import os, math, hashlib
+import optuna
 from typing import List, Dict, Any
 from ultron.factor.genetic.geneticist.operators import *
+from lumina.genetic.util import create_id
 from lib.optim001.parser import FactorExpressionParser
 from lib.optim001.parameter import ParameterOptimizer
 from lib.optim001.operator import OperatorReplacer
 from lib.optim001.field import FieldOptimizer
+from lib.optim001.logger import OptimizationLogger
 
+
+def create_name_id(expression):
+    m = hashlib.md5()
+    m.update(bytes(expression, encoding='UTF-8'))
+    return create_id(original=m.hexdigest(), digit=16)
 
 class FactorOptimizer:
     """因子优化器主类"""
@@ -21,6 +29,7 @@ class FactorOptimizer:
         self.param_optimizer = ParameterOptimizer(self.parser)
         self.op_replacer = OperatorReplacer(self.parser)
         self.field_optimizer = FieldOptimizer(self.parser)
+        self.logger = None  # 将在optimize_expression中初始化
 
     def optimize_expression(self,
                             expression: str,
@@ -35,7 +44,9 @@ class FactorOptimizer:
                             optimize_fields: bool = True,
                             study_name: str = "factor_optimization",
                             multi_objective: bool = False,
-                            top_n: int = 1) -> Dict[str, Any]:
+                            top_n: int = 1,
+                            verbose: bool = True,
+                            log_interval: int = 10) -> Dict[str, Any]:
         """
         优化因子表达式
         
@@ -87,26 +98,40 @@ class FactorOptimizer:
                                             period=period,
                                             total_data=total_data,
                                             total_data1=total_data1,
-                                            optimize_rule=optimize_rule)
+                                            optimize_rule=optimize_rule,
+                                            verbose=verbose,
+                                            logger=self.logger if verbose else None,
+                                            trial_num=trial.number)
 
                 if multi_objective:
                     # 多目标优化：返回元组
                     if isinstance(result, tuple) or isinstance(result, list):
+                        # 打印进度
+                        if self.logger and verbose:
+                            self.logger.print_progress(trial.number, log_interval)
                         return result
                     else:
                         # 如果目标函数没有返回正确的多目标格式，返回默认值
                         return (0.0, 0.0, 0.0)
                 else:
                     # 单目标优化：返回标量
+                    if self.logger and verbose:
+                        self.logger.print_progress(trial.number, log_interval)
                     return result
 
             except Exception as e:
-                print(f"目标函数计算失败: {e}")
+                if verbose:
+                    print(f"❌ [EXCEPTION] 目标函数计算失败: {e}")
                 if multi_objective:
                     return (0.0, 0.0, 0.0)
                 else:
                     return float('-inf')
 
+        # 初始化日志记录器
+        if verbose:
+            self.logger = OptimizationLogger()
+            self.logger.start()
+        
         # 创建Optuna研究（将数据库保存到模块同级的 temp 目录）
         #base_dir = os.path.dirname(os.path.abspath(__file__))
         #temp_dir = os.path.join(base_dir, 'temp')
@@ -131,6 +156,10 @@ class FactorOptimizer:
                                                total_data1=total_data1,
                                                optimize_rule=optimize_rule),
                        n_trials=n_trials)
+        
+        # 打印最终统计
+        if verbose and self.logger:
+            self.logger.print_summary()
         
         # 保存优化配置到结果中
         optimize_config = {
@@ -275,7 +304,26 @@ class FactorOptimizer:
         if multi_objective:
             # 多目标优化：返回帕累托前沿的前N个解
             pareto_front = study.best_trials
-            return pareto_front[:top_n] if pareto_front else []
+            # 如果帕累托前沿的解不够top_n个，从所有试验中补充
+            if len(pareto_front) < top_n:
+                # 获取所有有效试验（排除帕累托前沿已包含的）
+                pareto_trial_numbers = {t.number for t in pareto_front}
+                remaining_trials = [
+                    t for t in study.trials 
+                    if t.number not in pareto_trial_numbers 
+                    and t.values is not None 
+                    and all(v is not None and math.isfinite(v) for v in t.values)
+                ]
+                
+                # 按第一个目标值排序（假设第一个目标最重要）
+                remaining_trials.sort(key=lambda x: x.values[0], reverse=True)
+                
+                # 补充到top_n个
+                additional_count = top_n - len(pareto_front)
+                result = list(pareto_front) + remaining_trials[:additional_count]
+                return result
+            else:
+                return pareto_front[:top_n]
         else:
             # 单目标优化：按目标值排序，返回前N个
             trials = [t for t in study.trials if t.value is not None]

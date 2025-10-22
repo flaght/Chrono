@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()
 from kdutils.tactix import Tactix
 
-from ultron.factor.genetic.geneticist.operators import custom_transformer
+#from ultron.factor.genetic.geneticist.operators import custom_transformer
+from ultron.factor.genetic.geneticist.operators import Operators
 from lumina.evolution.genetic import merge_factors
 from lumina.evolution.engine import Engine
 from lumina.evolution.warehouse import sequential_gain
@@ -20,8 +21,10 @@ from kdutils.common import fetch_temp_data, fetch_temp_returns
 from lib.cux001 import *
 
 
+
+
 def callback_models(gen, rootid, best_programs, custom_params, total_data):
-    candidate_factors = merge_factors(best_programs=best_programs)
+    #candidate_factors = merge_factors(best_programs=best_programs)
     tournament_size = custom_params['tournament_size']
     standard_score = custom_params['standard_score'] * 0.01
     dethod = custom_params['dethod']
@@ -44,6 +47,7 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
         old_programs = pd.read_feather(programs_filename)
         best_programs = pd.concat([old_programs, best_programs], axis=0)
 
+    '''
     factors_file = os.path.join(dirs, f'factors_{rootid}_{session}.feather')
     if os.path.exists(factors_file):
         old_factors = pd.read_feather(factors_file).set_index(
@@ -53,6 +57,7 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
                                                   columns.duplicated()]
         candidate_factors = candidate_factors.sort_values(
             by=['trade_time', 'code'])
+    
 
     ### 相关性过滤剔除
     returns_series = total_data.reset_index().set_index(['trade_time',
@@ -67,11 +72,12 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
             gain_threshold=custom_params['gain']['gain_threshold'])
     else:
         selected_factors = candidate_factors
+    
 
     if selected_factors is None:
         print("no selected program")
         return
-
+    
     print("candidate_factors 共:{0}, selected_factors 共:{1}, 减少:{2}".format(
         len(candidate_factors.columns), len(selected_factors.columns),
         len(candidate_factors.columns) - len(selected_factors.columns)))
@@ -82,7 +88,7 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
     factors_columns = selected_factors.columns
     best_programs = best_programs[best_programs.name.isin(factors_columns)]
     best_programs = best_programs.drop_duplicates(subset=['name'])
-
+    '''
     final_programs = best_programs[
         (best_programs['final_fitness'] > standard_score)
         & (best_programs['final_fitness'] > 0)]
@@ -97,16 +103,18 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
     print(final_programs[[
         'name', 'formual', 'final_fitness', 'raw_fitness', 'max_corr',
         'penalty', 'alpha'
-    ]].head(10))
+    ]])
     print(programs_filename)
     ### 去重
     final_programs = final_programs.drop_duplicates(subset=['name'])
     final_programs.reset_index(drop=True).to_feather(programs_filename)
     ## 保留最后和final_programs一致的因子
+    '''
     candidate_factors = candidate_factors.loc[:, ~candidate_factors.columns.
                                               duplicated()]
     candidate_factors[final_programs.name.tolist()].reset_index().to_feather(
         factors_file)
+    '''
 
 
 def callback_fitness(factor_data, total_data, factor_sets, custom_params,
@@ -144,7 +152,7 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     evaluate1 = FactorEvaluate1(factor_data=data.reset_index(),
                                 factor_name='transformed',
                                 ret_name='nxt1_ret',
-                                roll_win=240,
+                                roll_win=15,
                                 fee=0.000,
                                 scale_method='roll_zscore')
     stats_df = evaluate1.run()
@@ -244,6 +252,13 @@ def train(method, instruments, period, session, task_id, count=0):
         'NORMINV', 'CEIL', 'FLOOR', 'ROUND', 'TANH', 'RELU', 'SHIFT', 'DELTA',
         'SIGMOID', 'LAST'
     ]
+
+    #two_operators_sets = ['MConVariance', 'MRes', 'MCORR', 'MCoef']
+    #one_operators_sets = [
+    #    'MA', 'MPERCENT', 'MMedian', 'MADiff', 'MADecay', 'MMAX', 'MMIN',
+    #    'MDPO', 'MARGMAX', 'MARGMIN', 'MRANK', 'MQUANTILE', 'MSKEW', 'MKURT',
+    #    'MSTD'
+    #]
     rootid = task_id  #INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
     ## 加载数据
     ## 加载因子+ 基础数据
@@ -278,7 +293,6 @@ def train(method, instruments, period, session, task_id, count=0):
     ##
     #if feature_count > 0:
     #    pdb.set_trace()
-    pdb.set_trace()
     factor_columns = factor_columns if count == 0 else random.sample(
         factor_columns, count)
     ''' 
@@ -362,7 +376,6 @@ def train(method, instruments, period, session, task_id, count=0):
         '{0}T'.format(period), label='right',
         closed='right').agg(aggregation_rules)
     '''
-    pdb.set_trace()
     if str(rootid) != '200037':
         agg_market_data = total_data[['trade_time', 'code'] + basic_columns]
         ###使用原始因子
@@ -384,11 +397,16 @@ def train(method, instruments, period, session, task_id, count=0):
 
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
     operators_sets = two_operators_sets + one_operators_sets
-    operators_sets = custom_transformer(operators_sets)
+    pdb.set_trace()
+    #operators_sets = custom_transformer(operators_sets)
+    #  5 10 15 30 60 90 120 240
+    operators_sets = Operators(periods=[5, 10, 15, 30, 60, 90, 120, 240
+                                        ]).custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 80
-    tournament_size = 30
-    standard_score = 0.1
+    population_size = 2000   # 5w
+    tournament_size = 1500   # 1K
+    standard_score = 0.001
+    generations = 3
     custom_params = {
         'horizon': str(period),
         'rootid': rootid,
@@ -424,19 +442,19 @@ def train(method, instruments, period, session, task_id, count=0):
     }
 
     configure = {
-        'n_jobs': 1,
+        'n_jobs': 2,
         'population_size': population_size,
         'tournament_size': tournament_size,
-        'init_depth': 4,
+        'init_depth': 3,
         'evaluate': 'both_evaluate',
         'method': 'fitness',
-        'crossover': 0.3,
-        'point_replace': 0.3,
-        'hoist_mutation': 0.1,
-        'subtree_mutation': 0.1,
-        'point_mutation': 0.3,
-        'generations': 4,
-        'standard_score': 0.1,
+        'crossover': 0.2,
+        'point_replace': 0.2,
+        'hoist_mutation': 0.2,
+        'subtree_mutation': 0.2,
+        'point_mutation': 0.2,
+        'generations': generations,
+        'standard_score': standard_score,
         'stopping_criteria': 5,
         'convergence': 0.0002,
         'custom_params': custom_params,
