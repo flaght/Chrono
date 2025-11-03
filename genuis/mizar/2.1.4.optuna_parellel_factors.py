@@ -150,8 +150,8 @@ def train(method, instruments, period, session, task_id, expressions):
     dethod = 'ic'
     standard_score = 0.02
     n_jobs = 2
-    n_trials = 400
-    top_n = 60
+    n_trials = 500
+    top_n = 50
     dirs = os.path.join(base_path, method, instruments, "gentic", dethod,
                         str(task_id), "nxt1_ret_{}h".format(period),
                         str(session))
@@ -164,7 +164,7 @@ def train(method, instruments, period, session, task_id, expressions):
         'sharpe2': 'maximize',
         'profit_ratio': 'maximize'
     }
-
+    
     operators_pd, fields_pd = fetch_resource()
     rootid = task_id
     ## 加载数据
@@ -209,15 +209,68 @@ def train(method, instruments, period, session, task_id, expressions):
 
 
 if __name__ == '__main__':
-    
+
     expressions = [
-        "SUBBED(MCORR(240, 'pct_change', 'volume'),MCORR(240, DELTA(1, 'close'), 'volume'))",
-        "SUBBED(MCoef(240, 'volume', 'pct_change'),MCoef(60, 'volume', 'pct_change'))",
-        "DIV(MConVariance(240, 'pct_change', 'volume'),ADDED(MSTD(240, 'pct_change'), MSTD(240, 'volume')))"
-        "SUBBED(DIV(MConVariance(240, 'pct_change', 'volume'), MUL(MSTD(240, 'pct_change'), MSTD(240, 'volume'))),DIV(MConVariance(60, 'pct_change', 'volume'),MUL(MSTD(60, 'pct_change'), MSTD(60, 'volume'))))",
-        "SUBBED(MCoef(240, 'volume', 'pct_change'),MCoef(60, 'volume', 'pct_change'))",
-        "DELTA(20, MCORR(240, 'pct_change', 'volume'))",
-        "DIV(MCORR(240, 'pct_change', 'volume'),MSTD(60, MCORR(240, 'pct_change', 'volume')))"
+        "DELTA(90,DELTA(90,EMA(30,'mid_price_bias_ratio')))",
+        "DELTA(90,DELTA(90,MMAX(30,'mid_price_bias_ratio')))",
+        "DELTA(90,MSKEW(30,DELTA(90,'mid_price_bias_ratio')))",
+        "DELTA(90,MADecay(60,MPERCENT(90,DELTA(90,'pct_change_set'))))",
+        "MT3(90,MADiff(60,MDEMA(30,'pct_change')))",
+        "RSI(120,MCPS(120,MA(60,'twap')))",
+        "DELTA(90,MMaxDiff(90,DELTA(90,'mid_price_bias_ratio')))",
+        "MQUANTILE(120,RSI(120,MDEMA(60,MCPS(120,MA(60,'twap')))))",
+        "DELTA(90,MMIN(60,MPERCENT(90,DELTA(90,'pct_change_set'))))",
+        "DELTA(90,DELTA(90,MDIFF(120,'mid_price_bias_ratio')))",
+        "MA(90,MADiff(60,MIR(120,MCPS(60,'smart_money_in_pct'))))",
+        "DELTA(90,RSI(90,MIR(60,'smart_money_in_pct')))",
+        "RSI(120,MCPS(120,MA(60,'twap')))",
+        "MCPS(120,MT3(90,SIGMOID('pct_change')))",
+        "DELTA(90,MADiff(90,'mid_price_bias_ratio'))",
+        "DELTA(90,MDIFF(90,MADecay(60,DELTA(90,'mid_price_bias_ratio'))))",
+        "DELTA(90,MT3(30,DELTA(90,'mid_price_bias_ratio')))",
+        "DELTA(90,DELTA(90,MADecay(60,'mid_price_bias_ratio')))",
+        "MA(90,MT3(60,MCPS(90,'smart_tick_in')))",
+        "WMA(30,DELTA(90,DELTA(90,'mid_price_bias_ratio')))",
+        "MCPS(90,MA(90,'smart_tick_in'))",
+        "MDIFF(60,MRANK(120,DELTA(90,'mid_price_bias_ratio')))",
+        "MSKEW(60,DELTA(90,'mid_price_bias_ratio'))",
+        "MCPS(90,MA(90,SIGLOG2ABS(MCPS(90,'smart_tick_in'))))",
+        "DELTA(90,MADiff(90,DELTA(90,'mid_price_bias_ratio')))",
+        "DELTA(90,MMedian(30,DELTA(90,'mid_price_bias_ratio')))",
+        "MMIN(90,MMedian(120,MCPS(90,'smart_money_in_pct')))",
+        "MA(120,MADiff(90,MADecay(90,MCPS(60,'smart_money_in_pct'))))",
+        "EMA(120,MCPS(90,MA(60,'smart_tick_in')))",
+        "MCPS(90,MA(60,'smart_tick_in'))",
+        "DELTA(90,'mid_price_bias_ratio')",
+        "DELTA(90,SIGLOG2ABS('mid_price_bias_ratio'))",
+        "MMIN(30,DELTA(90,MSKEW(60,DELTA(90,'mid_price_bias_ratio'))))",
+        "MDPO(120,EMA(60,MSKEW(60,'smart_tick_in_pct')))",
+        "MDEMA(90,MPERCENT(90,DELTA(90,'pct_change_set')))",
+        "MCPS(120,EMA(90,'pct_change'))",
+        "DELTA(90,SIGLOG10ABS('mid_price_bias_ratio'))",
+        "DELTA(90,MIR(90,MDIFF(60,'smart_tick_in_pct')))",
+        "MMinDiff(120,MCPS(90,'smart_tick_in'))",
+        "MCPS(90,MT3(90,'smart_tick_in'))",
+        "MCPS(60,DELTA(90,'corr_money_bid_price_0'))",
+        "SIGLOG10ABS(MDEMA(90,MMIN(60,MDPO(120,'smart_tick_in'))))",
+        "DELTA(90,WMA(60,'mid_price_bias_ratio'))"
+        "RSI(120,MA(60,'twap'))",
+        "WMA(60,DELTA(120,MMAX(60,WMA(60,'mid_price_bias_ratio'))))",
+        "DELTA(90,MDIFF(90,ABS('mid_price_bias_ratio')))",
+        "MDIFF(90,DELTA(90,'mid_price_bias_ratio'))",
+        "MDIFF(120,DELTA(90,ABS('mid_price_bias_ratio')))",
+        "MMedian(60,MADiff(60,WMA(60,'smart_tick_in')))",
+        "MCPS(60,MADecay(60,MA(90,'smart_money_in_pct')))",
+        "MCPS(90,MT3(90,'mid_price_bias_ratio'))",
+        "DELTA(90,DELTA(90,WMA(60,'mid_price_bias_ratio')))",
+        "MMIN(120,MRANK(120,'smart_tick_in_pct'))",
+        "MMaxDiff(90,WMA(60,'smart_tick_in'))",
+        "DELTA(90,EMA(60,DELTA(90,'mid_price_bias_ratio')))",
+        "MA(60,MCPS(90,'smart_tick_in'))",
+        "DELTA(90,MA(60,DELTA(90,'mid_price_bias_ratio')))",
+        "DELTA(90,MSKEW(60,'smart_tick_in_pct'))",
+        "DELTA(90,MMIN(60,MDPO(120,'mid_price_bias_ratio')))",
+        "DELTA(90,EMA(60,MMAX(60,'mid_price_bias_ratio')))"
     ]
     variant = Tactix().start()
     train(method=variant.method,

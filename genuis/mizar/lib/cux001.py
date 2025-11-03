@@ -1,4 +1,5 @@
 import pdb
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -146,7 +147,6 @@ class FactorEvaluate1(object):
 
         self.factor_data['nav'] = (1 + self.factor_data['net_ret']).cumprod(
         )  #  计算净值曲线（Net Asset Value）。这是 (1 + 净收益) 的累积乘积，代表了投资组合的模拟价值随时间的变化。
-
         # -------- 基础统计 --------
         total_ret = self.factor_data['nav'].iloc[-1] - 1  # 累计收益 整个回测期间的累计收益。
 
@@ -236,7 +236,22 @@ class FactorEvaluate1(object):
             #ic_stats = self.cal_ic()
             if is_check:
                 print("INFO: IC Mean is negative. Factor has been inverted.")
-
+        if self.factor_data['f_scaled'].dropna().empty:
+            return {
+                'total_ret':-1.0,
+                'avg_ret':-1.0,
+                'calmar':-10.0,
+                'sharpe1':-1.0,
+                'sharpe2':-10.0,
+                'turnover':10.0,
+                'win_rate':0,
+                'profit_ratio':0.0,
+                'ic_mean':0.00,
+                'ic_std':1.0,
+                'ic_ir':1.0,
+                'factor_autocorr':1.0,
+                'ret_autocorr':1.0
+            }
         pnl_stats = self.cal_pnl()
         autocorr_stats = self._cal_autocorr()  # 计算自相关性
 
@@ -248,6 +263,37 @@ class FactorEvaluate1(object):
         if is_check:
             self._check_warnings()  # 运行警告检查
         return self.stats
+
+    def _generate_stats_text(self) -> str:
+        """生成性能统计摘要文本"""
+        report_parts = []
+        if self.expression is not None:
+            report_parts.append(f"Expression: {self.expression}")
+        if self.name is not None:
+            report_parts.append(f"Name: {self.name}")
+        
+        if len(report_parts) > 0:
+            report_parts.append("\n")
+        
+        performance_metrics = (
+            f"--- Performance Metrics ---\n"
+            f"{'Avg Return (bps)':<25}: {(self.stats.get('avg_ret', float('nan')) * 10000):.2f}\n"
+            f"{'Total Return':<25}: {self.stats['total_ret']:.2%}\n"
+            f"{'Sharpe Ratio':<25}: {self.stats['sharpe1']:.2f}\n"
+            f"{'Ann Sharpe Ratio':<25}: {self.stats['sharpe2']:.2f}\n"
+            f"{'Max Drawdown':<25}: {self.stats['max_dd']:.2%}\n"
+            f"{'Calmar Ratio':<25}: {self.stats.get('calmar', float('nan')):.2f}\n"
+            f"{'Win Rate':<25}: {self.stats['win_rate']:.2%}\n"
+            f"{'Profit/Loss Ratio':<25}: {self.stats['profit_ratio']:.2f}\n"
+            f"\n--- Factor Characteristics ---\n"
+            f"{'IC Mean':<25}: {self.stats['ic_mean']:.4f}\n"
+            f"{'ICIR':<25}: {self.stats['ic_ir']:.4f}\n"
+            f"{'Mean Turnover':<25}: {self.stats['turnover']:.4f}\n"
+            f"{'Factor Autocorr':<25}: {self.stats['factor_autocorr']:.4f}\n"
+            f"{'Return Autocorr':<25}: {self.stats['ret_autocorr']:.4f}\n"
+        )
+        report_parts.append(performance_metrics)
+        return "\n".join(report_parts)
 
     def plot_results(self):
         if self.stats is None:
@@ -414,3 +460,59 @@ class FactorEvaluate1(object):
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.96])
         plt.show()
+        self.figure = fig
+
+    def save_results(self, base_output_dir: str):
+        """
+        保存所有结果，包括性能摘要、时间序列数据和图表。
+        参照 FactorComparator.save_results 的实现。
+        """
+        if self.stats is None:
+            raise RuntimeError(
+                "Please run the 'run()' method before saving results.")
+        if not hasattr(self, 'figure') or self.figure is None:
+            raise RuntimeError(
+                "Please run the 'plot_results()' method before saving results.")
+
+        timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+        name = self.name if isinstance(self.name, str) else timestamp
+        output_dir = os.path.join(base_output_dir, name)
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"Saving results to: {output_dir}")
+
+        plot_output_dir = os.path.join(base_output_dir, "plot")
+        os.makedirs(plot_output_dir, exist_ok=True)
+
+        # 1. 保存绩效文本
+        summary_path = os.path.join(output_dir, "performance_summary.txt")
+        with open(summary_path, 'w') as f:
+            f.write(self._generate_stats_text())
+        print(f"Performance summary saved to: {summary_path}")
+
+        # 2. 保存时间序列数据为独立文件
+        print("Saving time series data as separate files...")
+
+        # 定义要保存的序列
+        series_to_save = ['nav', 'ic', 'turnover']
+
+        # 循环遍历每个指标，并单独保存
+        for metric_name in series_to_save:
+            if metric_name in self.factor_data.columns:
+                # 构造文件名，例如: nav.csv
+                file_name = f"{metric_name}.csv"
+                file_path = os.path.join(output_dir, file_name)
+
+                # 提取该序列并保存
+                series = self.factor_data[metric_name]
+                series.to_csv(file_path, header=True)
+                print(f" -> Saved {file_path}")
+
+        # 3. 保存图表
+        image_path = os.path.join(output_dir, "evaluation_plot.png")
+        self.figure.savefig(image_path, dpi=300)
+        print(f"Evaluation plot saved to: {image_path}")
+
+        image_new_path = os.path.join(plot_output_dir, "{0}.png".format(name))
+        self.figure.savefig(image_new_path, dpi=300)
+        plt.close(self.figure)
+        print(f"Evaluation plot also saved to: {image_new_path}")

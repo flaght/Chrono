@@ -210,7 +210,7 @@ def train(method, instruments, period, session, task_id, expressions):
             optimize_rule=optimize_rule,
             study_name=f"multi_objective_{expression}",
             multi_objective=True,  # 启用多目标优化
-            top_n=10  # 返回前5个最佳结果
+            top_n=30  # 返回前5个最佳结果
         )
         res += [{
             "name":

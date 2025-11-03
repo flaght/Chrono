@@ -16,33 +16,22 @@ from lib.iux002 import FactorComparator, calc_all
 leg_mappping = {"rbb": ["hcb"], "ims": ["ics"]}
 
 
-def create_evalute(column, period, left_data, right_data, left_symbol,
-                   right_symbol, outputs):
+def create_evalute(column, period, factor_data, instruments, outputs):
     left_evaluate = calc_all(expression=column,
-                             total_data1=left_data,
+                             total_data1=factor_data,
                              period=period)
-    right_evaluate = calc_all(expression=column,
-                              total_data1=right_data,
-                              period=period)
-    fc = FactorComparator(eval_left=left_evaluate,
-                          eval_right=right_evaluate,
-                          left_name=left_symbol,
-                          right_name=right_symbol,
-                          expression=column)
-    fc.plot_comparison()
-    fc.save_results(base_output_dir=outputs)
+    left_evaluate.run()
+    left_evaluate.plot_results()
+    left_evaluate.save_results(base_output_dir=outputs)
 
 
 @add_process_env_sig
-def run_evalute(target_column, period, left_data, right_data, left_symbol,
-                right_symbol, outputs):
+def run_evalute(target_column, period, factor_data, instruments, outputs):
     status_data = run_process(target_column=target_column,
                               callback=create_evalute,
                               period=period,
-                              left_data=left_data,
-                              right_data=right_data,
-                              left_symbol=left_symbol,
-                              right_symbol=right_symbol,
+                              factor_data=factor_data,
+                              instruments=instruments,
                               outputs=outputs)
     return status_data
 
@@ -80,26 +69,55 @@ def fetch_data1(method, instruments, datasets, features, task_id, period):
     return total_data
 
 
-def run2(method, instruments, period, task_id, session, datasets=['train','val']):
-    left_symbol = instruments
-    right_symbol = leg_mappping[instruments][0]
+def fetch_chosen(method, instruments, task_id, period):
     
+    filename = os.path.join(base_path, method, instruments, "rulex",
+                            str(task_id), "nxt1_ret_{}h".format(str(period)),
+                            "chosen.csv")
+    chosen_data = pd.read_csv(filename)
+    return chosen_data
+
+
+def run2(method,
+         instruments,
+         period,
+         task_id,
+         session,
+         datasets=['train', 'val']):
+    left_symbol = instruments
+
     ## 优先创建目录，避免无判断没有跑过
+    
     outputs = os.path.join("records", method, left_symbol, 'rulex',
                            str(task_id), "nxt1_ret_{}h".format(str(period)),
-                           str(session))
+                           "d" + str(session))
     if not os.path.exists(outputs):
         os.makedirs(outputs)
-    pdb.set_trace()
+    
+    ### 此目录为挖掘的原始目录
     programs = load_factors(method=method,
                             instruments=instruments,
                             period=period,
                             task_id=task_id,
                             session=session,
-                            category='valid')
+                            category='eligible')
     if programs.empty:
         print("No factors data the criteria")
-        return 
+        return
+
+    ## 加载已经选中的因子
+    chosen_data = fetch_chosen(method=method,
+                 instruments=instruments,
+                 task_id=task_id,
+                 period=period)
+
+    formulas_in = chosen_data['formula']
+    is_not_in_p2 = ~programs['formual'].isin(formulas_in)
+    programs = programs[is_not_in_p2]
+
+    programs['final_fitness'] = np.abs(programs['final_fitness'])
+    
+    programs = programs[programs['final_fitness'] > 0.03]
 
     features = [
         eval(program.formual)._dependency for program in programs.itertuples()
@@ -107,67 +125,27 @@ def run2(method, instruments, period, task_id, session, datasets=['train','val']
     features = list(itertools.chain.from_iterable(features))
     features = list(set(features))
 
-    left_data = fetch_data1(method=method,
-                            instruments=left_symbol,
-                            datasets=datasets,
-                            features=features,
-                            task_id=task_id,
-                            period=period)
+    factor_data = fetch_data1(method=method,
+                              instruments=instruments,
+                              datasets=datasets,
+                              features=features,
+                              task_id=task_id,
+                              period=period)
 
-    right_data = fetch_data1(method=method,
-                             instruments=right_symbol,
-                             datasets=datasets,
-                             features=features,
-                             task_id=task_id,
-                             period=period)
+    ### 过滤 不符合标准因子
     #task_id = INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
-    pdb.set_trace()
-    k_split = 1
+    k_split = 2
     expression_list = programs['formual'].tolist()
     process_list = split_k(k_split, expression_list)
     res = create_parellel(process_list=process_list,
                           callback=run_evalute,
                           period=period,
-                          left_data=left_data,
-                          right_data=right_data,
-                          left_symbol=left_symbol,
-                          right_symbol=right_symbol,
+                          factor_data=factor_data,
+                          instruments=instruments,
                           outputs=outputs)
 
 
 if __name__ == '__main__':
-    '''
-    parser = argparse.ArgumentParser(description='Train a model')
-
-    parser.add_argument('--method',
-                        type=str,
-                        default='cicso0',
-                        help='data method')
-
-    parser.add_argument('--task_id',
-                        type=str,
-                        default='200037',
-                        help='task id')
-
-    parser.add_argument('--instruments',
-                        type=str,
-                        default='ims',
-                        help='code or instruments')
-
-    parser.add_argument('--period', type=int, default=5, help='period')
-
-    parser.add_argument('--session',
-                        type=str,
-                        default=202509226,
-                        help='session')
-    args = parser.parse_args()
-
-    run2(method=args.method,
-         instruments=args.instruments,
-         period=args.period,
-         task_id=args.task_id,
-         session=args.session)
-    '''
     variant = Tactix().start()
     run2(method=variant.method,
          instruments=variant.instruments,

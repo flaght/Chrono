@@ -80,7 +80,7 @@ def valid_programs(method,
     perf_data = pd.DataFrame(res)[[
         'name', 'expression', 'ic_mean', 'calmar', 'sharpe2'
     ]]
-
+    pdb.set_trace()
     perf_data['abs_ic'] = np.abs(perf_data['ic_mean'])
     perf_data = perf_data[(perf_data['calmar'] > calmar)
                           & (perf_data['sharpe2'] > sharpe2) &
@@ -115,6 +115,15 @@ def run(method,
     features = list(itertools.chain.from_iterable(features))
     features = list(set(features))
 
+    ## 优先创建目录，避免无判断没有跑过
+    dirs = os.path.join(base_path, method, instruments, dategory, 'ic',
+                        str(task_id), "nxt1_ret_{}h".format(str(period)),
+                        str(session))
+
+    if not os.path.exists(dirs):
+        os.makedirs(dirs)
+
+
     validated_programs = valid_programs(
         method=method,
         task_id=task_id,
@@ -131,6 +140,7 @@ def run(method,
                         str(task_id), "nxt1_ret_{}h".format(str(period)),
                         str(session))
 
+    pdb.set_trace()
     if not os.path.exists(dirs):
         os.makedirs(dirs)
     filename = os.path.join(

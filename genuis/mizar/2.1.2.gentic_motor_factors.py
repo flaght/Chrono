@@ -396,7 +396,7 @@ def train(method, instruments, period, session, task_id, count=0):
                                       on=['trade_time', 'code'])
 
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
-    operators_sets = two_operators_sets + one_operators_sets
+    operators_sets = two_operators_sets# + one_operators_sets
     pdb.set_trace()
     #operators_sets = custom_transformer(operators_sets)
     #  5 10 15 30 60 90 120 240
@@ -442,16 +442,16 @@ def train(method, instruments, period, session, task_id, count=0):
     }
 
     configure = {
-        'n_jobs': 2,
+        'n_jobs': 8,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 3,
         'evaluate': 'both_evaluate',
         'method': 'fitness',
-        'crossover': 0.2,
-        'point_replace': 0.2,
-        'hoist_mutation': 0.2,
-        'subtree_mutation': 0.2,
+        'crossover': 0.4,
+        'point_replace': 0.3,
+        'hoist_mutation': 0.05,
+        'subtree_mutation': 0.05,
         'point_mutation': 0.2,
         'generations': generations,
         'standard_score': standard_score,
@@ -459,10 +459,12 @@ def train(method, instruments, period, session, task_id, count=0):
         'convergence': 0.0002,
         'custom_params': custom_params,
         'rootid': rootid,
+        'method':'grow' ## grow:多样性 full 规则性
     }
     engine = Engine(population_size=configure['population_size'],
                     tournament_size=configure['tournament_size'],
                     init_depth=(1, configure['init_depth']),
+                    init_method=configure['method'],
                     generations=configure['generations'],
                     n_jobs=configure['n_jobs'],
                     stopping_criteria=configure['stopping_criteria'],

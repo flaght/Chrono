@@ -242,13 +242,13 @@ def calc_all(expression, total_data1, period):
     dt = aggregation_data(factor_data=factor_data1,
                           returns_data=total_data1,
                           period=period)
-
     evaluate1 = FactorEvaluate1(factor_data=dt,
                                 factor_name='transformed',
                                 ret_name='nxt1_ret_{0}h'.format(period),
                                 roll_win=15,
                                 fee=0.000,
                                 scale_method='roll_zscore',
+                                name=create_id(generate_simple_id(expression)),
                                 expression=expression)
     evaluate1.run()
     return evaluate1
