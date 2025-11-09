@@ -4,6 +4,7 @@ from ultron.factor.genetic.geneticist.operators import *
 from kdutils.macro2 import *
 from lib.iux001 import fetch_data, aggregation_data, fetch_times
 from lib.aux001 import calc_expression
+from lib.svx001 import scale_factors
 
 
 ## 加载选中
@@ -40,18 +41,18 @@ def create_factors(total_data, expressions):
     total_data1 = total_data.set_index('trade_time')
     #for program, direction in expressions.items():
     for expression in expressions:
-        print(expression['formula'])
+        print(expression['formula'], expression['direction'])
         factor_data = calc_expression(expression=expression['formula'],
                                       total_data=total_data1)
         factor_data['transformed'] = factor_data['transformed'] * expression[
             'direction']
         factor_data = factor_data.set_index(['trade_time', 'code'])
-
         factor_data.rename(columns={'transformed': expression['formula']},
                            inplace=True)
         res.append(factor_data)
     factors_data = pd.concat(res, axis=1)
     return factors_data
+
 
 
 ### 缺失数据前置填充
@@ -74,6 +75,16 @@ def build_factors(method,
                                   expressions=expressions)
     
     factors_data = factors_data.unstack().fillna(method='ffill').stack()
+    ## 标准化 保持和绩效验证一直
+    old_data = factors_data.copy()
+    columns = factors_data.columns
+    for col in columns:
+        scale_factors(predict_data=factors_data,
+                      method='roll_zscore',
+                      win=15,
+                      factor_name=col)
+        factors_data[col] = factors_data['transformed']
+        factors_data.drop(['transformed'],axis=1, inplace=True)
     '''
     numeric_df = factors_data.select_dtypes(include=np.number)
     bad_values_mask = numeric_df.isnull() | np.isinf(numeric_df)

@@ -20,25 +20,29 @@ if __name__ == '__main__':
         linear_train_model(method=variant.method,
                            instruments=variant.instruments,
                            task_id=variant.task_id,
-                           period=variant.period)
+                           period=variant.period,
+                          name=variant.name)
 
     elif variant.form == 'lassocv':
         lassocv_train_model(method=variant.method,
                             instruments=variant.instruments,
                             task_id=variant.task_id,
-                            period=variant.period)
+                            period=variant.period,
+                          name=variant.name)
 
     elif variant.form == 'rigde':
         rigde_train_model(method=variant.method,
                           instruments=variant.instruments,
                           task_id=variant.task_id,
-                          period=variant.period)
+                          period=variant.period,
+                          name=variant.name)
 
     elif variant.form == 'lgb':
         lgb_train_model(method=variant.method,
                         instruments=variant.instruments,
                         task_id=variant.task_id,
-                        period=variant.period)
+                        period=variant.period,
+                          name=variant.name)
 
     elif variant.form == 'opt_lgb':
         lgb_optuna_model(method=variant.method,
