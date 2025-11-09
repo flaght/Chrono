@@ -368,21 +368,22 @@ class Report(object):
 
 
 model_date = '2022-09-05'
-trade_date = '2025-09-29'  ##预测日期
+trade_date = '2025-11-07'  ##预测日期
 debate_rounds = 4
 ### 并发预测
 
-'''
+
 agents = PredictAgent(
     agent_names=['Clouto', 'Indicator', 'MoneyFlow', 'PosFlow', 'Chip'],
     model_date=model_date,
     symbol='IM')
 
 agents.run(end_date=trade_date) ## 内部处理了时间偏移-1
-'''
+
 
 agents = DebatAgent(
     agent_names=['Clouto', 'Indicator', 'MoneyFlow', 'PosFlow', 'Chip'],
+    #agent_names=['Indicator'],
     model_date=model_date,
     symbol='IM',
     debate_rounds=debate_rounds)
