@@ -10,16 +10,16 @@ from lib.lsx001 import fetch_times
 from kdutils.macro2 import *
 
 
-def train_model(method, task_id, instruments, period):
+def train_model(method, task_id, instruments, period, name):
     random_state = 42
     time_array = fetch_times(method=method,
                              task_id=task_id,
                              instruments=instruments)
     dirs = os.path.join(base_path, method, instruments, 'temp', "model",
                         str(task_id), str(period))
-    filename = os.path.join(dirs, "final_data.feather")
+    filename = os.path.join(dirs, "{0}_data.feather".format(name))
     final_data = pd.read_feather(filename).set_index(['trade_time', 'code'])
-
+    pdb.set_trace()
     ## 切割训练集 校验集 测试集
     train_data = final_data.loc[
         time_array['train_time'][0]:time_array['val_time'][1]]
@@ -50,7 +50,7 @@ def train_model(method, task_id, instruments, period):
     MIN_TRAIN_SIZE = 2 * test_fold_size
 
     tscv = TimeSeriesSplit(n_splits=N_SPLITS)
-
+    pdb.set_trace()
     models = []
     scalers = []
     val_scores = []
@@ -109,6 +109,7 @@ def train_model(method, task_id, instruments, period):
             'seed': random_state + fold,  # 为每折使用不同的种子以增加多样性
             'boosting_type': 'gbdt',
             'min_gain_to_split': 0.01,
+            'device': 'cuda'
         }
 
         # 训练模型
@@ -157,6 +158,6 @@ def train_model(method, task_id, instruments, period):
     predict_data1 = pd.concat(
         [test_data['nxt1_ret_{0}h'.format(period)], predict_data1], axis=1)
     predict_data1.reset_index().to_feather(
-        os.path.join(dirs, "lgbm_predict_data.feather"))
+        os.path.join(dirs, "lgbm_{0}_data.feather".format(name)))
 
     print("\n模型训练和预测完成，结果已保存。")
