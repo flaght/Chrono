@@ -4,8 +4,8 @@ load_dotenv()
 from kdutils.tactix import Tactix
 
 from lib.syn001 import build_factors, linear_train_model, lassocv_train_model, rigde_train_model, lgb_train_model
-from lib.syn002 import lgb_optuna_model
-from lib.syn003 import multi_lgb_optuna_model
+#from lib.syn002 import lgb_optuna_model
+#from lib.syn003 import multi_lgb_optuna_model
 
 if __name__ == '__main__':
     variant = Tactix().start()

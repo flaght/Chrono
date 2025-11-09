@@ -21,8 +21,6 @@ from kdutils.common import fetch_temp_data, fetch_temp_returns
 from lib.cux001 import *
 
 
-
-
 def callback_models(gen, rootid, best_programs, custom_params, total_data):
     #candidate_factors = merge_factors(best_programs=best_programs)
     tournament_size = custom_params['tournament_size']
@@ -46,7 +44,6 @@ def callback_models(gen, rootid, best_programs, custom_params, total_data):
     if os.path.exists(programs_filename):
         old_programs = pd.read_feather(programs_filename)
         best_programs = pd.concat([old_programs, best_programs], axis=0)
-
     '''
     factors_file = os.path.join(dirs, f'factors_{rootid}_{session}.feather')
     if os.path.exists(factors_file):
@@ -125,6 +122,8 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
         returns = total_data[['trade_time', 'code', 'nxt1_ret']]
         if 'trade_time' not in factor_data.columns:
             factor_data = factor_data.reset_index()
+        ## 重采样
+        '''
         is_on_mark = returns['trade_time'].dt.minute % int(
             custom_params['horizon']) == 0
         returns = returns[is_on_mark]
@@ -132,6 +131,7 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
         is_on_mark = factor_data['trade_time'].dt.minute % int(
             custom_params['horizon']) == 0
         factor_data = factor_data[is_on_mark]
+        '''
 
         data = pd.merge(factor_data,
                         returns,
@@ -149,10 +149,12 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     if data['transformed'].std() < 1e-8:
         return 0.0
 
+    ### 滚动标准化要1分钟对齐，故先进行滚动标准化，再custom_params['horizon'] 重采样，计算绩效
     evaluate1 = FactorEvaluate1(factor_data=data.reset_index(),
                                 factor_name='transformed',
                                 ret_name='nxt1_ret',
                                 roll_win=15,
+                                resampling_win=custom_params['horizon'],
                                 fee=0.000,
                                 scale_method='roll_zscore')
     stats_df = evaluate1.run()
@@ -288,6 +290,27 @@ def train(method, instruments, period, session, task_id, count=0):
         basic_columns + ['time_weight', 'equal_weight'] + not_columns.tolist()
     ]
 
+    '''
+    factor_columns = [
+        'tv004_1_2_0', 'tc017_1_2_1', 'oi013_1_2_1', 'cj012_1_2_0',
+        'cr020_1_2_1', 'tv005_1_2_1', 'cr015_1_2_1', 'oi034_1_2_0',
+        'cr011_1_2_1', 'cr015_1_2_0', 'dv002_1_2_0', 'tf006_2_3_0',
+        'oi030_1_2_0', 'tv003_1_2_0', 'tv004_1_2_1', 'tc014_1_1_2_1',
+        'cr018_1_2_0', 'tc005_1_1_2_1', 'rv010_1_2_0_1', 'tc008_1_2_0',
+        'iv012_1_2_0', 'db004_1_2_0', 'cr006_1_2_1', 'tc012_1_1_2_1',
+        'oi006_1_2_0', 'cr019_1_2_1', 'cr011_1_2_0', 'tc007_1_2_1',
+        'ixy006_1_2_0', 'cr017_1_2_1', 'cj003_2_3_0', 'oi008_1_2_1',
+        'iv010_1_2_1', 'tc004_1_1_2_1', 'oi006_1_2_1', 'cr003_1_2_0',
+        'iv012_1_2_1', 'oi034_1_2_1', 'cr006_1_2_0', 'cr003_1_2_1',
+        'oi003_1_2_1', 'ixy014_2_3_1', 'cj010_1_2_0', 'tv011_1_1_2_1',
+        'dv009_1_2_1', 'oi031_1_2_0', 'oi031_1_2_1', 'ixy007_1_2_0',
+        'tv007_1_2_1', 'oi003_1_2_0', 'tv012_1_1', 'ixy011_1_2_0',
+        'tn005_1_2_1', 'oi037_1_2_1', 'cr017_1_2_0', 'tc015_1_2_1',
+        'dv011_1_2_1', 'oi037_1_2_0', 'cr049_1_2_1', 'tv008_1_2_1',
+        'tc002_1_2_0', 'cr018_1_2_1', 'tv019_1_2_0', 'tv014_1_2_0',
+        'ixy010_1_2_0'
+    ]
+    '''
     ## 随机取个数
 
     ##
@@ -295,67 +318,7 @@ def train(method, instruments, period, session, task_id, count=0):
     #    pdb.set_trace()
     factor_columns = factor_columns if count == 0 else random.sample(
         factor_columns, count)
-    ''' 
-    factor_columns = [
-        'tc017_1_2_1', 'ixy001_1_2_1', 'cr028_1_2_0', 'oi011_1_2_0',
-        'dv007_1_2_0', 'cr029_1_2_0', 'tf002_1_2_0', 'cj003_1_2_0',
-        'oi026_1_2_0', 'tc010_1_2_0', 'tf019_1_2_0', 'tn009_1_2_1_1',
-        'cr015_1_2_0', 'tc010_1_2_1', 'tn009_1_2_1_4', 'cr056_1_2_1',
-        'cr057_1_2_1', 'oi027_1_2_0', 'tn006_1_2_0', 'cr018_1_2_0',
-        'cr035_1_2_0', 'tn008_1_2_0_1', 'tn008_1_2_1_1', 'rv008_1_2_1_2',
-        'ixy003_1_2_0', 'tc013_1_2_0', 'oi029_2_3_0', 'tn005_1_2_0',
-        'cr009_1_2_0', 'cr009_1_2_1', 'oi001_1_2_0', 'oi013_1_2_0',
-        'tf006_1_2_0', 'cr042_1_2_0', 'tn003_1_1_2_3_1', 'tc017_1_2_0',
-        'dv003_1_2_0', 'cr056_1_2_0', 'cr057_1_2_0', 'cr027_1_2_1',
-        'oi001_1_2_1', 'tn008_1_2_0_4', 'tn003_2_1_2_3_0', 'rv010_1_2_1_2',
-        'iv011_1_2_0', 'tc005_1_1_2_0', 'tc012_1_1_2_0', 'tv017_1_2_0',
-        'tc014_1_1_2_0', 'tc006_1_2_0', 'rv008_1_2_0_2', 'iv008_1_2_0',
-        'tv006_1_2_1', 'cr006_1_2_0', 'oi041_2_3_1', 'cj012_1_2_0',
-        'tc004_1_1_2_0', 'db006_1_2_0', 'tc008_1_2_0', 'tn008_1_2_1_4',
-        'tf001_1_2_0', 'tv001_1_2', 'dv011_1_2_0', 'iv007_2_3_0',
-        'xy005_1_2_1', 'xy004_1_2_1', 'tn001_1_2_1', 'rv006_1_2_1_2',
-        'iv010_1_2_0', 'cr007_1_2_1', 'ixy013_1_2_0', 'dv009_1_2_0',
-        'iv007_2_3_1', 'rv006_1_2_0_2', 'dv001_2_3_1', 'oi042_1_2_0',
-        'tn001_1_2_0', 'cr019_1_2_0', 'cr008_1_2_0', 'cr008_1_2_1',
-        'iv007_5_10_1', 'cr049_1_2_0', 'cj011_1_2_0', 'oi042_1_2_1',
-        'oi008_1_2_1', 'tc016_1_1_2_1', 'cj011_1_2_1', 'cj006_1_2_1',
-        'oi041_2_3_0', 'ixy007_1_2_1', 'tc001_2_3_0', 'tn009_1_2_0_1',
-        'cr047_1_2_0', 'cr047_1_2_1', 'tv019_1_2_1', 'tn009_1_2_1_2',
-        'tn009_1_2_1_3', 'dv003_1_2_1', 'rv002_1_2_1_2', 'ixy014_1_2_1',
-        'iv011_1_2_1', 'tn008_1_2_0_3', 'oi004_1_2_1', 'rv010_2_3_0_2',
-        'rv003_1_2_1_2', 'oi025_1_2_0', 'tn008_1_2_1_3', 'db006_1_2_1',
-        'ixy008_1_2_1', 'oi008_1_2_0', 'db007_1_2_1', 'dv002_1_2_1',
-        'iv007_1_2_0', 'tn009_1_2_0_4', 'cr042_1_2_1', 'rv005_1_2_1_2',
-        'cr027_1_2_0', 'tn009_1_2_0_2', 'dv003_2_3_1', 'tn009_1_2_0_3',
-        'tc007_1_2_1', 'tc007_1_2_0', 'cr061_1_2_1', 'iv007_10_15_1',
-        'tc012_1_1_2_1', 'tv017_1_2_1', 'tc005_1_1_2_1', 'oi039_1_2_1',
-        'tc006_1_2_1', 'tc014_1_1_2_1', 'tv019_2_3_1', 'tn003_2_1_2_3_1',
-        'iv010_1_2_1', 'tv011_1_1_2_1', 'oi014_2_3_1', 'cr020_1_2_0',
-        'tn008_1_2_1_2', 'rv004_2_3_1_2', 'rv005_1_2_1_1', 'tv018_1_2_0',
-        'iv008_1_2_1', 'tn008_2_3_1_2', 'cr041_2_2_3_0', 'tf006_1_2_1',
-        'rv005_1_2_0_2', 'rv002_2_3_0_2', 'oi032_2_2_3_1', 'rv004_2_3_0_2',
-        'tv002_1_1_2_1', 'rv004_1_2_1_2', 'rv003_2_3_1_2', 'oi037_1_2_1',
-        'oi001_2_3_1', 'rv002_2_3_1_2', 'tn008_2_3_1_4', 'iv012_1_2_1',
-        'tn004_1_2_1', 'oi032_2_2_3_0', 'oi034_1_2_1', 'rv001_2_3_0_2',
-        'cr017_1_2_0', 'tv015_1_2_0', 'xy005_1_2_0', 'xy004_1_2_0',
-        'oi016_1_2_1', 'ixy001_1_2_0', 'tc015_1_2_1', 'tn008_2_3_1_3',
-        'oi032_1_1_2_1', 'oi023_1_2_1', 'tv004_1_2_1', 'ixy014_1_2_0',
-        'db005_1_2_1', 'tv002_2_2_3_1', 'oi045_1_2_1', 'ixy006_1_2_1',
-        'tv008_1_2_0', 'oi016_1_2_0', 'rv003_2_3_0_2', 'tc003_1_2_1',
-        'oi022_1_2_1', 'tc013_1_2_1', 'tc017_2_3_1', 'tn008_1_2_0_2',
-        'cr012_1_2_0', 'tv014_1_2_1', 'tc010_2_3_1', 'tn006_1_2_1',
-        'iv007_1_2_1', 'cr012_1_2_1', 'oi046_1_2_1', 'fz002_1_2_1',
-        'oi040_2_3_0', 'tc016_2_2_3_0', 'dv005_1_2_1', 'ha004_2_3_1',
-        'db007_1_2_0', 'dv006_1_2_1', 'tv011_2_2_3_1', 'tn008_2_3_0_2',
-        'gd002_1_2_1', 'oi033_1_2_1', 'tv002_1_1_2_0', 'oi042_2_3_1',
-        'oi041_1_2_1', 'rv004_1_2_1_1', 'oi031_1_2_1', 'tc016_1_1_2_0',
-        'tv007_1_2_1', 'cj006_1_2_0', 'cr033_1_2_1', 'cr049_1_2_1',
-        'dv001_2_3_0', 'cj010_1_2_1', 'ixy003_1_2_1', 'cr048_2_3_1',
-        'tv018_1_2_1', 'oi025_1_2_1', 'cr007_2_3_1', 'oi003_1_2_1',
-        'tf001_1_2_1', 'ixy007_1_2_0', 'rv006_2_3_1_2', 'oi036_1_2_1',
-        'rv005_1_2_0_1'
-    ][0:100]
-    '''
+
     return_name = "nxt1_ret_{}h".format(period)
     ### 评估是才聚合
     '''
@@ -396,15 +359,15 @@ def train(method, instruments, period, session, task_id, count=0):
                                       on=['trade_time', 'code'])
 
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
-    operators_sets = two_operators_sets# + one_operators_sets
+    operators_sets = two_operators_sets + one_operators_sets
     pdb.set_trace()
     #operators_sets = custom_transformer(operators_sets)
     #  5 10 15 30 60 90 120 240
     operators_sets = Operators(periods=[5, 10, 15, 30, 60, 90, 120, 240
                                         ]).custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 2000   # 5w
-    tournament_size = 1500   # 1K
+    population_size = 500  # 5w
+    tournament_size = 1000  # 1K
     standard_score = 0.001
     generations = 3
     custom_params = {
@@ -459,7 +422,7 @@ def train(method, instruments, period, session, task_id, count=0):
         'convergence': 0.0002,
         'custom_params': custom_params,
         'rootid': rootid,
-        'method':'grow' ## grow:多样性 full 规则性
+        'method': 'grow'  ## grow:多样性 full 规则性
     }
     engine = Engine(population_size=configure['population_size'],
                     tournament_size=configure['tournament_size'],
@@ -482,7 +445,7 @@ def train(method, instruments, period, session, task_id, count=0):
                     fitness=callback_fitness,
                     save_model=callback_models,
                     custom_params=configure['custom_params'])
-
+    pdb.set_trace()
     factors_data = factors_data.set_index('trade_time')
     engine.train(total_data=factors_data)
 

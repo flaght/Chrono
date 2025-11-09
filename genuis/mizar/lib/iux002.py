@@ -9,7 +9,7 @@ import seaborn as sns
 from kdutils.macro2 import *
 
 from lumina.genetic.util import create_id
-from lib.iux001 import aggregation_data
+from lib.iux001 import aggregation_data, merging_data1
 from lib.cux001 import FactorEvaluate1
 from lib.aux001 import calc_expression
 
@@ -75,6 +75,12 @@ class FactorComparator:
                    ('Mean Turnover', 'turnover', '.4f'),
                    ('Factor Autocorr', 'factor_autocorr', '.4f'),
                    ('Return Autocorr', 'ret_autocorr', '.4f')]
+        # 从 eval_left 获取 roll_win 和 resampling_win
+        if self.eval_left.roll_win != self.eval_right.roll_win or self.eval_left.resampling_win != self.eval_right.resampling_win:
+            raise ValueError("Roll win and resampling win must be the same for both left and right evaluation objects.")
+        roll_win = self.eval_left.roll_win
+        resampling_win = self.eval_left.resampling_win
+        ret_name = self.eval_left.ret_name
         text = f"Factor Comparison: {self.left_name} vs. {self.right_name}\nExpression: {self.expression}\n\n"
         text += f"{'Metric':<20} | {self.left_name:<15} | {self.right_name:<15}\n" + "-" * 55 + "\n"
         for name, key, fmt, *mult in metrics:
@@ -84,14 +90,21 @@ class FactorComparator:
             l_str = f"{val_l * m:{fmt}}" if pd.notna(val_l) else "N/A"
             r_str = f"{val_r * m:{fmt}}" if pd.notna(val_r) else "N/A"
             text += f"{name:<20} | {l_str:<15} | {r_str:<15}\n"
+        # 在表格底部添加参数信息
+        text += "-" * 55 + "\n"
+        text += f"{'Roll Window':<20}: {roll_win}\n"
+        text += f"{'Resampling Window':<20}: {resampling_win}\n"
+        text += f"{'Holding Profit':<20}: {ret_name}\n"
         return text
 
     def plot_comparison(self):
         sns.set_style('whitegrid')
         fig, axes = plt.subplots(3, 2, figsize=(20, 18))
+        # 从 eval_left 获取 roll_win 和 resampling_win（两个评估对象应该使用相同的参数）
+        if self.eval_left.roll_win != self.eval_right.roll_win or self.eval_left.resampling_win != self.eval_right.resampling_win:
+            raise ValueError("Roll win and resampling win must be the same for both left and right evaluation objects.")
         fig.suptitle(
-            f"Factor Comparison: {self.left_name} vs. {self.right_name}\nExpression: {self.expression}\
-                Name:{self.name}",
+            f"Factor Comparison: {self.left_name} vs. {self.right_name}\nExpression: {self.expression}\nName: {self.name}",
             fontsize=18)
 
         ax1 = axes[0, 0]
@@ -249,6 +262,27 @@ def calc_all(expression, total_data1, period):
                                 fee=0.000,
                                 scale_method='roll_zscore',
                                 name=create_id(generate_simple_id(expression)),
+                                resampling_win=period,
+                                expression=expression)
+    evaluate1.run()
+    return evaluate1
+
+
+def calc_all1(expression, total_data1, period):
+    total_data2 = total_data1.set_index('trade_time')
+    factor_data1 = calc_expression(expression=expression,
+                                   total_data=total_data2)
+    dt = merging_data1(factor_data=factor_data1,
+                          returns_data=total_data1,
+                          period=period)
+    evaluate1 = FactorEvaluate1(factor_data=dt,
+                                factor_name='transformed',
+                                ret_name='nxt1_ret_{0}h'.format(period),
+                                roll_win=15,
+                                fee=0.000,
+                                scale_method='roll_zscore',
+                                name=create_id(generate_simple_id(expression)),
+                                resampling_win=period,
                                 expression=expression)
     evaluate1.run()
     return evaluate1

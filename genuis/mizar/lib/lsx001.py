@@ -73,6 +73,7 @@ def build_factors(method,
                              expressions=expressions)
     factors_data = create_factors(total_data=total_data,
                                   expressions=expressions)
+    
     factors_data = factors_data.unstack().fillna(method='ffill').stack()
     ## 标准化 保持和绩效验证一直
     old_data = factors_data.copy()
