@@ -1,4 +1,5 @@
 import pdb
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -22,6 +23,7 @@ class FactorEvaluate1(object):
 
     def __init__(self,
                  factor_data: pd.DataFrame,
+                 resampling_win: int = 1,
                  factor_name: str = 'factor',
                  ret_name: str = 'ret',
                  roll_win: int = 252,
@@ -41,6 +43,7 @@ class FactorEvaluate1(object):
         self.name = name
         self.expression = expression
         self.stats = None
+        self.resampling_win = int(resampling_win)
         self._init_factor()
 
     def _init_factor(self):
@@ -103,7 +106,7 @@ class FactorEvaluate1(object):
             sg = x.iloc[:win].std()
             self.factor_data['f_scaled'] = (
                 (x - mu) / sg.clip(lower=1e-8)).clip(-3, 3) / 3
-            
+
         elif self.scale_method == 'raw':
             # 直接使用原始值，不进行任何缩放，假设为已经处理好的因子值，离散值为[-1,0,1], 连续值为[-1，1]
             self.factor_data['f_scaled'] = x
@@ -146,7 +149,6 @@ class FactorEvaluate1(object):
 
         self.factor_data['nav'] = (1 + self.factor_data['net_ret']).cumprod(
         )  #  计算净值曲线（Net Asset Value）。这是 (1 + 净收益) 的累积乘积，代表了投资组合的模拟价值随时间的变化。
-
         # -------- 基础统计 --------
         total_ret = self.factor_data['nav'].iloc[-1] - 1  # 累计收益 整个回测期间的累计收益。
 
@@ -229,14 +231,37 @@ class FactorEvaluate1(object):
             print(f"✅ ICIR ({ic_ir:.3f}) indicates stable performance.")
 
     def run(self, is_check=False):
+        ### 滚动标准化
         self._scale()
+        ### 重采样
+        if self.resampling_win <= 1:
+            print("WARINING: resampling_win:{0}".format(self.resampling_win))
+        is_on_mark = self.factor_data.index.get_level_values(
+            level=0).minute % int(self.resampling_win) == 0
+        self.factor_data = self.factor_data[is_on_mark]
+
         ic_stats = self.cal_ic()
         if ic_stats['ic_mean'] < 0:
             self.factor_data['f_scaled'] *= -1
             #ic_stats = self.cal_ic()
             if is_check:
                 print("INFO: IC Mean is negative. Factor has been inverted.")
-
+        if self.factor_data['f_scaled'].dropna().empty:
+            return {
+                'total_ret': -1.0,
+                'avg_ret': -1.0,
+                'calmar': -10.0,
+                'sharpe1': -1.0,
+                'sharpe2': -10.0,
+                'turnover': 10.0,
+                'win_rate': 0,
+                'profit_ratio': 0.0,
+                'ic_mean': 0.00,
+                'ic_std': 1.0,
+                'ic_ir': 1.0,
+                'factor_autocorr': 1.0,
+                'ret_autocorr': 1.0
+            }
         pnl_stats = self.cal_pnl()
         autocorr_stats = self._cal_autocorr()  # 计算自相关性
 
@@ -248,6 +273,36 @@ class FactorEvaluate1(object):
         if is_check:
             self._check_warnings()  # 运行警告检查
         return self.stats
+
+    def _generate_stats_text(self) -> str:
+        """生成性能统计摘要文本"""
+        report_parts = []
+        if self.expression is not None:
+            report_parts.append(f"Expression: {self.expression}")
+        if self.name is not None:
+            report_parts.append(f"Name: {self.name}")
+
+        if len(report_parts) > 0:
+            report_parts.append("\n")
+
+        performance_metrics = (
+            f"--- Performance Metrics ---\n"
+            f"{'Avg Return (bps)':<25}: {(self.stats.get('avg_ret', float('nan')) * 10000):.2f}\n"
+            f"{'Total Return':<25}: {self.stats['total_ret']:.2%}\n"
+            f"{'Sharpe Ratio':<25}: {self.stats['sharpe1']:.2f}\n"
+            f"{'Ann Sharpe Ratio':<25}: {self.stats['sharpe2']:.2f}\n"
+            f"{'Max Drawdown':<25}: {self.stats['max_dd']:.2%}\n"
+            f"{'Calmar Ratio':<25}: {self.stats.get('calmar', float('nan')):.2f}\n"
+            f"{'Win Rate':<25}: {self.stats['win_rate']:.2%}\n"
+            f"{'Profit/Loss Ratio':<25}: {self.stats['profit_ratio']:.2f}\n"
+            f"\n--- Factor Characteristics ---\n"
+            f"{'IC Mean':<25}: {self.stats['ic_mean']:.4f}\n"
+            f"{'ICIR':<25}: {self.stats['ic_ir']:.4f}\n"
+            f"{'Mean Turnover':<25}: {self.stats['turnover']:.4f}\n"
+            f"{'Factor Autocorr':<25}: {self.stats['factor_autocorr']:.4f}\n"
+            f"{'Return Autocorr':<25}: {self.stats['ret_autocorr']:.4f}\n")
+        report_parts.append(performance_metrics)
+        return "\n".join(report_parts)
 
     def plot_results(self):
         if self.stats is None:
@@ -262,17 +317,21 @@ class FactorEvaluate1(object):
             num_ticks: The desired number of date labels on the x-axis.
             """
             # 计算刻度的整数位置
-            tick_positions = np.linspace(0, len(series) - 1, num_ticks, dtype=int)
+            tick_positions = np.linspace(0,
+                                         len(series) - 1,
+                                         num_ticks,
+                                         dtype=int)
             # 获取这些位置对应的日期标签
-            tick_labels = [series.index[i].strftime('%Y-%m-%d') for i in tick_positions]
-            
+            tick_labels = [
+                series.index[i].strftime('%Y-%m-%d') for i in tick_positions
+            ]
+
             ax.set_xticks(tick_positions)
             ax.set_xticklabels(tick_labels, rotation=30, ha='right')
 
-
         fig, axes = plt.subplots(3, 2, figsize=(18, 16))
         fig.suptitle(
-            f"Factor Evaluation: {self.factor_name} vs {self.ret_name}",
+            f"Factor Evaluation: {self.factor_name} vs {self.ret_name} | roll_win={self.roll_win}, resampling_win={self.resampling_win}",
             fontsize=18)
 
         # 1. 净值曲线 (NAV)
@@ -281,20 +340,24 @@ class FactorEvaluate1(object):
         gross_ret_data = (1 + self.factor_data['gross_ret']).cumprod().dropna()
 
         # 使用 use_index=False 来忽略时间轴，绘制连续序列
-        nav_data.plot(ax=ax1, label='Net Asset Value (NAV)', color='blue', use_index=False)
-        gross_ret_data.plot(ax=ax1, label='Cumulative Gross Return', color='orange', linestyle='--', use_index=False)
-        
+        nav_data.plot(ax=ax1,
+                      label='Net Asset Value (NAV)',
+                      color='blue',
+                      use_index=False)
+        gross_ret_data.plot(ax=ax1,
+                            label='Cumulative Gross Return',
+                            color='orange',
+                            linestyle='--',
+                            use_index=False)
+
         # 使用辅助函数设置X轴标签
         set_sequential_xticks(ax1, nav_data)
-        
+
         ax1.set_title("Performance")
         ax1.set_ylabel("NAV")
-        ax1.set_xlabel("trade_time (sequential)") # 标签提示X轴是序列
+        ax1.set_xlabel("trade_time (sequential)")  # 标签提示X轴是序列
         ax1.legend()
         ax1.grid(True)
-
-
-
 
         # 2. 绩效指标表格
         ax_table = axes[0, 1]
@@ -325,6 +388,8 @@ class FactorEvaluate1(object):
             f"{'Mean Turnover':<20}: {self.stats['turnover']:.4f}\n"
             f"{'Factor Autocorr':<20}: {self.stats['factor_autocorr']:.4f}\n"  # 新增
             f"{'Return Autocorr':<20}: {self.stats['ret_autocorr']:.4f}\n"  # 新增
+            f"{'Roll Window':<20}: {self.roll_win}\n"
+            f"{'Resampling Window':<20}: {self.resampling_win}\n"
         )
         report_parts.append(performance_metrics)
         stats_text = "\n".join(report_parts)
@@ -342,22 +407,28 @@ class FactorEvaluate1(object):
         ax3 = axes[1, 0]
         ic_data = self.factor_data['ic'].dropna()
         cumsum_ic_data = self.factor_data['cumsum_ic'].dropna()
-        
-        ic_data.plot(ax=ax3, label='Rolling IC', color='steelblue', alpha=0.8, use_index=False)
+
+        ic_data.plot(ax=ax3,
+                     label='Rolling IC',
+                     color='steelblue',
+                     alpha=0.8,
+                     use_index=False)
         set_sequential_xticks(ax3, ic_data)
-        
+
         ax3.set_ylabel("Rolling IC", color='steelblue')
         ax3_twin = ax3.twinx()
-        
-        cumsum_ic_data.plot(ax=ax3_twin, label='Cumulative IC', color='black', linestyle='--', use_index=False)
-        
+
+        cumsum_ic_data.plot(ax=ax3_twin,
+                            label='Cumulative IC',
+                            color='black',
+                            linestyle='--',
+                            use_index=False)
+
         ax3_twin.set_ylabel("Cumulative IC", color='black')
         ax3.set_title("IC Analysis")
         ax3.set_xlabel("trade_time (sequential)")
         ax3.axhline(0, color='red', linestyle='--', linewidth=1)
         ax3.grid(True)
-
-
 
         # 4. 因子 vs. 收益率散点图
         ax4 = axes[1, 1]
@@ -375,28 +446,32 @@ class FactorEvaluate1(object):
 
         # 5. 每日收益率与回撤
         ax5 = axes[2, 0]
-        drawdown_data = ((self.factor_data['nav'] / self.factor_data['nav'].cummax() - 1) * 100).dropna()
-        
+        drawdown_data = (
+            (self.factor_data['nav'] / self.factor_data['nav'].cummax() - 1) *
+            100).dropna()
+
         drawdown_data.plot(ax=ax5, color='red', alpha=0.8, use_index=False)
         # fill_between 需要 numpy 数组
-        ax5.fill_between(np.arange(len(drawdown_data)), drawdown_data.values, 0, color='red', alpha=0.2)
+        ax5.fill_between(np.arange(len(drawdown_data)),
+                         drawdown_data.values,
+                         0,
+                         color='red',
+                         alpha=0.2)
         set_sequential_xticks(ax5, drawdown_data)
-        
+
         ax5.set_title(f"Drawdown Over Time (Max = {self.stats['max_dd']:.2%})")
         ax5.set_ylabel("Drawdown (%)")
         ax5.set_xlabel("trade_time (sequential)")
         ax5.set_ylim(bottom=None, top=0.5)
         ax5.grid(True)
 
-
-
         # 6. 换手率时序图
         ax6 = axes[2, 1]
         turnover_data = self.factor_data['turnover'].dropna()
-        
+
         turnover_data.plot(ax=ax6, color='teal', use_index=False)
         set_sequential_xticks(ax6, turnover_data)
-        
+
         ax6.set_title(
             f"Turnover Over Time (Mean = {self.stats['turnover']:.3f})")
         ax6.set_ylabel("Turnover")
@@ -406,7 +481,6 @@ class FactorEvaluate1(object):
         locator = mdates.AutoDateLocator()
         formatter = mdates.DateFormatter('%Y-%m')
 
-
         # 2. 将格式应用到所有需要时间轴的子图
         #for ax in [ax1, ax3, ax5, ax6]:
         #    ax.xaxis.set_major_locator(locator)
@@ -414,3 +488,60 @@ class FactorEvaluate1(object):
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.96])
         plt.show()
+        self.figure = fig
+
+    def save_results(self, base_output_dir: str):
+        """
+        保存所有结果，包括性能摘要、时间序列数据和图表。
+        参照 FactorComparator.save_results 的实现。
+        """
+        if self.stats is None:
+            raise RuntimeError(
+                "Please run the 'run()' method before saving results.")
+        if not hasattr(self, 'figure') or self.figure is None:
+            raise RuntimeError(
+                "Please run the 'plot_results()' method before saving results."
+            )
+
+        timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+        name = self.name if isinstance(self.name, str) else timestamp
+        output_dir = os.path.join(base_output_dir, name)
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"Saving results to: {output_dir}")
+
+        plot_output_dir = os.path.join(base_output_dir, "plot")
+        os.makedirs(plot_output_dir, exist_ok=True)
+
+        # 1. 保存绩效文本
+        summary_path = os.path.join(output_dir, "performance_summary.txt")
+        with open(summary_path, 'w') as f:
+            f.write(self._generate_stats_text())
+        print(f"Performance summary saved to: {summary_path}")
+
+        # 2. 保存时间序列数据为独立文件
+        print("Saving time series data as separate files...")
+
+        # 定义要保存的序列
+        series_to_save = ['nav', 'ic', 'turnover']
+
+        # 循环遍历每个指标，并单独保存
+        for metric_name in series_to_save:
+            if metric_name in self.factor_data.columns:
+                # 构造文件名，例如: nav.csv
+                file_name = f"{metric_name}.csv"
+                file_path = os.path.join(output_dir, file_name)
+
+                # 提取该序列并保存
+                series = self.factor_data[metric_name]
+                series.to_csv(file_path, header=True)
+                print(f" -> Saved {file_path}")
+
+        # 3. 保存图表
+        image_path = os.path.join(output_dir, "evaluation_plot.png")
+        self.figure.savefig(image_path, dpi=300)
+        print(f"Evaluation plot saved to: {image_path}")
+
+        image_new_path = os.path.join(plot_output_dir, "{0}.png".format(name))
+        self.figure.savefig(image_new_path, dpi=300)
+        plt.close(self.figure)
+        print(f"Evaluation plot also saved to: {image_new_path}")
