@@ -1,6 +1,6 @@
 import pdb
 import numpy as np
-from lib.aux001 import fetch_market
+from lib.aux001 import fetch_market, fetch_temp_data, fetch_temp_returns
 
 aggregation_rules = {
     'open': 'first',
@@ -50,8 +50,32 @@ def aggregation_data(factor_data, returns_data, period):
     dt.dropna(inplace=True)
     return dt
 
+def merging_data1(factor_data, returns_data, period):
+    dt = factor_data.merge(
+        returns_data[['trade_time', 'code', 'nxt1_ret_{0}h'.format(period)]],
+        on=['trade_time', 'code'])
+    dt.replace([np.inf, -np.inf], np.nan, inplace=True)
+    dt.dropna(inplace=True)
+    return dt
+    
+
 
 def fetch_times(method, task_id, instruments):
+    train_data = fetch_temp_returns(method=method,
+                                    instruments=instruments,
+                                    category='returns',
+                                    datasets=['train'])
+
+    val_data = fetch_temp_returns(method=method,
+                                  instruments=instruments,
+                                  category='returns',
+                                  datasets=['val'])
+
+    test_data = fetch_temp_returns(method=method,
+                                   instruments=instruments,
+                                   category='returns',
+                                   datasets=['test'])
+    '''
     train_data = fetch_data(method=method,
                             task_id=task_id,
                             instruments=instruments,
@@ -64,6 +88,7 @@ def fetch_times(method, task_id, instruments):
                            task_id=task_id,
                            instruments=instruments,
                            datasets=['test'])
+    '''
     return {
         'train_time':
         (train_data['trade_time'].min(), train_data['trade_time'].max()),

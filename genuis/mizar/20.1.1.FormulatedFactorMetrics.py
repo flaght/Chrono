@@ -9,14 +9,15 @@ from lib.aux001 import calc_expression
 from lib.cux001 import FactorEvaluate1
 
 
-def run(method, instruments, period, datasets):
+def run(method, instruments, period, datasets, task_id):
     total_data = fetch_data(method=method,
                             instruments=instruments,
-                            datasets=datasets)
+                            datasets=datasets,
+                            task_id=task_id)
 
     factor_data = calc_expression(
         expression=expression, total_data=total_data.set_index('trade_time'))
-
+    pdb.set_trace()
     dt = aggregation_data(factor_data=factor_data,
                           returns_data=total_data,
                           period=period)
@@ -29,12 +30,18 @@ def run(method, instruments, period, datasets):
                                 scale_method='roll_zscore',
                                 expression=expression)
     stats_dt = evaluate1.run()
+    print(stats_dt)
 
 
 if __name__ == '__main__':
-    method = 'bicso0'
+    method = 'cicso0'
     instruments = 'ims'
     period = 15
-    datasets = ['train', 'val', 'test'][1:2]
-    expression = "MADiff(2,'ixy007_1_2_1')"
-    run(method, instruments, period, datasets)
+    task_id = '200037'
+    datasets = ['train', 'val', 'test']
+    expression = "EMA(15,'smart_tick_in')"  #"MADiff(2,'ixy007_1_2_1')"
+    run(method=method,
+        instruments=instruments,
+        period=period,
+        datasets=datasets,
+        task_id=task_id)
