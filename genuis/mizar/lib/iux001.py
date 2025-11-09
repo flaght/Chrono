@@ -50,6 +50,15 @@ def aggregation_data(factor_data, returns_data, period):
     dt.dropna(inplace=True)
     return dt
 
+def merging_data1(factor_data, returns_data, period):
+    dt = factor_data.merge(
+        returns_data[['trade_time', 'code', 'nxt1_ret_{0}h'.format(period)]],
+        on=['trade_time', 'code'])
+    dt.replace([np.inf, -np.inf], np.nan, inplace=True)
+    dt.dropna(inplace=True)
+    return dt
+    
+
 
 def fetch_times(method, task_id, instruments):
     train_data = fetch_temp_returns(method=method,
