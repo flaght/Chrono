@@ -11,17 +11,17 @@ from ultron.factor.genetic.geneticist.operators import *
 from lumina.genetic.process import *
 from kdutils.macro2 import *
 from lib.iux001 import fetch_data
-from lib.iux002 import FactorComparator, calc_all
+from lib.iux002 import FactorComparator, calc_all,calc_all1
 
 leg_mappping = {"rbb": ["hcb"], "ims": ["ics"]}
 
 
 def create_evalute(column, period, left_data, right_data, left_symbol,
                    right_symbol, outputs):
-    left_evaluate = calc_all(expression=column,
+    left_evaluate = calc_all1(expression=column,
                              total_data1=left_data,
                              period=period)
-    right_evaluate = calc_all(expression=column,
+    right_evaluate = calc_all1(expression=column,
                               total_data1=right_data,
                               period=period)
     fc = FactorComparator(eval_left=left_evaluate,
@@ -121,7 +121,6 @@ def run2(method, instruments, period, task_id, session, datasets=['train','val']
                              task_id=task_id,
                              period=period)
     #task_id = INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
-    pdb.set_trace()
     k_split = 1
     expression_list = programs['formual'].tolist()
     process_list = split_k(k_split, expression_list)

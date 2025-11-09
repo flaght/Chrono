@@ -10,7 +10,7 @@ from kdutils.tactix import Tactix
 from ultron.factor.genetic.geneticist.operators import *
 
 from kdutils.macro2 import *
-from lib.iux001 import fetch_data, aggregation_data
+from lib.iux001 import fetch_data, merging_data1
 from lib.aux001 import calc_expression
 from lib.cux001 import FactorEvaluate1
 
@@ -31,7 +31,10 @@ def load_factors(method,
 
     programs = pd.read_feather(filename)
     pdb.set_trace()
-    programs = programs[programs['final_fitness'] > 0.02][[
+    #programs = programs[programs['final_fitness'] > 0.02][[
+    #    'name', 'formual', 'final_fitness'
+    #]]
+    programs = programs[[
         'name', 'formual', 'final_fitness'
     ]]
     return programs
@@ -63,15 +66,16 @@ def valid_programs(method,
         print(program)
         factor_data = calc_expression(expression=program.formual,
                                       total_data=total_data1)
-        dt = aggregation_data(factor_data=factor_data,
-                              returns_data=total_data,
-                              period=period)
+        dt = merging_data1(factor_data=factor_data,
+                           returns_data=total_data,
+                           period=period)
         evaluate1 = FactorEvaluate1(factor_data=dt,
                                     factor_name='transformed',
                                     ret_name='nxt1_ret_{0}h'.format(period),
                                     roll_win=15,
                                     fee=0.000,
                                     scale_method='roll_zscore',
+                                    resampling_win=period,
                                     expression=program.formual)
         state_dt = evaluate1.run()
         state_dt['name'] = program.name
@@ -108,7 +112,6 @@ def run(method,
                             task_id=task_id,
                             session=session,
                             category=sategory)
-    pdb.set_trace()
     features = [
         eval(program.formual)._dependency for program in programs.itertuples()
     ]
@@ -122,7 +125,6 @@ def run(method,
 
     if not os.path.exists(dirs):
         os.makedirs(dirs)
-
 
     validated_programs = valid_programs(
         method=method,
@@ -226,13 +228,13 @@ if __name__ == '__main__':
     variant = Tactix().start()
     if variant.form == 'first':
         run1(method=variant.method,
-         instruments=variant.instruments,
-         period=variant.period,
-         task_id=variant.task_id,
-         session=variant.session)
+             instruments=variant.instruments,
+             period=variant.period,
+             task_id=variant.task_id,
+             session=variant.session)
     elif variant.form == 'second':
         run2(method=variant.method,
-         instruments=variant.instruments,
-         period=variant.period,
-         task_id=variant.task_id,
-         session=variant.session)
+             instruments=variant.instruments,
+             period=variant.period,
+             task_id=variant.task_id,
+             session=variant.session)
