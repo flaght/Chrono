@@ -11,7 +11,7 @@ from ultron.factor.genetic.geneticist.operators import *
 from lumina.genetic.process import *
 from kdutils.macro2 import *
 from lib.iux001 import fetch_data
-from lib.iux002 import FactorComparator, calc_all,calc_all1
+from lib.iux002 import FactorComparator, calc_all, calc_all1
 
 leg_mappping = {"rbb": ["hcb"], "ims": ["ics"]}
 
@@ -19,11 +19,11 @@ leg_mappping = {"rbb": ["hcb"], "ims": ["ics"]}
 def create_evalute(column, period, left_data, right_data, left_symbol,
                    right_symbol, outputs):
     left_evaluate = calc_all1(expression=column,
-                             total_data1=left_data,
-                             period=period)
-    right_evaluate = calc_all1(expression=column,
-                              total_data1=right_data,
+                              total_data1=left_data,
                               period=period)
+    right_evaluate = calc_all1(expression=column,
+                               total_data1=right_data,
+                               period=period)
     fc = FactorComparator(eval_left=left_evaluate,
                           eval_right=right_evaluate,
                           left_name=left_symbol,
@@ -80,10 +80,15 @@ def fetch_data1(method, instruments, datasets, features, task_id, period):
     return total_data
 
 
-def run2(method, instruments, period, task_id, session, datasets=['train','val']):
+def run2(method,
+         instruments,
+         period,
+         task_id,
+         session,
+         datasets=['train', 'val']):
     left_symbol = instruments
     right_symbol = leg_mappping[instruments][0]
-    
+
     ## 优先创建目录，避免无判断没有跑过
     outputs = os.path.join("records", method, left_symbol, 'rulex',
                            str(task_id), "nxt1_ret_{}h".format(str(period)),
@@ -99,7 +104,7 @@ def run2(method, instruments, period, task_id, session, datasets=['train','val']
                             category='valid')
     if programs.empty:
         print("No factors data the criteria")
-        return 
+        return
 
     features = [
         eval(program.formual)._dependency for program in programs.itertuples()
