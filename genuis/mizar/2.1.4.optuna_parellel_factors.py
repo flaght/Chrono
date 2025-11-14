@@ -13,7 +13,7 @@ from kdutils.tactix import Tactix
 from lib.optim001.parallel import ParallelOptimizer
 from lib.cux001 import FactorEvaluate1
 from lib.aux001 import calc_expression
-from lib.iux001 import aggregation_data
+from lib.iux001 import aggregation_data, merging_data1
 
 
 def fetch_resource():
@@ -67,10 +67,12 @@ def objective_func(expression: str,
         # 第1步：计算因子
         factor_data = calc_expression(expression=expression,
                                       total_data=total_data1)
-        dt = aggregation_data(factor_data=factor_data,
-                              returns_data=total_data,
-                              period=period)
-
+        #dt = aggregation_data(factor_data=factor_data,
+        #                      returns_data=total_data,
+        #                      period=period)
+        dt = merging_data1(factor_data=factor_data,
+                           returns_data=total_data,
+                           period=period)
         # 第2步：评估因子
         evaluate1 = FactorEvaluate1(factor_data=dt,
                                     factor_name='transformed',
@@ -78,7 +80,8 @@ def objective_func(expression: str,
                                     roll_win=15,
                                     fee=0.000,
                                     scale_method='roll_zscore',
-                                    expression=expression)
+                                    expression=expression,
+                                    resampling_win=period)
 
         result = evaluate1.run()
         result['ic_mean'] = math.fabs(result['ic_mean'])
@@ -149,9 +152,9 @@ def objective_func(expression: str,
 def train(method, instruments, period, session, task_id, expressions):
     dethod = 'ic'
     standard_score = 0.02
-    n_jobs = 2
-    n_trials = 500
-    top_n = 50
+    n_jobs = 4
+    n_trials = 300
+    top_n = 150
     dirs = os.path.join(base_path, method, instruments, "gentic", dethod,
                         str(task_id), "nxt1_ret_{}h".format(period),
                         str(session))
@@ -164,7 +167,7 @@ def train(method, instruments, period, session, task_id, expressions):
         'sharpe2': 'maximize',
         'profit_ratio': 'maximize'
     }
-    
+
     operators_pd, fields_pd = fetch_resource()
     rootid = task_id
     ## 加载数据
@@ -211,66 +214,118 @@ def train(method, instruments, period, session, task_id, expressions):
 if __name__ == '__main__':
 
     expressions = [
-        "DELTA(90,DELTA(90,EMA(30,'mid_price_bias_ratio')))",
-        "DELTA(90,DELTA(90,MMAX(30,'mid_price_bias_ratio')))",
-        "DELTA(90,MSKEW(30,DELTA(90,'mid_price_bias_ratio')))",
-        "DELTA(90,MADecay(60,MPERCENT(90,DELTA(90,'pct_change_set'))))",
-        "MT3(90,MADiff(60,MDEMA(30,'pct_change')))",
-        "RSI(120,MCPS(120,MA(60,'twap')))",
-        "DELTA(90,MMaxDiff(90,DELTA(90,'mid_price_bias_ratio')))",
-        "MQUANTILE(120,RSI(120,MDEMA(60,MCPS(120,MA(60,'twap')))))",
-        "DELTA(90,MMIN(60,MPERCENT(90,DELTA(90,'pct_change_set'))))",
-        "DELTA(90,DELTA(90,MDIFF(120,'mid_price_bias_ratio')))",
-        "MA(90,MADiff(60,MIR(120,MCPS(60,'smart_money_in_pct'))))",
-        "DELTA(90,RSI(90,MIR(60,'smart_money_in_pct')))",
-        "RSI(120,MCPS(120,MA(60,'twap')))",
-        "MCPS(120,MT3(90,SIGMOID('pct_change')))",
-        "DELTA(90,MADiff(90,'mid_price_bias_ratio'))",
-        "DELTA(90,MDIFF(90,MADecay(60,DELTA(90,'mid_price_bias_ratio'))))",
-        "DELTA(90,MT3(30,DELTA(90,'mid_price_bias_ratio')))",
-        "DELTA(90,DELTA(90,MADecay(60,'mid_price_bias_ratio')))",
-        "MA(90,MT3(60,MCPS(90,'smart_tick_in')))",
-        "WMA(30,DELTA(90,DELTA(90,'mid_price_bias_ratio')))",
-        "MCPS(90,MA(90,'smart_tick_in'))",
-        "MDIFF(60,MRANK(120,DELTA(90,'mid_price_bias_ratio')))",
-        "MSKEW(60,DELTA(90,'mid_price_bias_ratio'))",
-        "MCPS(90,MA(90,SIGLOG2ABS(MCPS(90,'smart_tick_in'))))",
-        "DELTA(90,MADiff(90,DELTA(90,'mid_price_bias_ratio')))",
-        "DELTA(90,MMedian(30,DELTA(90,'mid_price_bias_ratio')))",
-        "MMIN(90,MMedian(120,MCPS(90,'smart_money_in_pct')))",
-        "MA(120,MADiff(90,MADecay(90,MCPS(60,'smart_money_in_pct'))))",
-        "EMA(120,MCPS(90,MA(60,'smart_tick_in')))",
-        "MCPS(90,MA(60,'smart_tick_in'))",
+        "DELTA(90,MIR(60,'smart_volume_in'))",
+        "DELTA(90,EMA(60,'mid_price_bias_ratio'))",
+        "WMA(90,MPERCENT(90,DELTA(60,'close')))",
         "DELTA(90,'mid_price_bias_ratio')",
-        "DELTA(90,SIGLOG2ABS('mid_price_bias_ratio'))",
-        "MMIN(30,DELTA(90,MSKEW(60,DELTA(90,'mid_price_bias_ratio'))))",
-        "MDPO(120,EMA(60,MSKEW(60,'smart_tick_in_pct')))",
-        "MDEMA(90,MPERCENT(90,DELTA(90,'pct_change_set')))",
-        "MCPS(120,EMA(90,'pct_change'))",
-        "DELTA(90,SIGLOG10ABS('mid_price_bias_ratio'))",
-        "DELTA(90,MIR(90,MDIFF(60,'smart_tick_in_pct')))",
-        "MMinDiff(120,MCPS(90,'smart_tick_in'))",
-        "MCPS(90,MT3(90,'smart_tick_in'))",
-        "MCPS(60,DELTA(90,'corr_money_bid_price_0'))",
-        "SIGLOG10ABS(MDEMA(90,MMIN(60,MDPO(120,'smart_tick_in'))))",
-        "DELTA(90,WMA(60,'mid_price_bias_ratio'))"
-        "RSI(120,MA(60,'twap'))",
-        "WMA(60,DELTA(120,MMAX(60,WMA(60,'mid_price_bias_ratio'))))",
-        "DELTA(90,MDIFF(90,ABS('mid_price_bias_ratio')))",
-        "MDIFF(90,DELTA(90,'mid_price_bias_ratio'))",
-        "MDIFF(120,DELTA(90,ABS('mid_price_bias_ratio')))",
-        "MMedian(60,MADiff(60,WMA(60,'smart_tick_in')))",
-        "MCPS(60,MADecay(60,MA(90,'smart_money_in_pct')))",
-        "MCPS(90,MT3(90,'mid_price_bias_ratio'))",
-        "DELTA(90,DELTA(90,WMA(60,'mid_price_bias_ratio')))",
-        "MMIN(120,MRANK(120,'smart_tick_in_pct'))",
-        "MMaxDiff(90,WMA(60,'smart_tick_in'))",
-        "DELTA(90,EMA(60,DELTA(90,'mid_price_bias_ratio')))",
-        "MA(60,MCPS(90,'smart_tick_in'))",
+        "DELTA(90,EMA(90,'mid_price_bias_ratio'))",
+        "DELTA(90,MA(60,DELTA(60,'mid_price_bias_ratio')))",
+        "RSI(90,MADecay(90,'mid_price_bias_ratio'))",
+        "MCPS(90,MA(90,SIGLOG2ABS('smart_tick_in')))",
+        "MADiff(120,MMedian(120,MCPS(90,'smart_tick_in_pct')))",
+        "DELTA(90,MA(60,DELTA(60,'mid_price_bias_ratio')))",
+        "MADecay(90,MPERCENT(90,DELTA(60,'close')))",
+        "RSI(90,MCPS(90,MA(60,'close')))", "MT3(90,MADiff(90,'close'))",
+        "WMA(90,RSI(90,MIR(60,'smart_tick_in')))",
+        "DELTA(90,MDEMA(90,'mid_price_bias_ratio'))",
+        "MA(60,MMASSI(60,'realized_volatility','smart_tick_in'))",
+        "DELTA(90,MMASSI(90,'depth_imbalance_1','smart_tick_in'))",
+        "MCPS(90,MMASSI(60,'depth_imbalance_1','smart_money_in'))",
+        "MCPS(90,MA(90,SIGLOG2ABS('smart_money_in_pct')))",
+        "RSI(90,MMIN(60,DELTA(60,'close')))",
+        "MMAX(60,RSI(90,MDEMA(60,'close')))",
+        "DELTA(90,MIR(60,'smart_money_in_pct'))",
+        "MCPS(90,RSI(90,MA(60,'close')))",
+        "MA(90,MT3(60,MCPS(90,'smart_money_in_pct')))",
+        "DELTA(90,MIR(90,'smart_money_in_pct'))",
+        "DELTA(90,MA(60,DELTA(60,'mid_price_bias_ratio')))",
+        "MCPS(90,WMA(90,ASIN('smart_money_in_pct')))",
+        "MDPO(90,RSI(90,MDEMA(60,'twap')))",
+        "DELTA(90,MT3(60,'mid_price_bias_ratio'))",
+        "DELTA(90,MDIFF(60,'mid_price_bias_ratio'))",
+        "MA(90,MADiff(90,MCPS(60,'smart_tick_in')))",
+        "RSI(120,MCPS(120,MADecay(90,'close')))",
+        "DELTA(90,MIR(60,'smart_money_in_pct'))",
+        "MA(90,MMedian(60,MCPS(90,'smart_tick_in')))",
+        "EMA(90,MCPS(90,MA(60,'smart_money_in_pct')))",
+        "RSI(90,MDEMA(60,MCPS(90,'twap')))",
+        "DELTA(90,MMAX(60,'mid_price_bias_ratio'))",
+        "DELTA(90,MIR(90,'mid_price_bias_ratio'))",
+        "MADecay(90,ASIN(MCPS(90,'smart_money_in_pct')))",
         "DELTA(90,MA(60,DELTA(90,'mid_price_bias_ratio')))",
-        "DELTA(90,MSKEW(60,'smart_tick_in_pct'))",
-        "DELTA(90,MMIN(60,MDPO(120,'mid_price_bias_ratio')))",
-        "DELTA(90,EMA(60,MMAX(60,'mid_price_bias_ratio')))"
+        "DELTA(90,MMAX(60,'mid_price_bias_ratio'))",
+        "DELTA(90,MAPOSITIVE(60,'mid_price_bias_ratio'))",
+        "MCPS(90,MA(90,SIGLOG2ABS('smart_tick_in')))",
+        "RSI(90,MCPS(90,MA(60,'close')))", "RSI(120,MCPS(120,MA(90,'close')))",
+        "MCPS(90,MA(90,SIGLOG2ABS('smart_money_in_pct')))",
+        "DELTA(90,WMA(60,'mid_price_bias_ratio'))",
+        "DELTA(90,MA(60,DELTA(60,'mid_price_bias_ratio')))",
+        "DELTA(90,MIR(90,'mid_price_bias_ratio'))",
+        "MA(90,MADiff(90,MIR(60,'smart_tick_in')))",
+        "DELTA(90,MSKEW(90,'mid_price_bias_ratio'))",
+        "MCPS(90,MADecay(90,'smart_money_in_pct'))",
+        "DELTA(90,MA(60,DELTA(60,'mid_price_bias_ratio')))",
+        "DELTA(90,MSKEW(90,'mid_price_bias_ratio'))",
+        "MA(60,MADiff(90,MCPS(90,'smart_tick_in')))",
+        "MCPS(90,MA(90,SIGMOID('smart_money_in_pct')))",
+        "DELTA(90,MADecay(60,'mid_price_bias_ratio'))",
+        "DELTA(90,MPERCENT(90,DELTA(60,'close')))",
+        "MIR(90,MADiff(90,'smart_tick_in'))",
+        "WMA(90,MDPO(90,MIR(60,'smart_tick_in')))",
+        "DELTA(60,MMIN(60,MADecay(60,'close')))",
+        "RSI(90,MDEMA(60,MCPS(90,'close')))",
+        "MA(60,MADiff(90,MCPS(90,'smart_tick_in')))",
+        "RSI(90,MDEMA(60,MCPS(90,'twap')))",
+        "MQUANTILE(90,RSI(90,MCPS(90,'close')))",
+        "EMA(45,MCPS(90,MA(60,'smart_tick_in')))",
+        "DELTA(90,MDEMA(60,'mid_price_bias_ratio'))",
+        "DELTA(120,MA(60,DELTA(60,'mid_price_bias_ratio')))",
+        "DELTA(90,EMA(60,'mid_price_bias_ratio'))",
+        "DELTA(120,MMedian(60,DELTA(60,'mid_price_bias_ratio')))",
+        "MQUANTILE(120,RSI(90,MHMA(60,MCPS(90,'twap'))))",
+        "MCPS(90,MA(60,'smart_money_in_pct'))",
+        "MA(60,MADiff(90,MCPS(90,'smart_tick_in')))",
+        "DELTA(120,EMA(60,'mid_price_bias_ratio'))",
+        "MCPS(90,MA(60,'smart_money_in_pct'))",
+        "MA(90,MADiff(60,EMA(60,MCPS(60,'smart_tick_in'))))",
+        "MQUANTILE(90,RSI(90,MDEMA(60,MCPS(90,'twap'))))",
+        "DELTA(90,MSKEW(90,DELTA(90,'mid_price_bias_ratio')))",
+        "MCPS(90,EMA(90,SIGLOG10ABS('smart_money_in_pct')))",
+        "MADiff(90,MIR(90,MCPS(90,'smart_money_out_pct')))",
+        "RSI(120,MA(90,RSI(90,'pct_change')))",
+        "DELTA(90,MMaxDiff(90,DELTA(90,'low')))",
+        "DELTA(90,MMedian(60,DELTA(90,'order_flow_imbanlace_1')))",
+        "DELTA(120,DELTA(90,MMAX(60,'mid_price_bias_ratio')))",
+        "DELTA(90,DELTA(90,MSUM(120,'mid_price_bias_ratio')))",
+        "RSI(120,MCPS(120,MA(60,'twap')))",
+        "DELTA(120,MCPS(120,MDIFF(60,'high')))",
+        "MSKEW(90,MDPO(90,MCPS(90,'smart_money_in_pct')))",
+        "DELTA(120,MMedian(60,DELTA(90,'mid_price_bias_ratio')))",
+        "DELTA(90,MMIN(90,DELTA(90,MADiff(90,'twap'))))",
+        "RSI(120,MMaxDiff(120,MA(120,'pct_change')))",
+        "DELTA(90,MA(90,MSUM(90,DELTA(90,'close'))))",
+        "RSI(120,MCPS(120,MADecay(60,'high')))",
+        "MCPS(120,MA(90,'pct_change'))", "RSI(120,MCPS(120,EMA(60,'high')))",
+        "MSUM(90,MDPO(90,MCPS(90,'smart_tick_in')))",
+        "MA(90,MDPO(90,MCPS(90,'smart_money_in_pct')))",
+        "RSI(120,MCPS(120,MSUM(60,'high')))",
+        "DELTA(90,DELTA(90,MA(120,'mid_price_bias_ratio')))",
+        "DELTA(90,MDIFF(60,DELTA(90,'low')))",
+        "DELTA(90,MMedian(90,DELTA(90,'mid_price_bias_ratio')))",
+        "MIR(90,MPERCENT(90,DELTA(90,'high')))",
+        "RSI(120,MCPS(120,MA(60,'close')))",
+        "DELTA(90,MPERCENT(90,DELTA(90,MA(90,'low'))))",
+        "MSUM(90,MDPO(90,MCPS(90,'smart_tick_in')))",
+        "MIR(90,DELTA(90,MPERCENT(90,DELTA(90,'twap'))))",
+        "RSI(120,MCPS(120,MA(60,'close')))",
+        "RSI(120,MCPS(120,WMA(60,'low')))",
+        "DELTA(90,MA(90,MPERCENT(90,DELTA(90,'high'))))",
+        "RSI(120,MCPS(120,WMA(60,'high')))",
+        "MIR(90,DELTA(90,MDPO(90,DELTA(90,'high'))))",
+        "DELTA(60,MCPS(120,MA(60,'close')))",
+        "DELTA(60,MARGMIN(120,MCPS(120,MA(120,'pct_change'))))",
+        "RSI(120,MCPS(120,MA(60,'open')))",
+        "DELTA(90,MA(90,MMAX(90,DELTA(90,'twap'))))"
     ]
     variant = Tactix().start()
     train(method=variant.method,
