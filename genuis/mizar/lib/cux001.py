@@ -129,13 +129,13 @@ class FactorEvaluate1(object):
         """
         计算因子与预期收益的滚动相关性
         """
-        self.factor_data['ic'] = self.factor_data[self.ret_name].rolling(
+        self.resample_data['ic'] = self.resample_data[self.ret_name].rolling(
             window=self.roll_win,
-            min_periods=5).corr(self.factor_data[self.factor_name])
+            min_periods=5).corr(self.resample_data[self.factor_name])
 
-        self.factor_data['cumsum_ic'] = self.factor_data['ic'].cumsum()
-        ic_mean = self.factor_data['ic'].mean()
-        ic_std = self.factor_data['ic'].std()
+        self.resample_data['cumsum_ic'] = self.resample_data['ic'].cumsum()
+        ic_mean = self.resample_data['ic'].mean()
+        ic_std = self.resample_data['ic'].std()
         return {
             'ic_mean': ic_mean,
             'ic_std': ic_std,
@@ -143,52 +143,52 @@ class FactorEvaluate1(object):
         }
 
     def cal_pnl(self):
-        self.factor_data['pos'] = self.factor_data[
+        self.resample_data['pos'] = self.resample_data[
             'f_scaled']  # 将放缩后的因子值 f_scaled 直接作为每期的交易头寸。例如，f_scaled 为 0.5 可能代表 50% 的多头头寸，-0.8 代表 80% 的空头头寸。
 
-        self.factor_data[
-            'gross_ret'] = self.factor_data['pos'] * self.factor_data[
+        self.resample_data[
+            'gross_ret'] = self.resample_data['pos'] * self.resample_data[
                 self.ret_name]  # 计算每期的总收益（未扣除费用），即头寸乘以对应期的远期收益。
 
-        self.factor_data['turnover'] = np.abs(
-            np.diff(self.factor_data['pos'], prepend=0)
+        self.resample_data['turnover'] = np.abs(
+            np.diff(self.resample_data['pos'], prepend=0)
         )  # 计算每期的换手率。它衡量的是头寸的绝对变化。np.diff() 计算连续差值，prepend=0 用于处理第一个头寸的换手率（假设初始头寸为0）。
 
-        self.factor_data['net_ret'] = (
-            self.factor_data['gross_ret'] -
-            self.fee * self.factor_data['turnover']
+        self.resample_data['net_ret'] = (
+            self.resample_data['gross_ret'] -
+            self.fee * self.resample_data['turnover']
         )  # 计算每期的净收益，即从总收益中减去交易费用。费用是换手率乘以设定的 fee。
 
-        self.factor_data['nav'] = (1 + self.factor_data['net_ret']).cumprod(
+        self.resample_data['nav'] = (1 + self.resample_data['net_ret']).cumprod(
         )  #  计算净值曲线（Net Asset Value）。这是 (1 + 净收益) 的累积乘积，代表了投资组合的模拟价值随时间的变化。
         # -------- 基础统计 --------
-        total_ret = self.factor_data['nav'].iloc[-1] - 1  # 累计收益 整个回测期间的累计收益。
+        total_ret = self.resample_data['nav'].iloc[-1] - 1  # 累计收益 整个回测期间的累计收益。
 
-        avg_ret = self.factor_data['net_ret'].mean()  # 平均每次交易收益
+        avg_ret = self.resample_data['net_ret'].mean()  # 平均每次交易收益
 
-        max_dd = (self.factor_data['nav'] / self.factor_data['nav'].cummax() -
+        max_dd = (self.resample_data['nav'] / self.resample_data['nav'].cummax() -
                   1).min()  # 找到历史最高净值，然后计算当前净值相对历史最高点的最大下跌百分比。
 
         calmar = total_ret / abs(max_dd) if max_dd != 0 else np.nan  # 卡玛比率
 
         ## 换算日收益率 算夏普
-        daily_net_ret = self.factor_data['net_ret'].resample('1D').agg(
+        daily_net_ret = self.resample_data['net_ret'].resample('1D').agg(
             {'net_ret': 'sum'})
 
         rets_mean = daily_net_ret['net_ret'].mean() * 250
         rets_std = daily_net_ret['net_ret'].std() * np.sqrt(250)
         sharpe2 = rets_mean / rets_std if rets_std != 0 else 0
-        sharpe1 = self.factor_data['net_ret'].mean() / self.factor_data[
-            'net_ret'].std() if self.factor_data['net_ret'].std() != 0 else 0
+        sharpe1 = self.resample_data['net_ret'].mean() / self.resample_data[
+            'net_ret'].std() if self.resample_data['net_ret'].std() != 0 else 0
 
-        turnover = self.factor_data['turnover'].mean()  # 平均每期换手率。
+        turnover = self.resample_data['turnover'].mean()  # 平均每期换手率。
 
-        win_rate = (self.factor_data['net_ret']
+        win_rate = (self.resample_data['net_ret']
                     > 0).mean()  # 胜率，即净收益为正的周期所占的比例。
 
-        profit_sum = self.factor_data.loc[self.factor_data['net_ret'] > 0,
+        profit_sum = self.resample_data.loc[self.resample_data['net_ret'] > 0,
                                           'net_ret'].sum()
-        loss_sum = np.abs(self.factor_data.loc[self.factor_data['net_ret'] < 0,
+        loss_sum = np.abs(self.resample_data.loc[self.resample_data['net_ret'] < 0,
                                                'net_ret']).sum()
         profit_ratio = profit_sum / loss_sum if loss_sum != 0 else np.inf  #  盈亏比。正收益的绝对值之和除以负收益的绝对值之和。衡量盈利时的平均盈利幅度与亏损时的平均亏损幅度之比。
 
@@ -206,8 +206,8 @@ class FactorEvaluate1(object):
 
     def _cal_autocorr(self):
         """计算因子和收益率的滞后1期自相关性。"""
-        factor_ac = self.factor_data[self.factor_name].autocorr(lag=1)
-        ret_ac = self.factor_data[self.ret_name].autocorr(lag=1)
+        factor_ac = self.resample_data[self.factor_name].autocorr(lag=1)
+        ret_ac = self.resample_data[self.ret_name].autocorr(lag=1)
         return {'factor_autocorr': factor_ac, 'ret_autocorr': ret_ac}
 
     def _check_warnings(self):
@@ -250,15 +250,15 @@ class FactorEvaluate1(object):
             print("WARINING: resampling_win:{0}".format(self.resampling_win))
         is_on_mark = self.factor_data.index.get_level_values(
             level=0).minute % int(self.resampling_win) == 0
-        self.factor_data = self.factor_data[is_on_mark]
+        self.resample_data = self.factor_data[is_on_mark].copy()
 
         ic_stats = self.cal_ic()
         if ic_stats['ic_mean'] < 0:
-            self.factor_data['f_scaled'] *= -1
+            self.resample_data['f_scaled'] *= -1
             #ic_stats = self.cal_ic()
             if is_check:
                 print("INFO: IC Mean is negative. Factor has been inverted.")
-        if self.factor_data['f_scaled'].dropna().empty:
+        if self.resample_data['f_scaled'].dropna().empty:
             return {
                 'total_ret': -1.0,
                 'avg_ret': -1.0,
@@ -348,7 +348,7 @@ class FactorEvaluate1(object):
 
         # 1. 净值曲线 (NAV)
         ax1 = axes[0, 0]
-        nav_data = self.factor_data['nav'].dropna()
+        nav_data = self.resample_data['nav'].dropna()
         gross_ret_data = (1 + self.factor_data['gross_ret']).cumprod().dropna()
 
         # 使用 use_index=False 来忽略时间轴，绘制连续序列
@@ -417,8 +417,8 @@ class FactorEvaluate1(object):
 
         # 3. IC 和 累计IC
         ax3 = axes[1, 0]
-        ic_data = self.factor_data['ic'].dropna()
-        cumsum_ic_data = self.factor_data['cumsum_ic'].dropna()
+        ic_data = self.resample_data['ic'].dropna()
+        cumsum_ic_data = self.resample_data['cumsum_ic'].dropna()
 
         ic_data.plot(ax=ax3,
                      label='Rolling IC',
@@ -446,7 +446,7 @@ class FactorEvaluate1(object):
         ax4 = axes[1, 1]
         sns.scatterplot(x=self.factor_name,
                         y=self.ret_name,
-                        data=self.factor_data,
+                        data=self.resample_data,
                         ax=ax4,
                         s=10,
                         alpha=0.3,
@@ -459,7 +459,7 @@ class FactorEvaluate1(object):
         # 5. 每日收益率与回撤
         ax5 = axes[2, 0]
         drawdown_data = (
-            (self.factor_data['nav'] / self.factor_data['nav'].cummax() - 1) *
+            (self.resample_data['nav'] / self.resample_data['nav'].cummax() - 1) *
             100).dropna()
 
         drawdown_data.plot(ax=ax5, color='red', alpha=0.8, use_index=False)
@@ -479,7 +479,7 @@ class FactorEvaluate1(object):
 
         # 6. 换手率时序图
         ax6 = axes[2, 1]
-        turnover_data = self.factor_data['turnover'].dropna()
+        turnover_data = self.resample_data['turnover'].dropna()
 
         turnover_data.plot(ax=ax6, color='teal', use_index=False)
         set_sequential_xticks(ax6, turnover_data)
@@ -538,13 +538,13 @@ class FactorEvaluate1(object):
 
         # 循环遍历每个指标，并单独保存
         for metric_name in series_to_save:
-            if metric_name in self.factor_data.columns:
+            if metric_name in self.resample_data.columns:
                 # 构造文件名，例如: nav.csv
                 file_name = f"{metric_name}.csv"
                 file_path = os.path.join(output_dir, file_name)
 
                 # 提取该序列并保存
-                series = self.factor_data[metric_name]
+                series = self.resample_data[metric_name]
                 series.to_csv(file_path, header=True)
                 print(f" -> Saved {file_path}")
 
