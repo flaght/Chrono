@@ -363,10 +363,10 @@ def train(method, instruments, period, session, task_id, count=0):
     pdb.set_trace()
     #operators_sets = custom_transformer(operators_sets)
     #  5 10 15 30 60 90 120 240
-    operators_sets = Operators(periods=[5, 10, 15, 30, 60, 90, 120, 240
-                                        ]).custom_transformer(operators_sets)
+    
+    operators_sets = Operators(periods=[5, 10]).custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 500  # 5w
+    population_size = 2000  # 5w
     tournament_size = 1000  # 1K
     standard_score = 0.001
     generations = 3
@@ -411,10 +411,10 @@ def train(method, instruments, period, session, task_id, count=0):
         'init_depth': 3,
         'evaluate': 'both_evaluate',
         'method': 'fitness',
-        'crossover': 0.4,
-        'point_replace': 0.3,
-        'hoist_mutation': 0.05,
-        'subtree_mutation': 0.05,
+        'crossover': 0.3,
+        'point_replace': 0.2,
+        'hoist_mutation': 0.15,
+        'subtree_mutation': 0.15,
         'point_mutation': 0.2,
         'generations': generations,
         'standard_score': standard_score,
