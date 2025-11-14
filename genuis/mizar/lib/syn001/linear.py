@@ -10,14 +10,10 @@ def train_model(method, task_id, instruments, period, name):
                              instruments=instruments)
     dirs = os.path.join(base_path, method, instruments, 'temp', "model",
                         str(task_id), str(period))
-    filename = os.path.join(dirs, "{0}_data.feather".format(name))
+    filename = os.path.join(dirs, "final_{0}_data.feather".format(name))
     final_data = pd.read_feather(filename).set_index(['trade_time', 'code'])
     pdb.set_trace()
     print(final_data.columns)
-<<<<<<< HEAD
-    pdb.set_trace()
-=======
->>>>>>> 65d3508b0f25fb81bf84778f52982ed36243a1bf
     final_data1 = final_data.drop(['nxt1_ret_{0}h'.format(period)],axis=1)
     final_data1 = final_data1.mean(axis=1)
     final_data1.name = 'predict'

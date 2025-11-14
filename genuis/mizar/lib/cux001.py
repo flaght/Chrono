@@ -1,5 +1,5 @@
 import pdb
-import os
+import os,hashlib
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,6 +14,18 @@ scale_method: str = 'roll_min_max':
 'ew_zscore': 基于指数加权移动平均 (EWM) 的 Z-score 放缩，对近期数据赋予更高权重。
 'train_const': 使用前 roll_win 个样本的均值和标准差作为固定参数来放缩整个时间序列的因子。这意味着在初始窗口之后，放缩参数是常量，不再滚动变化。
 '''
+
+def generate_simple_id(formula: str) -> str:
+    # 1. 移除空格并转为小写
+    normalized_formula = formula.replace(" ", "").lower()
+
+    # 2. 使用 MD5 哈希
+    # .encode('utf-8') 是必须的，因为哈希函数处理的是字节
+    hasher = hashlib.md5(normalized_formula.encode('utf-8'))
+
+    # .hexdigest() 返回16进制的哈希字符串
+    return hasher.hexdigest()
+
 
 # 建议设置一个美观的绘图风格
 sns.set_style('whitegrid')

@@ -8,10 +8,11 @@ from lib.svx001 import scale_factors
 
 
 ## 加载选中
-def fetch_chosen_factors(method, instruments, task_id, period):
+def fetch_chosen_factors(method, instruments, task_id, period, name):
+    pdb.set_trace()
     filename = os.path.join(base_path, method, instruments, "rulex",
                             str(task_id), "nxt1_ret_{0}h".format(period),
-                            "chosen.csv")
+                            "chosen_{0}.csv".format(name))
     expressions = pd.read_csv(filename).to_dict(orient='records')
     expressions = {item['formula']: item for item in expressions}
     expressions = list(expressions.values())
@@ -60,11 +61,13 @@ def build_factors(method,
                   instruments,
                   task_id,
                   period,
+                  name,
                   datasets=['train', 'val', 'test']):
     expressions = fetch_chosen_factors(method=method,
                                        instruments=instruments,
                                        task_id=task_id,
-                                       period=period)
+                                       period=period,
+                                       name=name)
     total_data = fetch_data1(method=method,
                              task_id=task_id,
                              instruments=instruments,
@@ -96,7 +99,7 @@ def build_factors(method,
                         str(task_id), str(period))
     if not os.path.exists(dirs):
         os.makedirs(dirs)
-    filename = os.path.join(dirs, "final_data.feather")
+    filename = os.path.join(dirs, "final_{0}_data.feather".format(name))
     final_data = factors_data.reset_index().merge(
         total_data[['trade_time', 'code', 'nxt1_ret_{0}h'.format(period)]],
         on=['trade_time', 'code'])
