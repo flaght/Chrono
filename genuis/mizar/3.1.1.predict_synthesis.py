@@ -8,6 +8,7 @@ from lib.syn001 import build_factors, linear_train_model, lassocv_train_model, r
 #from lib.syn003 import multi_lgb_optuna_model
 
 if __name__ == '__main__':
+    pdb.set_trace()
     variant = Tactix().start()
     if variant.form == 'build':
         build_factors(method=variant.method,
@@ -38,6 +39,7 @@ if __name__ == '__main__':
                           name=variant.name)
 
     elif variant.form == 'lgb':
+        pdb.set_trace()
         lgb_train_model(method=variant.method,
                         instruments=variant.instruments,
                         task_id=variant.task_id,

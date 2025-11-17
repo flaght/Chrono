@@ -27,13 +27,17 @@ def fetch_chosen_factors(method, instruments, task_id, period):
     filename = os.path.join(base_path, method, instruments, "rulex",
                             str(task_id), "nxt1_ret_{0}h".format(period),
                             "draft.csv")
-    expressions = pd.read_csv(filename).to_dict(orient='records')
+    expressions = pd.read_csv(filename)
+    expressions = expressions.drop_duplicates(subset=['formula'])
+    pdb.set_trace()
+    expressions = expressions.to_dict(orient='records')
     expressions = {item['formula']: item for item in expressions}
     expressions = list(expressions.values())
     return expressions
 
 
 def programs_metrics(column, total_data, total_data1, period, outputs):
+    print(column)
     factor_data = calc_expression(expression=column, total_data=total_data1)
     dt = merging_data1(factor_data=factor_data,
                        returns_data=total_data,
@@ -47,7 +51,7 @@ def programs_metrics(column, total_data, total_data1, period, outputs):
                                 resampling_win=period,
                                 expression=column)
     state_dt = evaluate1.run()
-    data = evaluate1.factor_data.reset_index()
+    data = evaluate1.resample_data.reset_index()
     data.name = column
     name_id = create_id(generate_simple_id(column))
     filename = os.path.join(outputs, "{}.feather".format(name_id))
@@ -151,6 +155,7 @@ def metrics2(method,
 
 
 def load_sequence(dirs, category, ids):
+    pdb.set_trace()
     res = []
     for id in ids:
         filename = os.path.join(dirs, "sequence", "{0}.feather".format(id))
@@ -183,6 +188,7 @@ def correlation(method,
                         str(task_id), "nxt1_ret_{}h".format(str(period)),
                         lnstruments)
     metrics_data = pd.read_csv(os.path.join(dirs, "metrics.csv"), index_col=0)
+    pdb.set_trace()
     metrics_data['abs_ic'] = np.abs(metrics_data['ic_mean'])
     metrics_data = metrics_data.sort_values(by=sort_mapping["1"],
                                             ascending=False)

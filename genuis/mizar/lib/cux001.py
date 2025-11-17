@@ -343,13 +343,13 @@ class FactorEvaluate1(object):
 
         fig, axes = plt.subplots(3, 2, figsize=(18, 16))
         fig.suptitle(
-            f"Factor Evaluation: {self.factor_name} vs {self.ret_name} | roll_win={self.roll_win}, resampling_win={self.resampling_win}",
+            f"Factor Evaluation: {self.factor_name} vs {self.ret_name} | roll_win={self.roll_win}, resampling_win={self.resampling_win}, scale_method={self.scale_method}",
             fontsize=18)
 
         # 1. 净值曲线 (NAV)
         ax1 = axes[0, 0]
         nav_data = self.resample_data['nav'].dropna()
-        gross_ret_data = (1 + self.factor_data['gross_ret']).cumprod().dropna()
+        gross_ret_data = (1 + self.resample_data['gross_ret']).cumprod().dropna()
 
         # 使用 use_index=False 来忽略时间轴，绘制连续序列
         nav_data.plot(ax=ax1,
