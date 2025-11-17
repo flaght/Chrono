@@ -1,10 +1,11 @@
 ### 加载因子文件
-import os, pdb
+import os, pdb, re
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from ultron.factor.genetic.geneticist.operators import calc_factor
+from ultron.sentry.api import __all__
 from lumina.genetic.metrics.evaluate import FactorEvaluate
 from kdutils.common import fetch_temp_data, fetch_temp_returns
 '''
@@ -173,3 +174,18 @@ def both_compare(codes, expression, method, name=['train', 'val', 'test']):
     basic_data0['code'] = codes[0]
     basic_data1['code'] = codes[1]
     return pd.DataFrame([basic_data0, basic_data1])
+
+
+## 返回表达式算子, 可移到库中锋
+def extract_operators(expression):
+    operators = []
+    function_pattern = r'\b([A-Z][A-Za-z0-9]*)\s*\('
+    function_matches = re.finditer(function_pattern, expression)
+    # 如果需要过滤，获取 sentry 算子集合
+    sentry_operators = __all__
+    for match in function_matches:
+        op_name = match.group(1)
+        # 如果设置了过滤，只添加在 sentry 中定义的算子
+        if op_name in sentry_operators:
+            operators.append(op_name)
+    return operators

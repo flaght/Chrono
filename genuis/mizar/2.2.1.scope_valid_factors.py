@@ -31,9 +31,9 @@ def load_factors(method,
 
     programs = pd.read_feather(filename)
     pdb.set_trace()
-    #programs = programs[programs['final_fitness'] > 0.02][[
-    #    'name', 'formual', 'final_fitness'
-    #]]
+    programs = programs[programs['final_fitness'] > 0.02][[
+        'name', 'formual', 'final_fitness'
+    ]]
     programs = programs[[
         'name', 'formual', 'final_fitness'
     ]]

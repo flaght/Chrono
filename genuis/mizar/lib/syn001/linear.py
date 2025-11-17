@@ -10,7 +10,7 @@ def train_model(method, task_id, instruments, period, name):
                              instruments=instruments)
     dirs = os.path.join(base_path, method, instruments, 'temp', "model",
                         str(task_id), str(period))
-    filename = os.path.join(dirs, "{0}_data.feather".format(name))
+    filename = os.path.join(dirs, "final_{0}_data.feather".format(name))
     final_data = pd.read_feather(filename).set_index(['trade_time', 'code'])
     
     print(final_data.columns)

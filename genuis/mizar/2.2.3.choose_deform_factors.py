@@ -10,14 +10,15 @@ from kdutils.tactix import Tactix
 from ultron.factor.genetic.geneticist.operators import *
 from lumina.genetic.process import *
 from kdutils.macro2 import *
+from lib.aux001 import extract_operators
 from lib.iux001 import fetch_data
-from lib.iux002 import FactorComparator, calc_all
+from lib.iux002 import FactorComparator, calc_all1
 
 leg_mappping = {"rbb": ["hcb"], "ims": ["ics"]}
 
 
 def create_evalute(column, period, factor_data, instruments, outputs):
-    left_evaluate = calc_all(expression=column,
+    left_evaluate = calc_all1(expression=column,
                              total_data1=factor_data,
                              period=period)
     left_evaluate.run()
@@ -70,10 +71,10 @@ def fetch_data1(method, instruments, datasets, features, task_id, period):
 
 
 def fetch_chosen(method, instruments, task_id, period):
-    
+
     filename = os.path.join(base_path, method, instruments, "rulex",
                             str(task_id), "nxt1_ret_{}h".format(str(period)),
-                            "chosen.csv")
+                            "draft.csv")
     chosen_data = pd.read_csv(filename)
     return chosen_data
 
@@ -87,13 +88,12 @@ def run2(method,
     left_symbol = instruments
 
     ## 优先创建目录，避免无判断没有跑过
-    
     outputs = os.path.join("records", method, left_symbol, 'rulex',
                            str(task_id), "nxt1_ret_{}h".format(str(period)),
                            "d" + str(session))
     if not os.path.exists(outputs):
         os.makedirs(outputs)
-    
+
     ### 此目录为挖掘的原始目录
     programs = load_factors(method=method,
                             instruments=instruments,
@@ -107,16 +107,16 @@ def run2(method,
 
     ## 加载已经选中的因子
     chosen_data = fetch_chosen(method=method,
-                 instruments=instruments,
-                 task_id=task_id,
-                 period=period)
+                               instruments=instruments,
+                               task_id=task_id,
+                               period=period)
 
     formulas_in = chosen_data['formula']
     is_not_in_p2 = ~programs['formual'].isin(formulas_in)
     programs = programs[is_not_in_p2]
 
     programs['final_fitness'] = np.abs(programs['final_fitness'])
-    
+
     programs = programs[programs['final_fitness'] > 0.03]
 
     features = [
@@ -131,11 +131,14 @@ def run2(method,
                               features=features,
                               task_id=task_id,
                               period=period)
-
     ### 过滤 不符合标准因子
     #task_id = INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
     k_split = 2
     expression_list = programs['formual'].tolist()
+    expression_list = [
+        expression for expression in expression_list
+        if len(extract_operators(expression)) < 4
+    ]
     process_list = split_k(k_split, expression_list)
     res = create_parellel(process_list=process_list,
                           callback=run_evalute,
