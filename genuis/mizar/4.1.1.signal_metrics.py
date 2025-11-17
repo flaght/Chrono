@@ -44,7 +44,7 @@ def run(method, instruments, task_id, period, name, signal_method,
                                 name=name)
     scale_factors(predict_data,
                   method='roll_zscore',
-                  win=240,
+                  win=15,
                   factor_name='predict')
 
     strategy_settings = {
