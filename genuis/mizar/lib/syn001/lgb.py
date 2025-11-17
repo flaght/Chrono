@@ -17,9 +17,9 @@ def train_model(method, task_id, instruments, period, name):
                              instruments=instruments)
     dirs = os.path.join(base_path, method, instruments, 'temp', "model",
                         str(task_id), str(period))
+
     filename = os.path.join(dirs, "{0}_data.feather".format(name))
     final_data = pd.read_feather(filename).set_index(['trade_time', 'code'])
-    pdb.set_trace()
     ## 切割训练集 校验集 测试集
     train_data = final_data.loc[
         time_array['train_time'][0]:time_array['val_time'][1]]
@@ -50,7 +50,7 @@ def train_model(method, task_id, instruments, period, name):
     MIN_TRAIN_SIZE = 2 * test_fold_size
 
     tscv = TimeSeriesSplit(n_splits=N_SPLITS)
-    pdb.set_trace()
+
     models = []
     scalers = []
     val_scores = []
