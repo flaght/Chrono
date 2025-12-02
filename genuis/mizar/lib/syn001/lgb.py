@@ -74,16 +74,16 @@ def train_model(method, task_id, instruments, period, name):
             f"验证集大小: {len(X_val)} ({X_val.index.get_level_values('trade_time').min()} to {X_val.index.get_level_values('trade_time').max()})"
         )
 
-        ### 标准化
-        scaler = StandardScaler()
-        X_train_norm = scaler.fit_transform(X_train)
-        X_val_norm = scaler.transform(X_val)
+        ### 标准化 因子已经时序标准化过
+        #scaler = StandardScaler()
+        #X_train_norm = scaler.fit_transform(X_train)
+        #X_val_norm = scaler.transform(X_val)
 
         # 将标准化后的 numpy array 转回 DataFrame
-        X_train_norm_df = pd.DataFrame(X_train_norm,
+        X_train_norm_df = pd.DataFrame(X_train,
                                        index=X_train.index,
                                        columns=X_train.columns)
-        X_val_norm_df = pd.DataFrame(X_val_norm,
+        X_val_norm_df = pd.DataFrame(X_val,
                                      index=X_val.index,
                                      columns=X_val.columns)
 
@@ -122,7 +122,7 @@ def train_model(method, task_id, instruments, period, name):
         )
 
         models.append(model)
-        scalers.append(scaler)
+        #scalers.append(scaler)
         metric_name = list(model.best_score['val'].keys())[0]
         val_scores.append(model.best_score['val'][metric_name])
 
@@ -141,10 +141,10 @@ def train_model(method, task_id, instruments, period, name):
     # 准备最终的测试集
     test_scaled = test_data[features]
     test_scaled.columns = new_columns
-
+    pdb.set_trace()
     all_predictions = []
-    for model, scaler in zip(models, scalers):
-        test_scaled = scaler.transform(test_scaled)
+    for model in  models:
+        #test_scaled = scaler.transform(test_scaled)
         prediction = model.predict(test_scaled,
                                    num_iteration=model.best_iteration)
         all_predictions.append(prediction)
