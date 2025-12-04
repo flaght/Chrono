@@ -285,7 +285,8 @@ def train_model(method, task_id, instruments, period, name, nan_threshold,
                           period=period,nan_threshold=nan_threshold, 
                           var_threshold=var_threshold, corr_threshold=corr_threshold,
                           ic_threshold=ic_threshold, outdirs=outdirs, data_source='train',
-                          force_update=True)
+                          force_update=False)
+    pdb.set_trace()
     factor_features = [c for c in autocode_data.columns if c.startswith('factor_')]
     feature_dim = len(factor_features)
 
