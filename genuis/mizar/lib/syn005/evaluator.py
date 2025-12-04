@@ -1,13 +1,28 @@
 from typing import Dict,List
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr, pearsonr
+from scipy.stats import spearmanr, kurtosis
 from sklearn.feature_selection import mutual_info_regression
+from lib.svx001 import scale_factors
 from lib import logger
 
 class Evaluator(object):
     def __init__(self):
         pass
+
+
+    def _standardize(self, data: np.ndarray, win: int) -> np.ndarray:
+        df = pd.DataFrame(data)
+        # scale_factors requires column names
+        df.columns = [f'feat_{i}' for i in range(data.shape[1])]
+        std_data = np.zeros_like(data)
+        for i, col in enumerate(df.columns):
+            # scale_factors modifies df in-place, adding 'transformed'
+            # We use 'roll_zscore' as per design
+            scale_factors(df, 'roll_zscore', win, col)
+            std_data[:, i] = df['transformed'].values
+            
+        return std_data
 
     def rank_ic(self, latent_features: np.ndarray, 
                         target: np.ndarray) -> Dict:
@@ -497,6 +512,7 @@ class Evaluator(object):
                      times: np.ndarray = None,
                      original: np.ndarray = None,
                      reconstructed: np.ndarray = None,
+                     standardize_windows: List[int] = None,
                      verbose: bool = True) -> Dict:
         
         ### 主要
@@ -585,3 +601,69 @@ class Evaluator(object):
             info_text += f"\n  信息效率: {mi_results['comparison']['information_efficiency']:.2f}"
             info_text += f" ({'✅' if mi_results['comparison']['info_preserved'] else '⚠️'})"
         logger.panel(info_text, title="[辅助] 互信息")
+
+
+        if standardize_windows:
+            std_results = []
+            # 添加原始数据结果作为基准
+            std_results.append({
+                'Window': 'Raw',
+                'Max RankIC': rank_ic_results['max'],
+                'Mean RankIC': rank_ic_results['mean'],
+                'Dir Acc': direction_results['direction_accuracy'],
+                'Sign Match': direction_results['sign_match']
+            })
+            for win in standardize_windows:
+                std_features = self._standardize(latent_features, win)
+                valid_idx = slice(win-1, None)
+                valid_features = std_features[valid_idx]
+                valid_target = target[valid_idx]
+                
+                if len(valid_target) < 100:
+                    logger.print(f"⚠️ Window {win} too large for data length {len(target)}, skipping.")
+                    continue
+
+                # 3. 评估
+                # RankIC
+                std_rank_ic = self.rank_ic(valid_features, valid_target)
+                # Direction Accuracy (使用原始的最佳特征索引，或者重新计算？通常关注同一个特征的表现变化)
+                # 这里我们重新计算最佳特征，看看标准化是否改变了最佳特征
+                # 或者为了对比，我们应该看整体能力。
+                # 让我们记录 Max RankIC 对应的特征的表现
+                std_dir_acc = self.direction_accuracy(
+                    valid_features, valid_target, std_rank_ic['best_feature_idx'])
+                
+                # 4. 额外指标: 自相关 (稳定性) 和 峰度 (异常值处理能力)
+                best_feat_std = valid_features[:, std_rank_ic['best_feature_idx']]
+
+                if np.var(best_feat_std) > 1e-8:
+                    std_autocorr = np.corrcoef(best_feat_std[:-1], best_feat_std[1:])[0, 1]
+                else:
+                    std_autocorr = 0.0
+                    
+                # Kurtosis (Fisher definition, normal=0)
+                std_kurtosis = kurtosis(best_feat_std)
+
+                std_results.append({
+                    'Window': f'Win={win}',
+                    'Max RankIC': std_rank_ic['max'],
+                    'Mean RankIC': std_rank_ic['mean'],
+                    'Dir Acc': std_dir_acc['direction_accuracy'],
+                    'Sign Match': std_dir_acc['sign_match'],
+                    'AutoCorr': std_autocorr,
+                    'Kurtosis': std_kurtosis
+                })
+
+             # 输出对比表格
+            logger.panel("标准化对预测能力的影响分析", title="[分析] 标准化影响")
+            std_df = pd.DataFrame(std_results)
+            # 格式化列
+            # 手动格式化列
+            std_df['Max RankIC'] = std_df['Max RankIC'].apply(lambda x: f'{x:.4f}')
+            std_df['Mean RankIC'] = std_df['Mean RankIC'].apply(lambda x: f'{x:.4f}')
+            std_df['Dir Acc'] = std_df['Dir Acc'].apply(lambda x: f'{x:.1%}')
+            std_df['Sign Match'] = std_df['Sign Match'].apply(lambda x: f'{x:.1%}')
+            std_df['AutoCorr'] = std_df['AutoCorr'].apply(lambda x: f'{x:.4f}')
+            std_df['Kurtosis'] = std_df['Kurtosis'].apply(lambda x: f'{x:.2f}')
+
+            logger.table(std_df, title="标准化窗口对比")   

@@ -21,7 +21,6 @@ def save_clean_data(output, data, params):
 
 def fetch_clean_data2(method, task_id, instruments, output, params, 
                      train_time=['train_time','val_time'], test_time=['test_time']): ## 加载
-    pdb.set_trace()
     params_id = Params.create_tag(params)
     output = os.path.join(output, "data")
     filename = os.path.join(output, "clean_data_{0}.feather".format(params_id))

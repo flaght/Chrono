@@ -294,7 +294,7 @@ class Evaluator(object):
         factor_df = factor_df.set_index('trade_time')
 
         # 评估原始预测因子
-        logger.rule("策略评估: 原始预测 (prediction)")
+        #logger.rule("策略评估: 原始预测 (prediction)")
         pred_stats, pred_returns = self._evaluate_factor(
             factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
             returns, period, "prediction"
@@ -302,7 +302,7 @@ class Evaluator(object):
         results['prediction_strategy'] = {'stats': pred_stats, 'returns': pred_returns}
 
         # 评估风险调整预测因子
-        logger.rule("策略评估: 风险调整预测 (adjusted_prediction)")
+        #logger.rule("策略评估: 风险调整预测 (adjusted_prediction)")
         adj_stats, adj_returns = self._evaluate_factor(
             factor_df[['adjusted_prediction']].rename(columns={'adjusted_prediction': 'transformed'}),
             returns, period, "adjusted_prediction"

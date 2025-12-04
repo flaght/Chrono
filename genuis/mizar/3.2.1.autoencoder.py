@@ -143,35 +143,14 @@ def predict_model(method, task_id, instruments, period, name,
     factors_array, original_array, reconstructed_array = trainer.predict(
         model_method=TemporientTransformer,
         data_loader=test_loader,
-        multi_timestep_extraction=False  # 多时间步提取: 768维
+        multi_timestep_extraction=False  # 多时间步提取: * 3
     )
     
-    
-    '''
-    # 创建特征列名
-    timesteps_to_extract = [-1, -3, -10]
-    factor_columns = []
-    for ts in timesteps_to_extract:
-        for i in range(AUTOENCODE_PARAMS['d_model']):
-            factor_columns.append(f'factor_t{ts}_dim{i}')
-    '''
 
     # 对齐时间戳（滚动窗口会减少样本数）
     factor_timestamps = dates[TRAIN_PARAMS['seq_len'] - 1:]
     aligned_y = y[TRAIN_PARAMS['seq_len'] - 1:]
     
-    # 创建 DataFrame
-    '''
-    import pandas as pd
-    factors_data = pd.DataFrame(factors_array, columns=factor_columns)
-    factors_data['trade_time'] = factor_timestamps
-    factors_data[f'nxt1_ret_{period}h'] = aligned_y
-    
-    
-    # 如果原始数据有 code 列，也添加进去
-    if 'code' in test_data.columns:
-        factors_data['code'] = test_data['code'].values[TRAIN_PARAMS['seq_len'] - 1:]
-    '''
     logger.panel("开始评估 Autoencoder 模型质量...", title="模型评估")
     latent_features = factors_array  # 隐层特征
     target = aligned_y  # 目标收益率
@@ -183,7 +162,8 @@ def predict_model(method, task_id, instruments, period, name,
         target=target,
         times=times,
         original=original_array,  # 原始输入
-        reconstructed=reconstructed_array  # 重建输出
+        reconstructed=reconstructed_array,  # 重建输出
+        standardize_windows=[15,60,240]
     )
     
 
@@ -191,11 +171,11 @@ def predict_model(method, task_id, instruments, period, name,
 if __name__ == '__main__':
     variant = Tactix().start()
 
-    train_model(method=variant.method, instruments=variant.instruments,
-                    task_id=variant.task_id, period=variant.period,
-                    name=variant.name, nan_threshold=0.5,
-                    var_threshold=1e-10,corr_threshold=0.95,
-                    ic_threshold=0.01)
+    #train_model(method=variant.method, instruments=variant.instruments,
+    #                task_id=variant.task_id, period=variant.period,
+    #                name=variant.name, nan_threshold=0.5,
+    #                var_threshold=1e-10,corr_threshold=0.95,
+    #                ic_threshold=0.01)
     predict_model(method=variant.method, instruments=variant.instruments,
                     task_id=variant.task_id, period=variant.period,
                     name=variant.name, nan_threshold=0.5,

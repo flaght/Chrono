@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.optim as optim
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
 from lib import logger
@@ -37,7 +38,7 @@ class Trainer(object):
         self.train_params = train_params
         self.params = params
         self.name = name
-        self.output_dirs = os.path.join(output_dirs, "model", "sequential", str(self.name))
+        self.output_dirs = os.path.join(output_dirs, "model", "sequentialnll", str(self.name))
         if not os.path.exists(self.output_dirs):
             os.makedirs(self.output_dirs)
         self.feature_name_mapping = {} 
@@ -190,6 +191,56 @@ class Trainer(object):
         content += f"  过拟合风险: {risk}\n"
         logger.panel(content, title=title)
     
+    def validate_data(self, autocode_data):
+        """数据校验函数"""
+        logger.rule("数据校验")
+    
+        # 1. 检查数据形状
+        logger.print(f"数据形状: {autocode_data.shape}")
+    
+        # 2. 检查缺失值
+        missing = autocode_data.isnull().sum()
+        if missing.any():
+            logger.print(f"⚠️ 发现缺失值:\n{missing[missing > 0]}")
+        else:
+            logger.print("✅ 无缺失值")
+    
+        # 3. 检查特征范围
+        factor_cols = [c for c in autocode_data.columns if c.startswith('factor_')]
+        logger.panel(
+            f"  最小值: {autocode_data[factor_cols].min().min():.6e}"
+            f"  最大值: {autocode_data[factor_cols].max().max():.6e}"
+            f"  均值: {autocode_data[factor_cols].mean().mean():.6e}"
+            f"  标准差: {autocode_data[factor_cols].std().mean():.6e}", title="特征统计"
+        )
+    
+        # 4. 检查目标变量
+        target_col = [c for c in autocode_data.columns if c.startswith('nxt1_ret_')][0]
+        logger.panel(
+            f"  范围: [{autocode_data[target_col].min():.6f}, {autocode_data[target_col].max():.6f}]"
+            f"  均值: {autocode_data[target_col].mean():.6e}"
+            f"  标准差: {autocode_data[target_col].std():.6f}",
+            title="目标变量 ({target_col})"
+        )
+    
+        # 5. 检查时间连续性
+        dates = pd.to_datetime(autocode_data['trade_time'])
+        time_gaps = dates.diff()
+        logger.panel(
+            f"\n时间跨度: {dates.min()} 至 {dates.max()}"
+            f"  总样本数: {len(autocode_data)}"
+            f"  时间间隔中位数: {time_gaps.median()}",title="检查时间连续性"
+        )
+    
+        # 6. 检查异常值
+        from scipy import stats
+        z_scores = np.abs(stats.zscore(autocode_data[factor_cols]))
+        outliers = (z_scores > 5).sum().sum()
+        if outliers > 0:
+            logger.print(f"\n⚠️ 发现 {outliers} 个极端异常值 (|z-score| > 5)")
+    
+        return True
+
     def train_model(self, model_method, train_loader, val_loader):
         model = model_method(**self.params).to(self.train_params['device'])
 
@@ -339,8 +390,16 @@ class Trainer(object):
         all_targets = []
 
         with torch.no_grad():
-            for batch_inputs, batch_targets in data_loader:
-                batch_inputs = batch_inputs.to(self.train_params['device'])
+            for batch_data in data_loader:
+                # 检查数据加载器返回的是单个张量还是元组
+                if isinstance(batch_data, (list, tuple)) and len(batch_data) >= 2:
+                    # 包含 (inputs, targets)
+                    batch_inputs = batch_data[0].to(self.train_params['device'])
+                    batch_targets = batch_data[1]
+                    all_targets.append(batch_targets.numpy())
+                else:
+                    # 只包含 inputs
+                    batch_inputs = batch_data[0].to(self.train_params['device'])
                 
                 _, _, outputs = model(batch_inputs)
                 
@@ -355,11 +414,14 @@ class Trainer(object):
                     if outputs.shape[-1] == 1 and len(outputs.shape) > 1:
                         outputs = outputs.squeeze(-1)
                     all_predictions.append(outputs.cpu().numpy())
-                
-                all_targets.append(batch_targets.numpy())
 
         predictions = np.concatenate(all_predictions, axis=0)
-        targets = np.concatenate(all_targets, axis=0)
+        
+        # 只有当有targets时才拼接
+        if len(all_targets) > 0:
+            targets = np.concatenate(all_targets, axis=0)
+        else:
+            targets = None
         
         if len(all_variances) > 0:
             variances = np.concatenate(all_variances, axis=0)
