@@ -1,5 +1,7 @@
 import copy
 import numpy as np
+import torch
+import random
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -122,6 +124,18 @@ def create_autocoder_data(method, instruments, task_id, period,
     autocode_data.to_feather(filename)
     return autocode_data
 '''
+
+def set_random_seed(seed=42):
+    """
+    设置随机种子以确保训练可重复性
+    解决不同训练run之间预测偏差反转的问题
+    """
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def validate_autocoder_data(autocode_data):
     """数据校验函数"""
@@ -261,6 +275,14 @@ def fetch_autocoder_data(method, instruments, task_id, period,
                       factor_name=col)
         autocode_data[col] = autocode_data['transformed']
         autocode_data.drop(['transformed'], axis=1, inplace=True)
+
+     # 处理标准化产生的 NaN (前 win-1 行)
+    original_len = len(autocode_data)
+    autocode_data = autocode_data.dropna()
+    logger.print(f"移除 NaN 行: {original_len} → {len(autocode_data)} (移除了前 {original_len - len(autocode_data)} 行)")
+    
+    # 重置索引
+    autocode_data.reset_index(drop=True, inplace=True)
     temp_outdirs = os.path.join(outdirs, "temp_data", "ae-st")
     if not os.path.exists(temp_outdirs):
         os.makedirs(temp_outdirs)
@@ -270,6 +292,7 @@ def fetch_autocoder_data(method, instruments, task_id, period,
 
 def train_model(method, task_id, instruments, period, name, nan_threshold, 
                 var_threshold, corr_threshold, ic_threshold):
+    
     
     FEATURE_PARAMS = {
         'nan_threshold':nan_threshold,
@@ -306,8 +329,10 @@ def train_model(method, task_id, instruments, period, name, nan_threshold,
 
     name = create_train_records(method=method,task_id=task_id,instruments=instruments,period=period,
                          category='sequentialnll',params=TOTAL_PARAMS)
+    pdb.set_trace()
+    # 设置随机种子以确保训练可重复性
+    set_random_seed(42)
 
-    
     trainer = STTrainer(params=MODEL_PARAMS, train_params=TRAIN_PARAMS,output_dirs=outdirs,
               name=name)
 
@@ -375,7 +400,7 @@ def predict_model(method, task_id, instruments, period, name, nan_threshold,
     autocode_data = fetch_autocoder_data(method=method,instruments=instruments,task_id=task_id,
                           period=period,nan_threshold=nan_threshold, 
                           var_threshold=var_threshold, corr_threshold=corr_threshold,
-                          ic_threshold=ic_threshold, outdirs=outdirs, data_source='test',force_update=True)
+                          ic_threshold=ic_threshold, outdirs=outdirs, data_source='test',force_update=False)
     
     factor_features = [c for c in autocode_data.columns if c.startswith('factor_')]
     feature_dim = len(factor_features)
@@ -420,7 +445,7 @@ def predict_model(method, task_id, instruments, period, name, nan_threshold,
 
     evaluator = Evaluator(
         resampling_win=period,
-        roll_win=240,
+        roll_win=120,
         scale_method="roll_zscore"
     )
 
@@ -441,7 +466,7 @@ if __name__ == '__main__':
     train_model(method=variant.method, instruments=variant.instruments,
                     task_id=variant.task_id, period=variant.period,
                     name=variant.name, nan_threshold=0.5,
-                    var_threshold=1e-10,corr_threshold=0.95,
+                   var_threshold=1e-10,corr_threshold=0.95,
                     ic_threshold=0.01)
     predict_model(method=variant.method, instruments=variant.instruments,
                     task_id=variant.task_id, period=variant.period,
