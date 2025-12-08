@@ -9,28 +9,37 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from lib import logger
 
-def gaussian_nll_loss(pred_mean, pred_var, target):
+def gaussian_nll_loss(pred_mean, pred_var, target, 
+                      lambda_diversity=1.0):
     """
-    高斯负对数似然损失函数 (Gaussian Negative Log Likelihood Loss)
-    公式: Loss = 0.5 * (log(var) + (target - mean)^2 / var)
+    改进版：使用相对标准差计算多样性惩罚
+    """
+    # 转换参数类型
+    lambda_diversity = float(lambda_diversity)
     
-    参数:
-        pred_mean: 预测均值, 形状 [batch] 或 [batch, 1]
-        pred_var: 预测方差, 形状 [batch] 或 [batch, 1]
-        target: 真实目标值, 形状 [batch] 或 [batch, 1]
-    """
-    # 确保形状匹配
     if pred_mean.shape != target.shape:
         target = target.view_as(pred_mean)
     if pred_var.shape != target.shape:
         pred_var = pred_var.view_as(pred_mean)
-        
-    # 计算 NLL Loss
-    # 第一项 log(var) 惩罚过大的不确定性
-    # 第二项 (y-u)^2/var 惩罚均值预测误差，但会被方差加权
-    # 加上常数项 0.5 * log(2*pi) 是可选的，这里省略
-    loss = 0.5 * (torch.log(pred_var) + (target - pred_mean).pow(2) / pred_var)
-    return loss.mean()
+    
+    # NLL Loss (不需要裁剪)
+    nll = 0.5 * (torch.log(pred_var) + (target - pred_mean).pow(2) / pred_var)
+    nll_loss = nll.mean()
+    
+    # 方差多样性鼓励 (使用相对标准差)
+    var_mean = torch.mean(pred_var)
+    var_std = torch.std(pred_var)
+    
+    # 相对标准差: std / mean，范围在 0~1 之间
+    # 加 1e-8 防止除零
+    relative_std = var_std / (var_mean + 1e-8)
+    
+    # 多样性惩罚: 鼓励高相对标准差
+    diversity_penalty = -lambda_diversity * relative_std
+    
+    return nll_loss + diversity_penalty
+
+
 
 class Trainer(object):
     def __init__(self, params: Dict = None, train_params: Dict = None, output_dirs:str = None, name=None):
@@ -299,7 +308,10 @@ class Trainer(object):
                     if outputs.shape[-1] == 2:
                         pred_mean = outputs[:, 0]
                         pred_var = outputs[:, 1]
-                        loss = criterion(pred_mean, pred_var, batch_targets)
+                        loss = criterion(
+                            pred_mean=pred_mean, pred_var=pred_var, 
+                            target=batch_targets,
+                            lambda_diversity=self.train_params['lambda_diversity'])
                     else:
                         # 如果模型输出形状不对，抛出异常
                         raise ValueError("Model output shape mismatch for Gaussian NLL. Expected [batch, 2].")
