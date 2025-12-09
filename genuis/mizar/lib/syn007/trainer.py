@@ -283,10 +283,26 @@ class Trainer(object):
             raise ValueError(f"Unsupported loss function: {loss_func_name}")
 
         if 'weight_decay' in self.train_params:
-            optimizer = optim.Adam(model.parameters(), lr=self.train_params['learning_rate'], weight_decay=self.train_params['weight_decay'])
+            optimizer = optim.AdamW(model.parameters(), lr=self.train_params['learning_rate'], weight_decay=self.train_params['weight_decay'])
         else:
-            optimizer = optim.Adam(model.parameters(), lr=self.train_params['learning_rate'])
+            optimizer = optim.AdamW(model.parameters(), lr=self.train_params['learning_rate'])
 
+        # 添加 Learning Rate Warmup (P0 修复)
+        # warmup_ratio 默认 0.1，即前 10% 步数进行 warmup
+        warmup_ratio = self.train_params.get('warmup_ratio', 0.1)
+        total_steps = len(train_loader) * self.train_params['epochs']
+        warmup_steps = int(total_steps * warmup_ratio)
+
+        from torch.optim.lr_scheduler import LambdaLR
+
+        def lr_lambda(current_step):
+            if current_step < warmup_steps:
+                return float(current_step) / float(max(1, warmup_steps))
+            return 1.0
+            
+        scheduler = LambdaLR(optimizer, lr_lambda)
+        logger.print(f"  Warmup 配置: {warmup_steps} 步 (总步数 {total_steps} 的 {warmup_ratio*100:.0f}%)")
+        
         best_val_loss = float('inf')
         patience_counter = 0
 
@@ -325,7 +341,11 @@ class Trainer(object):
                     loss = criterion(outputs, batch_targets)
                 
                 loss.backward()
+                max_grad_norm = self.train_params.get('max_grad_norm', 1.0)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
+
                 optimizer.step()
+                scheduler.step()
 
                 total_loss += loss.item()
 
@@ -346,7 +366,7 @@ class Trainer(object):
                         if outputs.shape[-1] == 2:
                             pred_mean = outputs[:, 0]
                             pred_var = outputs[:, 1]
-                            loss = criterion(pred_mean, pred_var, batch_targets)
+                            loss = criterion(pred_mean, pred_var, batch_targets,lambda_diversity=self.train_params.get('lambda_diversity', 0))
                             # 同时记录 MSE 以便对比
                             mse = F.mse_loss(pred_mean, batch_targets.view_as(pred_mean))
                             val_mse += mse.item()

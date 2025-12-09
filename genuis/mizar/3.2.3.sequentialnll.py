@@ -309,7 +309,7 @@ def train_model(method, task_id, instruments, period, name, nan_threshold,
                           var_threshold=var_threshold, corr_threshold=corr_threshold,
                           ic_threshold=ic_threshold, outdirs=outdirs, data_source='train',
                           force_update=False)
-    pdb.set_trace()
+    
     factor_features = [c for c in autocode_data.columns if c.startswith('factor_')]
     feature_dim = len(factor_features)
 
@@ -346,6 +346,9 @@ def train_model(method, task_id, instruments, period, name, nan_threshold,
     y_train_samples = y_train[TRAIN_PARAMS['seq_len']-1:]
     y_val_samples = y_val[TRAIN_PARAMS['seq_len']-1:]
 
+    dates_train_samples = dates_train[TRAIN_PARAMS['seq_len']-1:]
+    dates_val_samples = dates_val[TRAIN_PARAMS['seq_len']-1:]
+
     trainer_loader = trainer.create_train_data_loader(x_samples=X_train_samples, y_samples=y_train_samples)
     val_loader = trainer.create_train_data_loader(x_samples=X_val_samples, y_samples=y_val_samples)
 
@@ -373,6 +376,9 @@ def train_model(method, task_id, instruments, period, name, nan_threshold,
         scale_method="roll_zscore"
     )
     
+    returns_df = autocode_data[['trade_time', f'nxt1_ret_{period}h']].copy()
+    returns_df = returns_df.set_index('trade_time')
+
     evaluator.fitting_evaluate(
         y_train_true=y_train_samples,
         y_train_pred=pred_train,
@@ -380,6 +386,10 @@ def train_model(method, task_id, instruments, period, name, nan_threshold,
         y_val_pred=pred_val,
         var_train=var_train,
         var_val=var_val,
+        dates_train=dates_train_samples,
+        dates_val=dates_val_samples,
+        returns=returns_df,
+        period=period,
     )
 
     

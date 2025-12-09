@@ -1,3 +1,4 @@
+import pdb
 import numpy as np
 import pandas as pd
 from typing import Dict, Optional, Tuple
@@ -172,6 +173,10 @@ class Evaluator(object):
         y_val_pred: np.ndarray,
         var_train: np.ndarray,
         var_val: np.ndarray,
+        dates_train: np.ndarray = None,
+        dates_val: np.ndarray = None,
+        returns: pd.Series = None,
+        period: int = None,
     ) -> Dict:
         """
         训练集+校验集评估 - 用于调整超参
@@ -180,6 +185,7 @@ class Evaluator(object):
         1. 基础预测能力: IC, RankIC, 方向准确率
         2. 方差有效性验证: adjusted_prediction IC vs prediction IC
         3. 损失函数: Gaussian NLL
+        4. 滚动评估 (FactorEvaluate1): 与测试集保持一致的评估方法
 
         Returns:
             包含训练集和校验集评估结果的Dict
@@ -228,8 +234,72 @@ class Evaluator(object):
 
         # ========== 输出结果 ==========
         self._display_fitting_results(results, val_cm)
+        
+        logger.rule("滚动评估 (训练集 + 校验集)")
+        train_adjusted_pred = self.calculate_adjusted_prediction(y_train_pred, var_train)
+        train_factor_df = pd.DataFrame({
+                'trade_time': dates_train,
+                'prediction': y_train_pred.flatten(),
+                'adjusted_prediction': train_adjusted_pred.flatten(),
+            }).set_index('trade_time')
+        
+        train_pred_stats, train_pred_returns = self._evaluate_factor(
+                train_factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
+                returns, period, "train_prediction"
+            )
+        results['train']['strategy_stats'] = train_pred_stats
+        results['train']['strategy_returns'] = train_pred_returns
+
+        # 校验集滚动评估
+        val_adjusted_pred = self.calculate_adjusted_prediction(y_val_pred, var_val)
+        val_factor_df = pd.DataFrame({
+                'trade_time': dates_val,
+                'prediction': y_val_pred.flatten(),
+                'adjusted_prediction': val_adjusted_pred.flatten(),
+            }).set_index('trade_time')
+
+        val_pred_stats, val_pred_returns = self._evaluate_factor(
+                val_factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
+                returns, period, "val_prediction"
+            )
+        results['val']['strategy_stats'] = val_pred_stats
+        results['val']['strategy_returns'] = val_pred_returns
+        self._display_rolling_comparison(
+                train_stats=train_pred_stats, val_stats=val_pred_stats,
+                train_returns=train_pred_returns, val_returns=val_pred_returns
+            )
 
         #return results
+    def _display_rolling_comparison(
+        self,
+        train_stats: Dict,
+        val_stats: Dict,
+        train_returns: Dict,
+        val_returns: Dict
+    ):
+        """展示训练集/校验集滚动评估对比"""
+        # 构建对比表格
+        comparison_rows = []
+
+        # 关键指标
+        key_metrics = ['ic_mean', 'ic_std', 'ic_ir', 'annual_return', 'sharpe', 'calmar', 'max_drawdown']
+
+        for key in key_metrics:
+            train_val = train_stats.get(key, np.nan)
+            val_val = val_stats.get(key, np.nan)
+            if not np.isnan(train_val) and not np.isnan(val_val):
+                comparison_rows.append((
+                    key,
+                    f"{train_val:.4f}" if abs(train_val) < 100 else f"{train_val:.2f}",
+                    f"{val_val:.4f}" if abs(val_val) < 100 else f"{val_val:.2f}",
+                ))
+
+        if comparison_rows:
+            comparison_df = pd.DataFrame(
+                comparison_rows,
+                columns=["指标", "训练集", "校验集"]
+            )
+            logger.table(comparison_df, title="滚动评估对比 (FactorEvaluate1)")
 
     def final_evaluate(
         self,
