@@ -22,6 +22,7 @@ def load_factors(method,
                  period,
                  task_id,
                  session,
+                 abs_ic,
                  category='gentic'):
     dirs = os.path.join(base_path, method, instruments, category, 'ic',
                         str(task_id), "nxt1_ret_{}h".format(str(period)),
@@ -31,7 +32,7 @@ def load_factors(method,
 
     programs = pd.read_feather(filename)
     pdb.set_trace()
-    programs = programs[programs['final_fitness'] > 0.02][[
+    programs = programs[programs['final_fitness'] > abs_ic][[
         'name', 'formual', 'final_fitness'
     ]]
     programs = programs[[
@@ -111,7 +112,8 @@ def run(method,
                             period=period,
                             task_id=task_id,
                             session=session,
-                            category=sategory)
+                            category=sategory,
+                            abs_ic=abs_ic)
     features = [
         eval(program.formual)._dependency for program in programs.itertuples()
     ]
@@ -165,9 +167,9 @@ def run1(method,
         sategory='gentic',
         dategory='eligible',
         datasets=datasets,
-        calmar=5,
-        sharpe2=1.5,
-        abs_ic=0.02,
+        calmar=3,
+        sharpe2=1.2,
+        abs_ic=0.015,
         is_compare=False)
 
 
@@ -186,9 +188,9 @@ def run2(method,
         sategory='eligible',
         dategory='valid',
         datasets=datasets,
-        calmar=3,
+        calmar=2.5,
         sharpe2=1.0,
-        abs_ic=0.02,
+        abs_ic=0.01,
         is_compare=True)
 
 

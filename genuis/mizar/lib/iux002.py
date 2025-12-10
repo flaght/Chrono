@@ -108,10 +108,10 @@ class FactorComparator:
             fontsize=18)
 
         ax1 = axes[0, 0]
-        self.eval_left.factor_data['nav'].dropna().plot(ax=ax1,
+        self.eval_left.resample_data['nav'].dropna().plot(ax=ax1,
                                                         label=self.left_name,
                                                         color='blue')
-        self.eval_right.factor_data['nav'].dropna().plot(ax=ax1,
+        self.eval_right.resample_data['nav'].dropna().plot(ax=ax1,
                                                          label=self.right_name,
                                                          color='orange')
         ax1.set_title("Net Asset Value (NAV) Comparison")
@@ -130,10 +130,10 @@ class FactorComparator:
         ax_table.set_title("Key Performance Indicators", fontsize=14)
 
         ax3 = axes[1, 0]
-        self.eval_left.factor_data['cumsum_ic'].plot(ax=ax3,
+        self.eval_left.resample_data['cumsum_ic'].plot(ax=ax3,
                                                      label=self.left_name,
                                                      color='blue')
-        self.eval_right.factor_data['cumsum_ic'].plot(ax=ax3,
+        self.eval_right.resample_data['cumsum_ic'].plot(ax=ax3,
                                                       label=self.right_name,
                                                       color='orange')
         ax3.set_title("Cumulative IC Comparison")
@@ -141,12 +141,12 @@ class FactorComparator:
         ax3.grid(True)
 
         ax4 = axes[1, 1]
-        sns.kdeplot(data=self.eval_left.factor_data['ic'].dropna(),
+        sns.kdeplot(data=self.eval_left.resample_data['ic'].dropna(),
                     ax=ax4,
                     label=self.left_name,
                     color='blue',
                     fill=True)
-        sns.kdeplot(data=self.eval_right.factor_data['ic'].dropna(),
+        sns.kdeplot(data=self.eval_right.resample_data['ic'].dropna(),
                     ax=ax4,
                     label=self.right_name,
                     color='orange',
@@ -156,10 +156,10 @@ class FactorComparator:
         ax4.grid(True)
 
         ax5 = axes[2, 0]
-        dd_left = (self.eval_left.factor_data['nav'] /
-                   self.eval_left.factor_data['nav'].cummax() - 1)
-        dd_right = (self.eval_right.factor_data['nav'] /
-                    self.eval_right.factor_data['nav'].cummax() - 1)
+        dd_left = (self.eval_left.resample_data['nav'] /
+                   self.eval_left.resample_data['nav'].cummax() - 1)
+        dd_right = (self.eval_right.resample_data['nav'] /
+                    self.eval_right.resample_data['nav'].cummax() - 1)
         dd_left.plot(ax=ax5, label=self.left_name, color='blue', alpha=0.8)
         dd_right.plot(ax=ax5, label=self.right_name, color='orange', alpha=0.8)
         ax5.set_title("Drawdown Comparison")
@@ -174,9 +174,9 @@ class FactorComparator:
         ax5.grid(True)
 
         ax6 = axes[2, 1]
-        self.eval_left.factor_data['turnover'].rolling(60).mean().plot(
+        self.eval_left.resample_data['turnover'].rolling(60).mean().plot(
             ax=ax6, label=self.left_name, color='blue')
-        self.eval_right.factor_data['turnover'].rolling(60).mean().plot(
+        self.eval_right.resample_data['turnover'].rolling(60).mean().plot(
             ax=ax6, label=self.right_name, color='orange')
         ax6.set_title("Turnover Comparison")
         ax6.legend()
@@ -220,8 +220,8 @@ class FactorComparator:
         # 定义要保存的序列和它们的来源
         series_to_save = ['nav', 'ic', 'turnover']
         instruments = {
-            self.left_name: self.eval_left.factor_data,
-            self.right_name: self.eval_right.factor_data
+            self.left_name: self.eval_left.resample_data,
+            self.right_name: self.eval_right.resample_data
         }
 
         # 循环遍历每个品种和每个指标，并单独保存
