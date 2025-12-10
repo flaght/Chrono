@@ -204,6 +204,42 @@ class FactorEvaluate1(object):
             'profit_ratio': profit_ratio
         }
 
+
+    def cal_returns(self):
+        """计算多空收益情况"""
+        direction = np.sign(self.resample_data['f_scaled'].values)
+        long_returns = self.resample_data['net_ret'][direction > 0]
+        short_returns =  self.resample_data['net_ret'][direction < 0]
+        long_sum_returns = long_avg_returns = long_win_ratio = 0.0
+        short_sum_returns = short_avg_returns = short_win_ratio = 0.0
+
+        long_count = len(long_returns)
+        if long_count > 0:
+            long_sum_returns = long_returns.sum()
+            long_avg_returns = long_returns.mean()
+            long_win_ratio = (long_returns > 0).mean()
+
+
+        short_count = len(short_returns)
+        if short_count > 0:
+            short_sum_returns = short_returns.sum()
+            short_avg_returns = short_returns.mean()
+            short_win_ratio = (short_returns > 0).mean()
+
+        return {
+            "long_count":long_count,
+            "long_sum_returns":long_sum_returns,
+            "long_avg_returns":long_avg_returns,
+            "long_win_ratio":long_win_ratio,
+            "short_count":short_count,
+            "short_sum_returns":short_sum_returns,
+            "short_avg_returns":short_avg_returns,
+            "short_win_ratio":short_win_ratio
+        }
+
+
+
+
     def _cal_autocorr(self):
         """计算因子和收益率的滞后1期自相关性。"""
         factor_ac = self.resample_data[self.factor_name].autocorr(lag=1)

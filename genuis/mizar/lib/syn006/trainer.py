@@ -1,0 +1,291 @@
+import re,os,copy,pdb
+import pandas as pd
+import numpy as np
+from typing import Tuple, List, Dict, Optional
+import torch
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+
+from lib import logger
+
+class Trainer(object):
+    def __init__(self, params: Dict = None, train_params: Dict = None, output_dirs:str = None, name=None):
+        self.model = None
+        self.train_params = train_params
+        self.params = params
+        self.name = name
+        self.output_dirs = os.path.join(output_dirs, "model", "sequential", str(self.name))
+        if not os.path.exists(self.output_dirs):
+            os.makedirs(self.output_dirs)
+        self.feature_name_mapping = {} 
+
+    def clean_feature_names(self, feature_names: List[str]) -> List[str]:
+        cleaned_names = []
+        seen_names = {}
+        for idx, name in enumerate(feature_names):
+            cleaned = re.sub(r'[^a-zA-Z0-9_.]', '_', str(name))
+            cleaned = re.sub(r'_+', '_', cleaned)
+            cleaned = cleaned.strip('_')
+            if not cleaned:
+                cleaned = f'feature_{idx}'
+            original_cleaned = cleaned
+            counter = 0
+            while cleaned in seen_names:
+                counter += 1
+                cleaned = f'{original_cleaned}_{counter}'
+            seen_names[cleaned] = True
+            cleaned_names.append(cleaned)
+            self.feature_name_mapping[cleaned] = name
+        return cleaned_names
+    
+    def prepare_data(self, df: pd.DataFrame, 
+                    selected_features: List[str],
+                    taget_col: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        X = df[selected_features].values
+        y = df[taget_col].values
+        dates = df['trade_time'].values
+
+        logger.panel(f"  特征矩阵 X: {X.shape} (样本数 × 特征数) \n"
+                     f"  目标变量 y: {y.shape}"
+                     f"  时间序列: {len(dates)}\n"
+                     f"\n  数据类型:\n"
+                     f"    X: {X.dtype}\n"
+                     f"    y: {y.dtype}\n"
+                     f"\n  数据范围:\n"
+                     f"    X最小值: {X.min():.6f}\n"
+                     f"    X最大值: {X.max():.6f}\n"
+                     f"    y最小值: {y.min():.6f}\n"
+                     f"    y最大值: {y.max():.6f}",
+                     "提取特征矩阵和目标变量")
+        return X, y, dates
+    
+    def split_data(self, X: np.ndarray, y: np.ndarray, dates: np.ndarray,
+                   train_ratio: float = 0.7) -> Tuple:
+        logger.panel(
+            f"  ✓ 正确: 前70%训练，后30%校验\n"
+            "  ✗ 错误: 随机划分（会导致用未来预测过去\n",
+            title="时间序列预测必须按时间顺序划分数据"
+        )
+        split_idx = int(len(X) * train_ratio)
+
+        X_train, X_val = X[:split_idx], X[split_idx:]
+        y_train, y_val = y[:split_idx], y[split_idx:]
+        dates_train, dates_val = dates[:split_idx], dates[split_idx:]
+
+        logger.panel(
+            f"  训练/校验比例: {train_ratio*100:.0f}% / {(1-train_ratio)*100:.0f}%\n"
+            f"  划分点索引: {split_idx}\n"
+            f"\n  [训练集]\n"
+            f"    样本数: {len(X_train):,}\n"
+            f"    时间范围: {dates_train[0]} 至 {dates_train[-1]}\n"
+            f"    时间跨度: {(pd.Timestamp(dates_train[-1]) - pd.Timestamp(dates_train[0])).days} 天\n"
+            f"    目标变量统计:\n"
+            f"      均值: {y_train.mean():.6f}\n"
+            f"      标准差: {y_train.std():.6f}\n"
+            f"      正收益比例: {(y_train > 0).mean()*100:.2f}%\n"
+            f"\n  [校验集]\n"
+            f"    样本数: {len(X_val):,}\n"
+            f"    时间范围: {dates_val[0]} 至 {dates_val[-1]}\n"
+            f"    时间跨度: {(pd.Timestamp(dates_val[-1]) - pd.Timestamp(dates_val[0])).days} 天\n"
+            f"    目标变量统计:\n"
+            f"      均值: {y_val.mean():.6f}\n"
+            f"      标准差: {y_val.std():.6f}\n"
+            f"      正收益比例: {(y_val > 0).mean()*100:.2f}%\n", title="数据集信息"
+        )
+
+        # 检查训练集和校验集分布差异
+        mean_diff = abs(y_train.mean() - y_val.mean())
+        std_ratio = y_val.std() / y_train.std() if y_train.std() != 0 else 0
+        
+        content = f"    均值差异: {mean_diff:.6f}\n"
+        content += f"    标准差比: {std_ratio:.2f}\n"
+
+        if std_ratio > 1.5 or std_ratio < 0.67:
+            content+= f"    ⚠️  警告: 校验集波动性与训练集差异较大\n"
+        else:
+            content+= f"    ✓ 训练集和校验集分布相对一致\n"
+
+        logger.panel(content=content, title="[分布一致性检查]")
+        
+        X_train = X_train.astype(np.float32)
+        X_val = X_val.astype(np.float32)
+        y_train = y_train.astype(np.float32)
+        y_val = y_val.astype(np.float32)
+
+        return X_train, X_val, y_train, y_val, dates_train, dates_val
+    
+    def create_rolling_window_samples(self, data):
+        num_timesteps, num_features = data.shape
+        num_samples = num_timesteps - self.train_params['seq_len'] + 1
+        shape = (num_samples, self.train_params['seq_len'], num_features)
+        strides = (data.strides[0], data.strides[0], data.strides[1])
+        samples = np.lib.stride_tricks.as_strided(data, shape=shape, strides=strides)
+        samples = samples.astype(np.float32)
+        return samples
+    
+    def create_train_data_loader(self, x_samples, y_samples, shuffle=False):
+        dataset = TensorDataset(torch.from_numpy(x_samples), torch.from_numpy(y_samples))
+        loader = DataLoader(dataset=dataset, batch_size=self.train_params['batch_size'], shuffle=shuffle)
+        return loader
+
+    def check_model_capacity(self, total_params: int, trainable_params: int, train_samples: int):
+        param_sample_ratio = trainable_params / train_samples
+        seq_len = self.train_params['seq_len']
+        enc_in = self.params['enc_in']
+        effective_data_points = train_samples * seq_len * enc_in
+        param_datapoint_ratio = trainable_params / effective_data_points
+
+        content = f"  训练样本数: {train_samples:,}\n"
+        content += f"  可训练参数: {trainable_params:,}\n"
+        content += f"  参数/样本比: {param_sample_ratio:.2f}\n"
+        content += f"  有效数据点: {effective_data_points:,} (样本×seq_len×features)\n"
+        content += f"  参数/数据点比: {param_datapoint_ratio:.6f}\n\n"
+
+        if param_sample_ratio > 10:
+            status = "🚨 严重过参数化"
+            risk = "极高"
+            title = "⚠️  模型容量检查 - 严重警告"
+        elif param_sample_ratio > 1:
+            status = "❌ 过参数化"
+            risk = "高"
+            title = "⚠️  模型容量检查 - 警告"
+        elif param_sample_ratio > 0.1:
+            status = "⚠️ 需要正则化"
+            risk = "中等"
+            title = "ℹ️  模型容量检查 - 提示"
+        else:
+            status = "✅ 参数量合理"
+            risk = "低"
+            title = "✅ 模型容量检查 - 正常"
+        
+        content += f"  状态: {status}\n"
+        content += f"  过拟合风险: {risk}\n"
+        logger.panel(content, title=title)
+
+    def train_model(self, model_method, train_loader, val_loader):
+        model = model_method(**self.params).to(self.train_params['device'])
+        
+        content = ""
+        for key, value in self.params.items():
+            content += f"    {key}: {value}\n"
+        logger.panel(content, title="模型超参")
+
+        content = ""
+        for key, value in self.train_params.items():
+            content += f"    {key}: {value}\n"
+        logger.panel(content, title="训练参数")
+
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        train_samples = len(train_loader.dataset)
+        
+        self.check_model_capacity(total_params, trainable_params, train_samples)
+        
+        logger.panel(content=f"  总参数: {total_params:,}\n"
+                     f"  可训练参数: {trainable_params:,}",
+                     title="参数说明")
+
+        criterion = torch.nn.MSELoss()
+
+        if 'weight_decay' in self.train_params:
+            optimizer = optim.Adam(model.parameters(), lr=self.train_params['learning_rate'], weight_decay=self.train_params['weight_decay'])
+        else:
+            optimizer = optim.Adam(model.parameters(), lr=self.train_params['learning_rate'])
+
+        best_val_loss = float('inf')
+        patience_counter = 0
+
+        logger.print("开始训练 SequentialTransformer...")
+
+        for epoch in range(self.train_params['epochs']):
+            model.train()
+            total_loss = 0
+            
+            for i, (batch_inputs, batch_targets) in enumerate(train_loader):
+                batch_inputs = batch_inputs.to(self.train_params['device'])
+                batch_targets = batch_targets.to(self.train_params['device'])
+                
+                optimizer.zero_grad()
+                _, _, outputs = model(batch_inputs)
+
+                if outputs.shape != batch_targets.shape:
+                    if outputs.shape[-1] == 1 and len(outputs.shape) > len(batch_targets.shape):
+                        outputs = outputs.squeeze(-1)
+                    elif len(batch_targets.shape) == 1 and len(outputs.shape) == 2:
+                        batch_targets = batch_targets.unsqueeze(-1)
+                loss = criterion(outputs, batch_targets)
+                loss.backward()
+                optimizer.step()
+
+                total_loss += loss.item()
+
+            avg_train_loss = total_loss / len(train_loader)
+
+            # Validation
+            model.eval()
+            val_loss = 0
+            with torch.no_grad():
+                for i, (batch_inputs, batch_targets) in enumerate(val_loader):
+                    batch_inputs = batch_inputs.to(self.train_params['device'])
+                    batch_targets = batch_targets.to(self.train_params['device'])
+                    
+                    _, _, outputs = model(batch_inputs)
+                    
+                    if outputs.shape != batch_targets.shape:
+                        if outputs.shape[-1] == 1 and len(outputs.shape) > len(batch_targets.shape):
+                            outputs = outputs.squeeze(-1)
+                        elif len(batch_targets.shape) == 1 and len(outputs.shape) == 2:
+                            batch_targets = batch_targets.unsqueeze(-1)
+
+                    loss = criterion(outputs, batch_targets)
+                    val_loss += loss.item()
+
+            avg_val_loss = val_loss / len(val_loader)
+
+            logger.print(f"Epoch [{epoch+1}/{self.train_params['epochs']}] "
+                         f"Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}")
+
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                patience_counter = 0
+                filename = os.path.join(self.output_dirs, 'best_sequential_model.pth')
+                torch.save(model.state_dict(), filename)
+            else:
+                patience_counter += 1
+
+            if patience_counter >= self.train_params['patience']:
+                logger.print("Early stopping triggered.")
+                break
+
+        logger.print("✅ SequentialTransformer training complete.")
+
+    def predict(self, model_method, data_loader):
+        model_path = os.path.join(self.output_dirs, 'best_sequential_model.pth')
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+
+        logger.panel(f"  模型路径: {model_path}\n", title="加载模型进行预测")
+        
+        model = model_method(**self.params).to(self.train_params['device'])
+        model.load_state_dict(torch.load(model_path, map_location=self.train_params['device']))
+        model.eval()
+
+        all_predictions = []
+        all_targets = []
+
+        with torch.no_grad():
+            for batch_inputs, batch_targets in data_loader:
+                batch_inputs = batch_inputs.to(self.train_params['device'])
+                
+                _, _, outputs = model(batch_inputs)
+                
+                if outputs.shape[-1] == 1 and len(outputs.shape) > 1:
+                    outputs = outputs.squeeze(-1)
+                
+                all_predictions.append(outputs.cpu().numpy())
+                all_targets.append(batch_targets.numpy())
+
+        predictions = np.concatenate(all_predictions, axis=0)
+        targets = np.concatenate(all_targets, axis=0)
+        
+        return predictions, targets
