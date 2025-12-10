@@ -242,7 +242,8 @@ class FactorEvaluate1(object):
         else:
             print(f"✅ ICIR ({ic_ir:.3f}) indicates stable performance.")
 
-    def run(self, is_check=False):
+    
+    def run(self, is_check=False, direction=None):
         ### 滚动标准化
         self._scale()
         ### 重采样
@@ -253,11 +254,14 @@ class FactorEvaluate1(object):
         self.resample_data = self.factor_data[is_on_mark].copy()
 
         ic_stats = self.cal_ic()
-        if ic_stats['ic_mean'] < 0:
-            self.resample_data['f_scaled'] *= -1
-            #ic_stats = self.cal_ic()
-            if is_check:
-                print("INFO: IC Mean is negative. Factor has been inverted.")
+        if isinstance(direction, int): ## 手动调整
+            self.resample_data['f_scaled'] *= direction
+        else:
+            if ic_stats['ic_mean'] < 0 :
+                self.resample_data['f_scaled'] *= -1
+                if is_check:
+                    print("INFO: IC Mean is negative. Factor has been inverted.")
+        self.resample_data = self.resample_data.dropna()
         if self.resample_data['f_scaled'].dropna().empty:
             return {
                 'total_ret': -1.0,
