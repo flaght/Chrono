@@ -289,35 +289,15 @@ def train(method, instruments, period, session, task_id, count=0):
         if col not in ['trade_time', 'code', 'symbol'] + nxt1_columns +
         basic_columns + ['time_weight', 'equal_weight'] + not_columns.tolist()
     ]
-
-    '''
-    factor_columns = [
-        'tv004_1_2_0', 'tc017_1_2_1', 'oi013_1_2_1', 'cj012_1_2_0',
-        'cr020_1_2_1', 'tv005_1_2_1', 'cr015_1_2_1', 'oi034_1_2_0',
-        'cr011_1_2_1', 'cr015_1_2_0', 'dv002_1_2_0', 'tf006_2_3_0',
-        'oi030_1_2_0', 'tv003_1_2_0', 'tv004_1_2_1', 'tc014_1_1_2_1',
-        'cr018_1_2_0', 'tc005_1_1_2_1', 'rv010_1_2_0_1', 'tc008_1_2_0',
-        'iv012_1_2_0', 'db004_1_2_0', 'cr006_1_2_1', 'tc012_1_1_2_1',
-        'oi006_1_2_0', 'cr019_1_2_1', 'cr011_1_2_0', 'tc007_1_2_1',
-        'ixy006_1_2_0', 'cr017_1_2_1', 'cj003_2_3_0', 'oi008_1_2_1',
-        'iv010_1_2_1', 'tc004_1_1_2_1', 'oi006_1_2_1', 'cr003_1_2_0',
-        'iv012_1_2_1', 'oi034_1_2_1', 'cr006_1_2_0', 'cr003_1_2_1',
-        'oi003_1_2_1', 'ixy014_2_3_1', 'cj010_1_2_0', 'tv011_1_1_2_1',
-        'dv009_1_2_1', 'oi031_1_2_0', 'oi031_1_2_1', 'ixy007_1_2_0',
-        'tv007_1_2_1', 'oi003_1_2_0', 'tv012_1_1', 'ixy011_1_2_0',
-        'tn005_1_2_1', 'oi037_1_2_1', 'cr017_1_2_0', 'tc015_1_2_1',
-        'dv011_1_2_1', 'oi037_1_2_0', 'cr049_1_2_1', 'tv008_1_2_1',
-        'tc002_1_2_0', 'cr018_1_2_1', 'tv019_1_2_0', 'tv014_1_2_0',
-        'ixy010_1_2_0'
-    ]
-    '''
     ## 随机取个数
 
     ##
     #if feature_count > 0:
     #    pdb.set_trace()
-    factor_columns = factor_columns if count == 0 else random.sample(
-        factor_columns, count)
+    pdb.set_trace()
+    if str(rootid) != '200037':
+        factor_columns = factor_columns if count == 0 else random.sample(factor_columns, count)
+        factor_columns = ['cj010_1_2_0', 'cr006_1_2_0', 'tc002_1_2_0', 'cr020_1_2_0', 'iv010_1_2_1', 'cj010_2_3_0', 'oi008_1_2_1', 'cr020_1_2_1', 'tv011_1_1_2_1', 'ixy010_1_2_0', 'tv019_1_2_0', 'ixy011_1_2_0', 'cj003_2_3_0', 'rv008_1_2_1_2', 'dv011_1_2_1', 'tc010_1_2_1', 'cr006_1_2_1', 'oi013_1_2_0', 'iv010_1_2_0', 'tc016_1_1_2_1']
 
     return_name = "nxt1_ret_{}h".format(period)
     ### 评估是才聚合
@@ -359,15 +339,16 @@ def train(method, instruments, period, session, task_id, count=0):
                                       on=['trade_time', 'code'])
 
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
-    operators_sets = two_operators_sets + one_operators_sets
+    operators_sets = two_operators_sets  + one_operators_sets
     pdb.set_trace()
     #operators_sets = custom_transformer(operators_sets)
     #  5 10 15 30 60 90 120 240
-    
-    operators_sets = Operators(periods=[5, 10]).custom_transformer(operators_sets)
+
+    operators_sets = Operators(periods=[5, 10, 15, 30, 60, 90, 120, 240
+                                        ]).custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 2000  # 5w
-    tournament_size = 1000  # 1K
+    population_size = 1000  # 5w
+    tournament_size = 500  # 1K
     standard_score = 0.001
     generations = 3
     custom_params = {
@@ -412,8 +393,8 @@ def train(method, instruments, period, session, task_id, count=0):
         'evaluate': 'both_evaluate',
         'method': 'fitness',
         'crossover': 0.3,
-        'point_replace': 0.2,
-        'hoist_mutation': 0.15,
+        'point_replace': 0.3,
+        'hoist_mutation': 0.05,
         'subtree_mutation': 0.15,
         'point_mutation': 0.2,
         'generations': generations,

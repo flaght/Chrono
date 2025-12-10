@@ -18,10 +18,10 @@ def fetch_draft_factors(method, instruments, task_id, period, name):
 
 ## 加载选中
 def fetch_chosen_factors(method, instruments, task_id, period, name):
-    pdb.set_trace()
     filename = os.path.join(base_path, method, instruments, "rulex",
                             str(task_id), "nxt1_ret_{0}h".format(period),
                             "chosen_{0}.csv".format(name))
+    pdb.set_trace()
     expressions = pd.read_csv(filename).to_dict(orient='records')
     expressions = {item['formula']: item for item in expressions}
     expressions = list(expressions.values())
@@ -54,8 +54,9 @@ def create_factors(total_data, expressions):
         print(expression['formula'], expression['direction'])
         factor_data = calc_expression(expression=expression['formula'],
                                       total_data=total_data1)
-        factor_data['transformed'] = factor_data['transformed'] * expression[
-            'direction']
+        #### 放在标准化中处理 调整方向
+        #factor_data['transformed'] = factor_data['transformed'] * expression[
+        #    'direction']
         factor_data = factor_data.set_index(['trade_time', 'code'])
         factor_data.rename(columns={'transformed': expression['formula']},
                            inplace=True)
@@ -98,6 +99,17 @@ def build_factors(method,
     ## 标准化 保持和绩效验证一直
     old_data = factors_data.copy()
     columns = factors_data.columns
+    pdb.set_trace()
+    ## 与评估因子时候一致，评估因子是评估标准化后的因子，故IC方向也是标准化后的IC方向
+    for expression in expressions:
+        scale_factors(predict_data=factors_data,
+                      method='roll_zscore',
+                      win=15,
+                      factor_name=expression['formula'])
+        factors_data[expression['formula']] = factors_data['transformed'] * expression['direction']
+        factors_data.drop(['transformed'],axis=1, inplace=True)
+
+    '''
     for col in columns:
         scale_factors(predict_data=factors_data,
                       method='roll_zscore',
@@ -105,6 +117,7 @@ def build_factors(method,
                       factor_name=col)
         factors_data[col] = factors_data['transformed']
         factors_data.drop(['transformed'], axis=1, inplace=True)
+    '''
     '''
     numeric_df = factors_data.select_dtypes(include=np.number)
     bad_values_mask = numeric_df.isnull() | np.isinf(numeric_df)

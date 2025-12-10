@@ -86,6 +86,7 @@ def calculate_factors(data, callback, instruments, method, start_date,
 
 
 def main(method, instruments):
+    pdb.set_trace()
     start_date, end_date = get_dates(method)
     start_time = advanceDateByCalendar('china.sse', start_date,
                                        '-{0}b'.format(1)).strftime('%Y-%m-%d')
@@ -149,6 +150,7 @@ def merge(method, instruments):
     ## 校验集
     ## 测试集
     ### 切割数据
+    pdb.set_trace()
     target_dir = os.path.join(base_path, method, instruments, 'basic')
     if not os.path.exists(target_dir):
         os.makedirs(target_dir)

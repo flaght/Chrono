@@ -45,7 +45,7 @@ if __name__ == '__main__':
                         task_id=variant.task_id,
                         period=variant.period,
                           name=variant.name)
-
+   
     elif variant.form == 'opt_lgb':
         lgb_optuna_model(method=variant.method,
                          instruments=variant.instruments,

@@ -10,7 +10,7 @@ from kdutils.macro2 import *
 from kdutils.common import fetch_temp_data, fetch_temp_returns
 
 from kdutils.tactix import Tactix
-from lib.optim001.parallel import ParallelOptimizer
+from lib.optim001.parallel1 import ParallelOptimizer
 from lib.cux001 import FactorEvaluate1
 from lib.aux001 import calc_expression
 from lib.iux001 import aggregation_data, merging_data1
@@ -208,7 +208,9 @@ def train(method, instruments, period, session, task_id, expressions):
                                        optimize_rule=optimize_rule,
                                        multi_objective=True,
                                        n_trials=n_trials,
-                                       top_n=top_n)
+                                       top_n=top_n,
+                                       optimize_operators=False,
+                                       optimize_fields=True)
     programs_filename = os.path.join(dirs,
                                      f'programs_{rootid}_{session}.feather')
     if os.path.exists(programs_filename):
