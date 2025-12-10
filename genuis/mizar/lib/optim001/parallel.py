@@ -30,9 +30,9 @@ def optimize_factors(column, n_trials, top_n, period, verbose, multi_objective,
         total_data=total_data,
         total_data1=total_data1,
         period=period,
-        optimize_parameters=True,
-        optimize_operators=True,
-        optimize_fields=True,
+        optimize_parameters=True, ## 参数寻优
+        optimize_operators=True, ## 算子寻优
+        optimize_fields=True, ## 特征寻优
         optimize_rule=optimize_rule,
         study_name=f"multi_objective_{column}",
         multi_objective=multi_objective,  # 启用多目标优化
