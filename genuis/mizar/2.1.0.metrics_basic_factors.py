@@ -43,11 +43,13 @@ def run1(method, instruments, period, task_id):
                                     resampling_win=period,
                                     expression=f)
         state_dt = evaluate1.run()
-        res.append({'name': f, 'autocorr': state_dt['factor_autocorr']})
+        res.append({'name': f, 'autocorr': state_dt['factor_autocorr'], 'ic_mean':state_dt['ic_mean']})
     features  = pd.DataFrame(res)
-    features['abs'] = np.abs(features['autocorr'])
+    features['abs_ic'] = np.abs(features['ic_mean'])
     pdb.set_trace()
-    features = features[features['abs'].between(0.2, 0.7)]
+    features = features[features['autocorr'].between(-0.8, 0.8)] # -0.8 ≤ AC1 ≤ 0.95: 全部保留
+    features = features[features['abs_ic'] < 0.005] # 绝对值<0.005
+    print('-->')
 
 if __name__ == '__main__':
     variant = Tactix().start()
