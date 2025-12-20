@@ -74,13 +74,23 @@ class EncoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, attn_mask=None):
-        new_x, attn = self.attention(x, x, x, attn_mask=attn_mask)
-        x = x + self.dropout(new_x)
+        # Post-LN: 先计算，再残差，最后 LayerNorm
+        #new_x, attn = self.attention(x, x, x, attn_mask=attn_mask)
+        #x = x + self.dropout(new_x)
+        #y = x = self.norm1(x)
+        #y = self.mhfw(y)
 
-        y = x = self.norm1(x)
-        y = self.mhfw(y)
+        # Pre-LN: 先 LayerNorm，再计算，最后残差
+        norm_x = self.norm1(x)   # ← LayerNorm 在子层之前
+        new_x, attn = self.attention(norm_x, norm_x, norm_x, attn_mask=attn_mask)
+        x = x + self.dropout(new_x) 
 
-        return self.norm2(x + y), attn
+        # FFN 子层
+        norm_x = self.norm2(x)   # ← LayerNorm 在子层之前
+        y = self.mhfw(norm_x)
+        x = x + y
+
+        return x, attn  # ← Pre-LN: 直接返回，final norm 由 Encoder 处理
 
 
 class Encoder(nn.Module):
@@ -139,16 +149,36 @@ class DecoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, cross, x_mask=None, cross_mask=None):
+        '''
         x = x + self.dropout(self.self_attention(x, x, x, attn_mask=x_mask)[0])
-        x = self.norm1(x)
+        x = self.norm1(x) # ← Post-LN
 
+        # Cross-Attention
         x = x + self.dropout(
             self.cross_attention(x, cross, cross, attn_mask=cross_mask)[0])
 
-        y = x = self.norm2(x)
+        y = x = self.norm2(x) # ← Post-LN
         y = self.mhfw(y)
 
-        return self.norm3(x + y)
+        return self.norm3(x + y)  # ← Post-LN
+        '''
+        # Self-Attention (Pre-LN)
+        norm_x = self.norm1(x)   # ← LayerNorm 在子层之前
+        self_attn_out = self.self_attention(norm_x, norm_x, norm_x, attn_mask=x_mask)[0]
+        x = x + self.dropout(self_attn_out)
+
+        # Cross-Attention (Pre-LN)
+        norm_x = self.norm2(x)   # ← LayerNorm 在子层之前
+        cross_attn_out = self.cross_attention(norm_x, cross, cross, attn_mask=cross_mask)[0]
+        x = x + self.dropout(cross_attn_out)
+
+        # FFN (Pre-LN)
+        norm_x = self.norm3(x)   # ← LayerNorm 在子层之前
+        y = self.mhfw(norm_x)
+        x = x + y
+
+        return x
+
 
 
 class Decoder(nn.Module):

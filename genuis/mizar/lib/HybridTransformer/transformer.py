@@ -459,7 +459,7 @@ class TemporientTransformer(Transformer_base):
             bs, seq_len, _ = inputs.shape
 
             ## 计算要遮盖的索引数量
-            num_masked_steps = int(seq_len * self.masking_ratio)
+            num_masked_steps = int(seq_len * masking_ratio)
 
             # 为每个样本随机生成要遮盖的索引
             # randperm 生成一个随机排列, 取前 num_masked_steps 个

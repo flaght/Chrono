@@ -25,13 +25,14 @@ class Evaluator(object):
         self,
         fee: float = 0.0,
         resampling_win: int = 1,
-        roll_win: int = 252,
+        roll_wins: list = None,
         scale_method: str = "raw",
     ):
 
         self.fee = fee
         self.resampling_win = max(1, int(resampling_win))
-        self.roll_win = max(5, int(roll_win))
+        # 支持多个 roll_win 评估，默认 [120]
+        self.roll_wins = roll_wins if roll_wins is not None else [120]
         self.scale_method = scale_method
 
     def calculate_ic(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -235,22 +236,15 @@ class Evaluator(object):
         # ========== 输出结果 ==========
         self._display_fitting_results(results, val_cm)
         
-        logger.rule("滚动评估 (训练集 + 校验集)")
+        logger.rule("滚动评估 (训练集 + 校验集) - 多 Roll_Win")
         train_adjusted_pred = self.calculate_adjusted_prediction(y_train_pred, var_train)
         train_factor_df = pd.DataFrame({
                 'trade_time': dates_train,
                 'prediction': y_train_pred.flatten(),
                 'adjusted_prediction': train_adjusted_pred.flatten(),
             }).set_index('trade_time')
-        
-        train_pred_stats, train_pred_returns = self._evaluate_factor(
-                train_factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
-                returns, period, "train_prediction"
-            )
-        results['train']['strategy_stats'] = train_pred_stats
-        results['train']['strategy_returns'] = train_pred_returns
 
-        # 校验集滚动评估
+        # 校验集数据准备
         val_adjusted_pred = self.calculate_adjusted_prediction(y_val_pred, var_val)
         val_factor_df = pd.DataFrame({
                 'trade_time': dates_val,
@@ -258,16 +252,33 @@ class Evaluator(object):
                 'adjusted_prediction': val_adjusted_pred.flatten(),
             }).set_index('trade_time')
 
-        val_pred_stats, val_pred_returns = self._evaluate_factor(
-                val_factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
-                returns, period, "val_prediction"
-            )
-        results['val']['strategy_stats'] = val_pred_stats
+        # 对每个 roll_win 进行评估
+        all_train_stats = []
+        all_val_stats = []
+
+        for roll_win in self.roll_wins:
+            # 训练集评估
+            train_pred_stats, train_pred_returns = self._evaluate_factor(
+                    train_factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
+                    returns, period, "train_prediction", roll_win=roll_win
+                )
+            all_train_stats.append(train_pred_stats)
+
+            # 校验集评估
+            val_pred_stats, val_pred_returns = self._evaluate_factor(
+                    val_factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
+                    returns, period, "val_prediction", roll_win=roll_win
+                )
+            all_val_stats.append(val_pred_stats)
+
+        # 保存第一个 roll_win 的结果
+        results['train']['strategy_stats'] = all_train_stats[0]
+        results['train']['strategy_returns'] = train_pred_returns
+        results['val']['strategy_stats'] = all_val_stats[0]
         results['val']['strategy_returns'] = val_pred_returns
-        self._display_rolling_comparison(
-                train_stats=train_pred_stats, val_stats=val_pred_stats,
-                train_returns=train_pred_returns, val_returns=val_pred_returns
-            )
+
+        # 展示多 roll_win 对比
+        self._display_fitting_multi_rollwin(all_train_stats, all_val_stats)
 
         #return results
     def _display_rolling_comparison(
@@ -352,7 +363,7 @@ class Evaluator(object):
         # 显示基础指标
         self._display_test_basic_results(results['basic'], test_cm)
 
-        # ========== 2. 策略评估 (FactorEvaluate1) ==========
+        # ========== 2. 策略评估 (FactorEvaluate1) - 多 roll_win ==========
         adjusted_pred = self.calculate_adjusted_prediction(y_test_pred, var_test)
 
         # 构建因子DataFrame
@@ -363,31 +374,39 @@ class Evaluator(object):
         })
         factor_df = factor_df.set_index('trade_time')
 
-        # 评估原始预测因子
-        #logger.rule("策略评估: 原始预测 (prediction)")
-        pred_stats, pred_returns = self._evaluate_factor(
-            factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
-            returns, period, "prediction"
-        )
-        results['prediction_strategy'] = {'stats': pred_stats, 'returns': pred_returns}
+        # 对每个 roll_win 进行评估
+        all_pred_stats = []
+        all_adj_stats = []
 
-        # 评估风险调整预测因子
-        #logger.rule("策略评估: 风险调整预测 (adjusted_prediction)")
-        adj_stats, adj_returns = self._evaluate_factor(
-            factor_df[['adjusted_prediction']].rename(columns={'adjusted_prediction': 'transformed'}),
-            returns, period, "adjusted_prediction"
-        )
-        results['adjusted_strategy'] = {'stats': adj_stats, 'returns': adj_returns}
+        for roll_win in self.roll_wins:
+            # 评估原始预测因子
+            pred_stats, pred_returns = self._evaluate_factor(
+                factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
+                returns, period, "prediction", roll_win=roll_win
+            )
+            all_pred_stats.append(pred_stats)
 
-        # ========== 3. 策略对比 ==========
-        self._display_strategy_comparison(pred_stats, adj_stats, pred_returns, adj_returns)
+            # 评估风险调整预测因子
+            adj_stats, adj_returns = self._evaluate_factor(
+                factor_df[['adjusted_prediction']].rename(columns={'adjusted_prediction': 'transformed'}),
+                returns, period, "adjusted_prediction", roll_win=roll_win
+            )
+            all_adj_stats.append(adj_stats)
+
+        # 保存结果（使用第一个 roll_win 作为默认）
+        results['prediction_strategy'] = {'stats': all_pred_stats[0], 'returns': pred_returns}
+        results['adjusted_strategy'] = {'stats': all_adj_stats[0], 'returns': adj_returns}
+
+        # ========== 3. 多 roll_win 策略对比 ==========
+        self._display_multi_rollwin_comparison(all_pred_stats, all_adj_stats)
 
     def _evaluate_factor(
         self,
         factors: pd.DataFrame,
         returns: pd.Series,
         period: int,
-        name: str
+        name: str,
+        roll_win: int = 120
     ) -> Tuple[Dict, Dict]:
         """使用FactorEvaluate1评估因子"""
         data = pd.merge(
@@ -401,7 +420,7 @@ class Evaluator(object):
             factor_data=data.reset_index(),
             factor_name='transformed',
             ret_name=f'nxt1_ret_{period}h',
-            roll_win=self.roll_win,
+            roll_win=roll_win,
             fee=self.fee,
             scale_method=self.scale_method,
             expression="test",
@@ -412,6 +431,7 @@ class Evaluator(object):
         factor_returns = evaluate.cal_returns()
 
         stats['name'] = name
+        stats['roll_win'] = roll_win
         factor_returns['name'] = name
 
         return stats, factor_returns
@@ -549,3 +569,110 @@ class Evaluator(object):
             f"  → 建议在实盘中使用风险调整后的信号",
             title="结论"
         )
+
+    def _display_multi_rollwin_comparison(
+        self,
+        all_pred_stats: list,
+        all_adj_stats: list
+    ):
+        """展示多 roll_win 的策略对比"""
+        logger.rule("多 Roll_Win 策略对比")
+
+        # 关键指标列表
+        key_metrics = ['ic_mean', 'ic_ir', 'total_ret', 'calmar', 'sharpe2', 'turnover']
+
+        # 构建 prediction 对比表
+        pred_rows = []
+        for stats in all_pred_stats:
+            row = {'roll_win': stats.get('roll_win', '-')}
+            for metric in key_metrics:
+                val = stats.get(metric, np.nan)
+                if not np.isnan(val):
+                    row[metric] = f"{val:.4f}" if abs(val) < 100 else f"{val:.2f}"
+                else:
+                    row[metric] = "-"
+            pred_rows.append(row)
+
+        if pred_rows:
+            pred_df = pd.DataFrame(pred_rows)
+            logger.table(pred_df, title="Prediction 策略 (不同 roll_win)")
+
+        # 构建 adjusted_prediction 对比表
+        adj_rows = []
+        for stats in all_adj_stats:
+            row = {'roll_win': stats.get('roll_win', '-')}
+            for metric in key_metrics:
+                val = stats.get(metric, np.nan)
+                if not np.isnan(val):
+                    row[metric] = f"{val:.4f}" if abs(val) < 100 else f"{val:.2f}"
+                else:
+                    row[metric] = "-"
+            adj_rows.append(row)
+
+        if adj_rows:
+            adj_df = pd.DataFrame(adj_rows)
+            logger.table(adj_df, title="Adjusted Prediction 策略 (不同 roll_win)")
+
+    def _display_fitting_multi_rollwin(
+        self,
+        all_train_stats: list,
+        all_val_stats: list
+    ):
+        """展示训练集/校验集在多 roll_win 下的对比"""
+        # 关键指标
+        key_metrics = ['ic_mean', 'ic_ir', 'total_ret', 'calmar', 'sharpe2']
+
+        # 构建对比表：每行一个 roll_win，列为 train/val 对比
+        rows = []
+        for train_stats, val_stats in zip(all_train_stats, all_val_stats):
+            roll_win = train_stats.get('roll_win', '-')
+            row = {'roll_win': roll_win}
+
+            for metric in key_metrics:
+                train_val = train_stats.get(metric, np.nan)
+                val_val = val_stats.get(metric, np.nan)
+
+                if not np.isnan(train_val) and not np.isnan(val_val):
+                    # 判断方向是否一致
+                    same_sign = (train_val * val_val) > 0
+                    sign_indicator = "✓" if same_sign else "✗"
+
+                    train_str = f"{train_val:.4f}" if abs(train_val) < 100 else f"{train_val:.2f}"
+                    val_str = f"{val_val:.4f}" if abs(val_val) < 100 else f"{val_val:.2f}"
+                    row[f"{metric}_train"] = train_str
+                    row[f"{metric}_val"] = val_str
+                    row[f"{metric}_sign"] = sign_indicator
+                else:
+                    row[f"{metric}_train"] = "-"
+                    row[f"{metric}_val"] = "-"
+                    row[f"{metric}_sign"] = "-"
+
+            rows.append(row)
+
+        if rows:
+            # 简化显示：只显示关键指标的 train vs val
+            simple_rows = []
+            for train_stats, val_stats in zip(all_train_stats, all_val_stats):
+                roll_win = train_stats.get('roll_win', '-')
+
+                train_ic = train_stats.get('ic_mean', np.nan)
+                val_ic = val_stats.get('ic_mean', np.nan)
+                train_calmar = train_stats.get('calmar', np.nan)
+                val_calmar = val_stats.get('calmar', np.nan)
+
+                # 方向一致性检查
+                ic_same = "✓" if (train_ic * val_ic) > 0 else "✗"
+                calmar_same = "✓" if (train_calmar * val_calmar) > 0 else "✗"
+
+                simple_rows.append({
+                    'roll_win': roll_win,
+                    'IC_train': f"{train_ic:.4f}" if not np.isnan(train_ic) else "-",
+                    'IC_val': f"{val_ic:.4f}" if not np.isnan(val_ic) else "-",
+                    'IC_一致': ic_same,
+                    'Calmar_train': f"{train_calmar:.2f}" if not np.isnan(train_calmar) else "-",
+                    'Calmar_val': f"{val_calmar:.2f}" if not np.isnan(val_calmar) else "-",
+                    'Calmar_一致': calmar_same,
+                })
+
+            simple_df = pd.DataFrame(simple_rows)
+            logger.table(simple_df, title="训练集 vs 校验集 (多 Roll_Win 对比)")
