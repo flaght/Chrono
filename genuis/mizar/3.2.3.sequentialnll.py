@@ -206,11 +206,12 @@ def fetch_autocoder_data(method, instruments, task_id, period,
     name = create_train_records(method=method,task_id=task_id,instruments=instruments,period=period,
                          category='autoencode',params=TOTAL_PARAMS)
     
+    pdb.set_trace()
     temp_outdirs = os.path.join(outdirs, "temp_data", "ae-st")
     if not os.path.exists(temp_outdirs):
         os.makedirs(temp_outdirs)
         
-    logger.rule("autoencode 构建特征")
+    logger.rule("autoencode  {0} 构建特征".format(name))
 
     filename = os.path.join(temp_outdirs, "{0}_{1}.feather".format(name, data_source))
     if os.path.exists(filename) and not force_update:
@@ -372,7 +373,7 @@ def train_model(method, task_id, instruments, period, name, nan_threshold,
 
     evaluator = Evaluator(
         resampling_win=period,
-        roll_win=240,
+        roll_wins=[15,60, 120, 240],
         scale_method="roll_zscore"
     )
     
@@ -455,7 +456,7 @@ def predict_model(method, task_id, instruments, period, name, nan_threshold,
 
     evaluator = Evaluator(
         resampling_win=period,
-        roll_win=120,
+        roll_wins=[15,60, 120, 240],
         scale_method="roll_zscore"
     )
 
