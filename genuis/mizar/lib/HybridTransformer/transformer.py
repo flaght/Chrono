@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import pdb
 import sys
 
-from .transformer_layer import EncoderLayer, DecoderLayer, Encoder, Decoder
+from .transformer_layer import EncoderLayer, DecoderLayer, Encoder, Decoder, DecoderOnly, DecoderOnlyLayer
 from .attn import FullAttention, AttentionLayer
 from .embed import DataEmbedding
 
@@ -590,3 +590,118 @@ class SequentialNLLTransformer(Transformer_base):
             return enc_out, dec_out, torch.cat([output_mean, output_var], dim=-1)
         else:
             return enc_out, dec_out, output_mean
+
+
+class SeqDecOnlyNLLTransformer(nn.Module):
+    """
+    Decoder-Only 架构的 NLL Transformer
+
+    架构:
+    - 只有 Decoder (因果 Self-Attention)
+    - 没有 Encoder
+    - 没有 Cross-Attention
+
+    适用场景:
+    - 只使用最后一个位置的输出
+    - 不需要双向注意力
+    - 预测任务 (回归)
+    """
+    def __init__(self,
+                 enc_in,              # 输入特征维度 (64)
+                 d_model=64,          # 隐层维度
+                 n_heads=8,           # 注意力头数
+                 d_layers=4,          # Decoder 层数 (原来 e_layers + d_layers)
+                 d_ff=256,            # FFN 维度
+                 dropout=0.0,         # Dropout
+                 activation='gelu',   # 激活函数
+                 output_variance=True,  # 是否输出方差
+                 var_min=1e-6,        # 方差下限
+                 var_max=1e-4,        # 方差上限
+                 bias=0.05):          # 均值输出范围
+        super(SeqDecOnlyNLLTransformer, self).__init__()
+        self.d_model = d_model
+        self.output_variance = output_variance
+        self.var_min = var_min
+        self.var_max = var_max
+        self.bias = bias
+
+        # 输入嵌入层
+        self.embedding = DataEmbedding(enc_in, d_model, dropout)
+
+        # Decoder-Only: 只有因果 Self-Attention
+        self.decoder = DecoderOnly(
+            [
+                DecoderOnlyLayer(
+                    AttentionLayer(
+                        FullAttention(
+                            mask_flag=True,  # True = 因果掩码！
+                            attention_dropout=dropout,
+                            output_attention=False
+                        ),
+                        d_model,
+                        n_heads
+                    ),
+                    d_model,
+                    d_ff,
+                    n_heads,
+                    dropout=dropout,
+                    activation=activation,
+                ) for _ in range(d_layers)
+            ],
+            norm_layer=nn.LayerNorm(d_model),
+        )
+
+        # 均值预测头
+        self.mean_head = nn.Linear(d_model, 1, bias=True)
+        nn.init.constant_(self.mean_head.bias, 0.0)
+        nn.init.uniform_(self.mean_head.weight, -0.01, 0.01)
+
+        # 方差预测头
+        if self.output_variance:
+            self.variance_head = nn.Linear(d_model, 1)
+            nn.init.constant_(self.variance_head.bias, 0.5)
+        
+    def hidden_size(self):
+        return self.d_model
+
+    def forward(self, inputs):
+        """
+        Args:
+            inputs: [batch, seq_len, enc_in]  例如 [256, 60, 64]
+
+        Returns:
+            dec_out: [batch, seq_len, d_model]  解码器输出
+            output: [batch, 2] 如果 output_variance=True
+                    [batch, 1] 如果 output_variance=False
+        """
+        # 1. 嵌入
+        x = self.embedding(inputs)  # [batch, seq_len, d_model]
+
+        # 2. Decoder-Only 处理 (因果 Self-Attention)
+        dec_out = self.decoder(x)  # [batch, seq_len, d_model]
+
+        # 3. 取最后位置
+        last_hidden = dec_out[:, -1, :]  # [batch, d_model]
+
+        # 4. 均值预测
+        output_mean = self.mean_head(last_hidden)  # [batch, 1]
+        output_mean = torch.tanh(output_mean) * self.bias  # 约束范围
+
+        # 5. 方差预测 (可选)
+        if self.output_variance:
+            
+            # 使用 Sigmoid 缩放方法 (解决 Softplus 导致的方差坍缩问题)
+            # 步骤: Linear -> Sigmoid -> 线性缩放到 [var_min, var_max]
+            output_var_logits = self.variance_head(last_hidden)
+            output_var_normalized = torch.sigmoid(output_var_logits)
+
+            # 线性缩放到目标范围 [var_min, var_max]
+            output_var = self.var_min + output_var_normalized * (self.var_max - self.var_min)
+
+            output = torch.cat([output_mean, output_var], dim=-1)  # [batch, 2]
+        else:
+            output = output_mean
+
+        # 返回格式保持与原模型兼容
+        # 注意: 没有 enc_out 了，用 None 或 dec_out 替代
+        return None, dec_out, output
