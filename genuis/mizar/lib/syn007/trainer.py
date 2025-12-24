@@ -306,7 +306,7 @@ class Trainer(object):
         best_val_loss = float('inf')
         patience_counter = 0
 
-        logger.print(f"开始训练 SequentialTransformer (Loss: {loss_func_name})...")
+        logger.print(f"开始训练 {model_method.__name__} (Loss: {loss_func_name})...")
 
         for epoch in range(self.train_params['epochs']):
             model.train()
@@ -403,7 +403,7 @@ class Trainer(object):
                 logger.print("Early stopping triggered.")
                 break
 
-        logger.print("✅ SequentialTransformer training complete.")
+        logger.print("✅ {model_method.__name__} training complete.")
 
     
     def predict(self, model_method, data_loader):
@@ -457,6 +457,6 @@ class Trainer(object):
         
         if len(all_variances) > 0:
             variances = np.concatenate(all_variances, axis=0)
-            return predictions, variances, targets
+            return predictions, variances, targets, model
         else:
-            return predictions, targets
+            return predictions, targets, model
