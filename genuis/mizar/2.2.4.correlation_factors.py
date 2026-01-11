@@ -155,7 +155,6 @@ def metrics2(method,
 
 
 def load_sequence(dirs, category, ids):
-    pdb.set_trace()
     res = []
     for id in ids:
         filename = os.path.join(dirs, "sequence", "{0}.feather".format(id))
@@ -211,6 +210,7 @@ def correlation(method,
             print(x_col, y_col, corr)
             if corr > threshold:
                 filter_cols.append(y_col)
+    #pdb.set_trace()
     returns_data = returns_data.drop(filter_cols, axis=1)
     keep_columns = returns_data.columns
     keep_metrics = metrics_data[metrics_data.id.isin(keep_columns)]

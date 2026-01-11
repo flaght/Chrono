@@ -169,7 +169,7 @@ def run1(method,
         datasets=datasets,
         calmar=3,
         sharpe2=1.2,
-        abs_ic=0.015,
+        abs_ic=0.02,
         is_compare=False)
 
 
@@ -190,7 +190,7 @@ def run2(method,
         datasets=datasets,
         calmar=2.5,
         sharpe2=1.0,
-        abs_ic=0.01,
+        abs_ic=0.02,
         is_compare=True)
 
 
