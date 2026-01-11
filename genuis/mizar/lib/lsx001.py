@@ -6,6 +6,15 @@ from lib.iux001 import fetch_data, aggregation_data, fetch_times
 from lib.aux001 import calc_expression
 from lib.svx001 import scale_factors
 
+def fetch_draft_factors(method, instruments, task_id, period, name):
+    pdb.set_trace()
+    filename = os.path.join(base_path, method, instruments, "rulex",
+                            str(task_id), "nxt1_ret_{0}h".format(period),
+                            "draft.csv")
+    expressions = pd.read_csv(filename).to_dict(orient='records')
+    expressions = {item['formula']: item for item in expressions}
+    expressions = list(expressions.values())
+    return expressions
 
 ## 加载选中
 def fetch_chosen_factors(method, instruments, task_id, period, name):
@@ -64,11 +73,18 @@ def build_factors(method,
                   period,
                   name,
                   datasets=['train', 'val', 'test']):
-    expressions = fetch_chosen_factors(method=method,
-                                       instruments=instruments,
-                                       task_id=task_id,
-                                       period=period,
-                                       name=name)
+    if name in ['draft']:
+        expressions = fetch_draft_factors(method=method,
+                                          instruments=instruments,
+                                          task_id=task_id,
+                                          period=period,
+                                          name=name)
+    else:
+        expressions = fetch_chosen_factors(method=method,
+                                           instruments=instruments,
+                                           task_id=task_id,
+                                           period=period,
+                                           name=name)
     pdb.set_trace()
     total_data = fetch_data1(method=method,
                              task_id=task_id,
@@ -78,7 +94,7 @@ def build_factors(method,
                              expressions=expressions)
     factors_data = create_factors(total_data=total_data,
                                   expressions=expressions)
-    
+
     factors_data = factors_data.unstack().fillna(method='ffill').stack()
     ## 标准化 保持和绩效验证一直
     old_data = factors_data.copy()
@@ -100,7 +116,7 @@ def build_factors(method,
                       win=15,
                       factor_name=col)
         factors_data[col] = factors_data['transformed']
-        factors_data.drop(['transformed'],axis=1, inplace=True)
+        factors_data.drop(['transformed'], axis=1, inplace=True)
     '''
     '''
     numeric_df = factors_data.select_dtypes(include=np.number)

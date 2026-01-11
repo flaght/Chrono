@@ -417,7 +417,8 @@ class SequentialTransformer(Transformer_base):
         output = output[:, -self.c_out:, :].squeeze(-1)
         # 确保输出层的处理不会导致所有值相同
         # 可以考虑增加一个非线性激活函数或其他处理来增加输出的多样性
-        output = torch.sigmoid(output)  # 例如使用sigmoid激活函数
+        if self.c_out != 1: 
+            output = torch.sigmoid(output)  # 例如使用sigmoid激活函数, 用于回归任务
         return enc_out, dec_out, output
 
 
@@ -482,3 +483,110 @@ class TemporientTransformer(Transformer_base):
                                          self).forward(enc_inp, dec_inp)
 
         return enc_out, dec_out, output
+
+class SequentialNLLTransformer(Transformer_base):
+    """
+    支持高斯NLL损失的时序Transformer模型。
+    输出包含预测的均值(mean)和方差(variance)。
+    """
+    def __init__(self,
+                 enc_in,
+                 dec_in,
+                 c_out,
+                 d_model=128,
+                 n_heads=4,
+                 e_layers=2,
+                 d_layers=1,
+                 d_ff=256,
+                 dropout=0.0,
+                 activation='gelu',
+                 denc_dim=-1,
+                 output_attention=False,
+                 output_variance=True,
+                 var_min=1e-6,
+                 var_max=1e-4,
+                 bias=0.05):
+        super(SequentialNLLTransformer, self).__init__(
+            enc_in=enc_in,
+            dec_in=dec_in,
+            c_out=1,
+            d_model=d_model,
+            n_heads=n_heads,
+            e_layers=e_layers,
+            d_layers=d_layers,
+            d_ff=d_ff,
+            dropout=dropout,
+            activation=activation,
+            output_attention=output_attention)
+        self.d_model = d_model
+        self.c_out = c_out
+        self.denc_dim = denc_dim
+        self.output_variance = output_variance
+
+        self.var_min = var_min
+        self.var_max = var_max
+        self.bias = bias
+
+        # 均值预测头初始化 (防止预测偏差)
+        # 基类的 projection_decoder 用于均值预测，确保其初始化正确
+        nn.init.constant_(self.projection_decoder.bias, 0.0)
+        # 使用更小的初始化范围，提高训练稳定性
+        nn.init.uniform_(self.projection_decoder.weight, -0.01, 0.01)
+
+        if self.output_variance:
+            # 方差预测头：线性层将隐层特征映射到标量方差
+            self.variance_head = nn.Linear(d_model, 1)
+            # Softplus激活函数确保方差始终为正数
+            self.softplus = nn.Softplus()
+            # 初始化偏置为正值(0.5)，防止训练初期方差过小导致NLL Loss爆炸
+            nn.init.constant_(self.variance_head.bias, 0.5)
+
+    def hidden_size(self):
+        return self.d_model
+    
+    def forward(self, inputs):
+        """
+        前向传播
+        Returns:
+            enc_out: 编码器输出
+            dec_out: 解码器输出
+            output: [batch, 2] 如果 output_variance=True, 包含 [mean, var]
+                    [batch, 1] 如果 output_variance=False, 仅包含 [mean]
+        """
+        enc_inp = inputs
+        if self.denc_dim > 0:
+            dec_inp = inputs[:, -self.denc_dim:, :]
+        else:
+            dec_inp = inputs
+
+        # 调用基类的前向传播
+        enc_out, dec_out, output_mean = super(SequentialNLLTransformer,
+                                         self).forward(enc_inp, dec_inp)
+        # 均值头输出处理
+        output_mean = output_mean[:, -self.c_out:, :].squeeze(-1)
+        # 添加 Tanh 约束，强制输出在合理范围内 (解决预测偏差问题)
+        # 限制在 [-0.05, 0.05] 范围，防止极端预测偏差
+        output_mean = torch.tanh(output_mean) * self.bias
+
+        if self.output_variance:
+            # 方差头输出处理
+            # 使用解码器最后一个时间步的输出特征
+            dec_out_last = dec_out[:, -1, :] # [batch, d_model]
+            
+            # 使用 Sigmoid 缩放方法 (解决 Softplus 导致的方差坍缩问题)
+            # 步骤: Linear -> Sigmoid -> 线性缩放到 [var_min, var_max]
+            output_var_logits = self.variance_head(dec_out_last)
+            output_var_normalized = torch.sigmoid(output_var_logits)  # 映射到 [0, 1]
+            
+            # 线性缩放到目标范围 [var_min, var_max]
+            output_var = self.var_min + output_var_normalized * (self.var_max - self.var_min)
+            
+            # 不需要 clamp (Sigmoid 自动保证范围)
+            # 堆叠均值和方差: [batch, 2]
+            # 确保 output_mean 维度正确以便堆叠
+            if output_mean.dim() == 1:
+                output_mean = output_mean.unsqueeze(-1)
+            
+            return enc_out, dec_out, torch.cat([output_mean, output_var], dim=-1)
+        else:
+            return enc_out, dec_out, output_mean

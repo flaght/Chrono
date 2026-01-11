@@ -68,7 +68,7 @@ def normal1_factors(method, instruments, task_id, period, window):
         time_array['val_time'][0]:time_array['val_time'][1]].reset_index()
     test_data = normal_data.loc[
         time_array['test_time'][0]:time_array['test_time'][1]].reset_index()
-    pdb.set_trace()
+    
     train_data.to_feather(
         os.path.join(dirs, "normal_train_data.feather"))
     val_data.to_feather(

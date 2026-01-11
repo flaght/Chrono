@@ -12,7 +12,7 @@ def train_model(method, task_id, instruments, period, name):
                         str(task_id), str(period))
     filename = os.path.join(dirs, "final_{0}_data.feather".format(name))
     final_data = pd.read_feather(filename).set_index(['trade_time', 'code'])
-    pdb.set_trace()
+    
     print(final_data.columns)
     final_data1 = final_data.drop(['nxt1_ret_{0}h'.format(period)],axis=1)
     final_data1 = final_data1.mean(axis=1)

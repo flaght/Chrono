@@ -90,6 +90,7 @@ def main(method, instruments):
     start_date, end_date = get_dates(method)
     start_time = advanceDateByCalendar('china.sse', start_date,
                                        '-{0}b'.format(1)).strftime('%Y-%m-%d')
+    pdb.set_trace()
     data = fetch_main_market(begin_date=start_time,
                              end_date=end_date,
                              codes=[INSTRUMENTS_CODES[instruments]])
@@ -136,8 +137,8 @@ def merge(method, instruments):
 
     times = factors_data['trade_time'].unique().tolist()
 
-    len1 = round(len(times) * 0.7)  # 70%部分
-    len2 = round(len(times) * 0.2)  # 20%部分
+    len1 = round(len(times) * 0.7)  # 60%部分
+    len2 = round(len(times) * 0.2)  # 25%部分
     len3 = len(times) - len1 - len2
 
     ## 训练集
@@ -262,6 +263,7 @@ def returns(method, instruments):
         os.path.join(target_dir, 'test_returns.feather'))
 
 
+
 main(method='bicso2', instruments='rbb')
-#merge(method='bicso2', instruments='rbb')
+merge(method='bicso2', instruments='rbb')
 returns(method='bicso0', instruments='rbb')
