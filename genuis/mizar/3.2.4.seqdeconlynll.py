@@ -2,10 +2,11 @@ import copy
 import numpy as np
 import torch
 import random
+import pdb
 from dotenv import load_dotenv
 
 load_dotenv()
-from lib.HybridTransformer.transformer import SequentialNLLTransformer,TemporientTransformer
+from lib.HybridTransformer.transformer import SeqDecOnlyNLLTransformer,TemporientTransformer
 from lib.uvx import *
 from lib.syn005.trainer import Trainer as AETrainer
 from lib.syn007.trainer import Trainer as STTrainer
@@ -13,6 +14,79 @@ from lib.syn007.evaluator import Evaluator
 from lib.svx001 import scale_factors
 from kdutils.macro2 import *
 from kdutils.tactix import Tactix
+
+
+def count_model_layers(model):
+    """
+    计算模型的层数和参数统计
+    """
+    total_params = 0
+    trainable_params = 0
+
+    decoder_layers = 0
+    attention_layers = 0
+    linear_layers = 0
+    norm_layers = 0
+
+    for name, module in model.named_modules():
+        module_type = type(module).__name__
+        if 'DecoderOnlyLayer' in module_type:
+            decoder_layers += 1
+        elif 'Attention' in module_type:
+            attention_layers += 1
+        elif isinstance(module, torch.nn.Linear):
+            linear_layers += 1
+        elif isinstance(module, torch.nn.LayerNorm):
+            norm_layers += 1
+
+    for param in model.parameters():
+        total_params += param.numel()
+        if param.requires_grad:
+            trainable_params += param.numel()
+
+    logger.panel(
+        f"Decoder 层数:    {decoder_layers}\n"
+        f"Attention 层数:  {attention_layers}\n"
+        f"Linear 层数:     {linear_layers}\n"
+        f"LayerNorm 层数:  {norm_layers}\n"
+        f"{'─' * 40}\n"
+        f"总参数量:        {total_params:,}\n"
+        f"可训练参数量:    {trainable_params:,}",
+        title="模型层数统计"
+    )
+
+    return {
+        'decoder_layers': decoder_layers,
+        'total_params': total_params
+    }
+
+
+
+def check_mean_head_init(model):
+    """
+    检查 mean_head 初始化是否合理
+    用于诊断预测偏差问题
+    """
+    if hasattr(model, 'mean_head'):
+        bias = model.mean_head.bias.data.item()
+        weight = model.mean_head.weight.data
+
+        logger.panel(
+            f"mean_head.bias:        {bias:.6f}  (期望: 0.0)\n"
+            f"mean_head.weight.mean: {weight.mean().item():.6f}  (期望: ~0.0)\n"
+            f"mean_head.weight.std:  {weight.std().item():.6f}  (期望: ~0.03)\n"
+            f"mean_head.weight.min:  {weight.min().item():.6f}\n"
+            f"mean_head.weight.max:  {weight.max().item():.6f}",
+            title="mean_head 初始化检查"
+        )
+        return {
+            'bias': bias,
+            'weight_mean': weight.mean().item(),
+            'weight_std': weight.std().item()
+        }
+    else:
+        logger.print("⚠️ 模型没有 mean_head 属性")
+        return None
 
 
 
@@ -206,7 +280,7 @@ def fetch_autocoder_data(method, instruments, task_id, period,
     name = create_train_records(method=method,task_id=task_id,instruments=instruments,period=period,
                          category='autoencode',params=TOTAL_PARAMS)
     
-    pdb.set_trace()
+    
     temp_outdirs = os.path.join(outdirs, "temp_data", "ae-st")
     if not os.path.exists(temp_outdirs):
         os.makedirs(temp_outdirs)
@@ -277,6 +351,35 @@ def fetch_autocoder_data(method, instruments, task_id, period,
         autocode_data[col] = autocode_data['transformed']
         autocode_data.drop(['transformed'], axis=1, inplace=True)
 
+    
+    # ========== 新增：对 Y 也做 roll_zscore 标准化 ==========
+    target_col = f'nxt1_ret_{period}h'
+    logger.print(f"Applying Rolling Z-Score to Y ({target_col})...")
+    '''
+    scale_factors(predict_data=autocode_data,
+                method='roll_zscore',
+                win=15,
+                factor_name=target_col)
+    autocode_data[target_col] = autocode_data['transformed']
+    autocode_data.drop(['transformed'], axis=1, inplace=True)
+    '''
+    
+    target_col = f'nxt1_ret_{period}h'
+    Y_SCALE = 100  # 缩放因子
+    autocode_data[target_col] = autocode_data[target_col] * Y_SCALE
+    
+    '''
+    target_col = f'nxt1_ret_{period}h'
+    Y = autocode_data[target_col]
+
+    # 关键：shift(1) 确保不包含当前值
+    mu = Y.shift(1).rolling(15, min_periods=1).mean()
+    sg = Y.shift(1).rolling(15, min_periods=1).std()
+
+    # 标准化（与 scale_factors 的 roll_zscore 逻辑一致）
+    autocode_data[target_col] = ((Y - mu) / sg.clip(lower=1e-8)).clip(-3, 3) / 3
+    '''
+
      # 处理标准化产生的 NaN (前 win-1 行)
     original_len = len(autocode_data)
     autocode_data = autocode_data.dropna()
@@ -309,27 +412,22 @@ def train_model(method, task_id, instruments, period, name, nan_threshold,
                           period=period,nan_threshold=nan_threshold, 
                           var_threshold=var_threshold, corr_threshold=corr_threshold,
                           ic_threshold=ic_threshold, outdirs=outdirs, data_source='train',
-                          force_update=False)
+                          force_update=True)
     
     factor_features = [c for c in autocode_data.columns if c.startswith('factor_')]
     feature_dim = len(factor_features)
 
-    logger.panel("Training SequentialNLLTransformer...", title="Step 4")
+    logger.panel("Training SeqDecOnlyNLLTransformer...", title="Step 4")
 
-    MODEL_PARAMS,TRAIN_PARAMS = load_params(file_dirs=outdirs, name="sequentialnll", model_name='params1', train_name="params1")
+    MODEL_PARAMS,TRAIN_PARAMS = load_params(file_dirs=outdirs, name="seqdeconlynll", model_name='params1', train_name="params1")
     MODEL_PARAMS['enc_in'] = feature_dim
-    MODEL_PARAMS['dec_in'] = feature_dim
-
-    MODEL_PARAMS['output_variance'] = True
-
-    TRAIN_PARAMS['loss_func'] = 'gaussian_nll'
 
     TOTAL_PARAMS = copy.deepcopy(MODEL_PARAMS)
     TOTAL_PARAMS.update(TRAIN_PARAMS)
     TOTAL_PARAMS.update(FEATURE_PARAMS)
 
     name = create_train_records(method=method,task_id=task_id,instruments=instruments,period=period,
-                         category='sequentialnll',params=TOTAL_PARAMS)
+                         category='seqdeconlynll',params=TOTAL_PARAMS)
     pdb.set_trace()
     # 设置随机种子以确保训练可重复性
     set_random_seed(42)
@@ -353,21 +451,27 @@ def train_model(method, task_id, instruments, period, name, nan_threshold,
     trainer_loader = trainer.create_train_data_loader(x_samples=X_train_samples, y_samples=y_train_samples)
     val_loader = trainer.create_train_data_loader(x_samples=X_val_samples, y_samples=y_val_samples)
 
-    trainer.train_model(model_method=SequentialNLLTransformer,train_loader=trainer_loader, val_loader=val_loader)
+    # 统计模型层数
+    temp_model = SeqDecOnlyNLLTransformer(**MODEL_PARAMS)
+    count_model_layers(temp_model)
+    check_mean_head_init(temp_model)
+    del temp_model
+
+    trainer.train_model(model_method=SeqDecOnlyNLLTransformer,train_loader=trainer_loader, val_loader=val_loader)
 
     logger.rule("训练集+校验集评估 (fitting_evaluate)")
-
+    
     #train_loader = trainer.create_predict_data_loader(X_train_samples)
     train_loader = trainer.create_train_data_loader(X_train_samples, y_train_samples)
-    pred_train, var_train, _ = trainer.predict(
-        model_method=SequentialNLLTransformer,
+    pred_train, var_train, _,_ = trainer.predict(
+        model_method=SeqDecOnlyNLLTransformer,
         data_loader=train_loader
     )
 
     #val_loader = trainer.create_predict_data_loader(X_val_samples)
     val_loader = trainer.create_train_data_loader(X_val_samples,y_val_samples)
-    pred_val, var_val, _ = trainer.predict(
-        model_method=SequentialNLLTransformer,
+    pred_val, var_val, _, _ = trainer.predict(
+        model_method=SeqDecOnlyNLLTransformer,
         data_loader=val_loader
     )
 
@@ -414,25 +518,23 @@ def predict_model(method, task_id, instruments, period, name, nan_threshold,
     autocode_data = fetch_autocoder_data(method=method,instruments=instruments,task_id=task_id,
                           period=period,nan_threshold=nan_threshold, 
                           var_threshold=var_threshold, corr_threshold=corr_threshold,
-                          ic_threshold=ic_threshold, outdirs=outdirs, data_source='test',force_update=False)
+                          ic_threshold=ic_threshold, outdirs=outdirs, data_source='test',
+                          force_update=True)
     
     factor_features = [c for c in autocode_data.columns if c.startswith('factor_')]
     feature_dim = len(factor_features)
 
-    logger.panel("Predicting with SequentialGaussianTransformer...", title="Step 5")
+    logger.panel("Predicting with SeqDecOnlyNLLTransformer...", title="Step 5")
 
-    MODEL_PARAMS,TRAIN_PARAMS = load_params(file_dirs=outdirs, name="sequentialnll", model_name='params1', train_name="params1")
+    MODEL_PARAMS,TRAIN_PARAMS = load_params(file_dirs=outdirs, name="seqdeconlynll", model_name='params1', train_name="params1")
     MODEL_PARAMS['enc_in'] = feature_dim
-    MODEL_PARAMS['dec_in'] = feature_dim
-    MODEL_PARAMS['output_variance'] = True
-    TRAIN_PARAMS['loss_func'] = 'gaussian_nll'
 
     TOTAL_PARAMS = copy.deepcopy(MODEL_PARAMS)
     TOTAL_PARAMS.update(TRAIN_PARAMS)
     TOTAL_PARAMS.update(FEATURE_PARAMS)
 
     name = create_train_records(method=method,task_id=task_id,instruments=instruments,period=period,
-                         category='sequentialnll',params=TOTAL_PARAMS)
+                         category='seqdeconlynll',params=TOTAL_PARAMS)
     
     trainer = STTrainer(params=MODEL_PARAMS, train_params=TRAIN_PARAMS,output_dirs=outdirs,
               name=name)
@@ -444,7 +546,7 @@ def predict_model(method, task_id, instruments, period, name, nan_threshold,
     test_samples = trainer.create_rolling_window_samples(X)
 
     test_loader = trainer.create_predict_data_loader(test_samples)
-    predictions, variances, _ = trainer.predict(model_method=SequentialNLLTransformer, data_loader=test_loader)
+    predictions, variances, _, model = trainer.predict(model_method=SeqDecOnlyNLLTransformer, data_loader=test_loader)
 
     aligned_dates = dates[TRAIN_PARAMS['seq_len']-1:]
     aligned_y = y[TRAIN_PARAMS['seq_len']-1:]
@@ -476,15 +578,21 @@ def predict_model(method, task_id, instruments, period, name, nan_threshold,
         dates_test=aligned_dates,
         returns=returns_df,
         period=period,
+        model=model,
+        test_loader=test_loader,
     )
 
 if __name__ == '__main__':
     variant = Tactix().start()
+    
+    
     train_model(method=variant.method, instruments=variant.instruments,
                     task_id=variant.task_id, period=variant.period,
                     name=variant.name, nan_threshold=0.5,
                    var_threshold=1e-10,corr_threshold=0.95,
                     ic_threshold=0.01)
+    
+    
     predict_model(method=variant.method, instruments=variant.instruments,
                     task_id=variant.task_id, period=variant.period,
                     name=variant.name, nan_threshold=0.5,

@@ -9,35 +9,44 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from lib import logger
 
-def gaussian_nll_loss(pred_mean, pred_var, target, 
-                      lambda_diversity=1.0):
+def gaussian_nll_loss(pred_mean, pred_var, target,
+                      lambda_diversity=1.0, lambda_pred_mean=0.0):
     """
-    改进版：使用相对标准差计算多样性惩罚
+    改进版：使用相对标准差计算多样性惩罚 + 添加预测均值约束
+
+    Args:
+        lambda_diversity: 方差多样性惩罚系数
+        lambda_pred_mean: 预测均值约束系数 (方案C: 约束预测均值接近0)
     """
     # 转换参数类型
     lambda_diversity = float(lambda_diversity)
-    
+    lambda_pred_mean = float(lambda_pred_mean)
+
     if pred_mean.shape != target.shape:
         target = target.view_as(pred_mean)
     if pred_var.shape != target.shape:
         pred_var = pred_var.view_as(pred_mean)
-    
+
     # NLL Loss (不需要裁剪)
     nll = 0.5 * (torch.log(pred_var) + (target - pred_mean).pow(2) / pred_var)
     nll_loss = nll.mean()
-    
+
     # 方差多样性鼓励 (使用相对标准差)
     var_mean = torch.mean(pred_var)
     var_std = torch.std(pred_var)
-    
+
     # 相对标准差: std / mean，范围在 0~1 之间
     # 加 1e-8 防止除零
     relative_std = var_std / (var_mean + 1e-8)
-    
+
     # 多样性惩罚: 鼓励高相对标准差
     diversity_penalty = -lambda_diversity * relative_std
-    
-    return nll_loss + diversity_penalty
+
+    # 方案C: 预测均值约束 - 惩罚预测均值偏离0
+    # 这比直接约束 bias 更合理，因为它约束的是整体预测分布
+    pred_mean_penalty = lambda_pred_mean * pred_mean.mean().pow(2)
+
+    return nll_loss + diversity_penalty + pred_mean_penalty
 
 
 
@@ -283,14 +292,30 @@ class Trainer(object):
             raise ValueError(f"Unsupported loss function: {loss_func_name}")
 
         if 'weight_decay' in self.train_params:
-            optimizer = optim.Adam(model.parameters(), lr=self.train_params['learning_rate'], weight_decay=self.train_params['weight_decay'])
+            optimizer = optim.AdamW(model.parameters(), lr=self.train_params['learning_rate'], weight_decay=self.train_params['weight_decay'])
         else:
-            optimizer = optim.Adam(model.parameters(), lr=self.train_params['learning_rate'])
+            optimizer = optim.AdamW(model.parameters(), lr=self.train_params['learning_rate'])
 
+        # 添加 Learning Rate Warmup (P0 修复)
+        # warmup_ratio 默认 0.1，即前 10% 步数进行 warmup
+        warmup_ratio = self.train_params.get('warmup_ratio', 0.1)
+        total_steps = len(train_loader) * self.train_params['epochs']
+        warmup_steps = int(total_steps * warmup_ratio)
+
+        from torch.optim.lr_scheduler import LambdaLR
+
+        def lr_lambda(current_step):
+            if current_step < warmup_steps:
+                return float(current_step) / float(max(1, warmup_steps))
+            return 1.0
+            
+        scheduler = LambdaLR(optimizer, lr_lambda)
+        logger.print(f"  Warmup 配置: {warmup_steps} 步 (总步数 {total_steps} 的 {warmup_ratio*100:.0f}%)")
+        
         best_val_loss = float('inf')
         patience_counter = 0
 
-        logger.print(f"开始训练 SequentialTransformer (Loss: {loss_func_name})...")
+        logger.print(f"开始训练 {model_method.__name__} (Loss: {loss_func_name})...")
 
         for epoch in range(self.train_params['epochs']):
             model.train()
@@ -309,9 +334,10 @@ class Trainer(object):
                         pred_mean = outputs[:, 0]
                         pred_var = outputs[:, 1]
                         loss = criterion(
-                            pred_mean=pred_mean, pred_var=pred_var, 
+                            pred_mean=pred_mean, pred_var=pred_var,
                             target=batch_targets,
-                            lambda_diversity=self.train_params['lambda_diversity'])
+                            lambda_diversity=self.train_params['lambda_diversity'],
+                            lambda_pred_mean=self.train_params.get('lambda_pred_mean', 0.0))
                     else:
                         # 如果模型输出形状不对，抛出异常
                         raise ValueError("Model output shape mismatch for Gaussian NLL. Expected [batch, 2].")
@@ -325,7 +351,11 @@ class Trainer(object):
                     loss = criterion(outputs, batch_targets)
                 
                 loss.backward()
+                max_grad_norm = self.train_params.get('max_grad_norm', 1.0)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
+
                 optimizer.step()
+                scheduler.step()
 
                 total_loss += loss.item()
 
@@ -346,7 +376,8 @@ class Trainer(object):
                         if outputs.shape[-1] == 2:
                             pred_mean = outputs[:, 0]
                             pred_var = outputs[:, 1]
-                            loss = criterion(pred_mean, pred_var, batch_targets)
+                            loss = criterion(pred_mean, pred_var, batch_targets,
+                                    lambda_diversity=self.train_params.get('lambda_diversity', 0))
                             # 同时记录 MSE 以便对比
                             mse = F.mse_loss(pred_mean, batch_targets.view_as(pred_mean))
                             val_mse += mse.item()
@@ -383,7 +414,7 @@ class Trainer(object):
                 logger.print("Early stopping triggered.")
                 break
 
-        logger.print("✅ SequentialTransformer training complete.")
+        logger.print("✅ {model_method.__name__} training complete.")
 
     
     def predict(self, model_method, data_loader):
@@ -437,6 +468,6 @@ class Trainer(object):
         
         if len(all_variances) > 0:
             variances = np.concatenate(all_variances, axis=0)
-            return predictions, variances, targets
+            return predictions, variances, targets, model
         else:
-            return predictions, targets
+            return predictions, targets, model

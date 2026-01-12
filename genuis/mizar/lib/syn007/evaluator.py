@@ -1,3 +1,4 @@
+import pdb
 import numpy as np
 import pandas as pd
 from typing import Dict, Optional, Tuple
@@ -24,14 +25,22 @@ class Evaluator(object):
         self,
         fee: float = 0.0,
         resampling_win: int = 1,
-        roll_win: int = 252,
+        roll_wins: list = None,
         scale_method: str = "raw",
+        output_dir: str = None,
+        model_id: str = None,
+        save_plots: bool = False,
     ):
 
         self.fee = fee
         self.resampling_win = max(1, int(resampling_win))
-        self.roll_win = max(5, int(roll_win))
+        # 支持多个 roll_win 评估，默认 [120]
+        self.roll_wins = roll_wins if roll_wins is not None else [120]
         self.scale_method = scale_method
+
+        self.output_dir = output_dir
+        self.model_id = model_id
+        self.save_plots = save_plots
 
     def calculate_ic(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """计算IC (Pearson相关系数)"""
@@ -172,6 +181,10 @@ class Evaluator(object):
         y_val_pred: np.ndarray,
         var_train: np.ndarray,
         var_val: np.ndarray,
+        dates_train: np.ndarray = None,
+        dates_val: np.ndarray = None,
+        returns: pd.Series = None,
+        period: int = None,
     ) -> Dict:
         """
         训练集+校验集评估 - 用于调整超参
@@ -180,6 +193,7 @@ class Evaluator(object):
         1. 基础预测能力: IC, RankIC, 方向准确率
         2. 方差有效性验证: adjusted_prediction IC vs prediction IC
         3. 损失函数: Gaussian NLL
+        4. 滚动评估 (FactorEvaluate1): 与测试集保持一致的评估方法
 
         Returns:
             包含训练集和校验集评估结果的Dict
@@ -228,8 +242,107 @@ class Evaluator(object):
 
         # ========== 输出结果 ==========
         self._display_fitting_results(results, val_cm)
+        
+        logger.rule("滚动评估 (训练集 + 校验集) - 多 Roll_Win")
+        train_adjusted_pred = self.calculate_adjusted_prediction(y_train_pred, var_train)
+        train_factor_df = pd.DataFrame({
+                'trade_time': dates_train,
+                'prediction': y_train_pred.flatten(),
+                'adjusted_prediction': train_adjusted_pred.flatten(),
+            }).set_index('trade_time')
+
+        # 校验集数据准备
+        val_adjusted_pred = self.calculate_adjusted_prediction(y_val_pred, var_val)
+        val_factor_df = pd.DataFrame({
+                'trade_time': dates_val,
+                'prediction': y_val_pred.flatten(),
+                'adjusted_prediction': val_adjusted_pred.flatten(),
+            }).set_index('trade_time')
+
+        # 对每个 roll_win 进行评估
+        all_train_stats = []
+        all_val_stats = []
+
+        logger.rule("原始预测评估 (不做roll标准化)")
+
+        train_pred_raw_stats, _ = self._evaluate_factor(
+            train_factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
+            returns, period, "train_prediction_raw", roll_win=15, scale_method='raw'
+        )
+        train_adj_raw_stats, _ = self._evaluate_factor(
+            train_factor_df[['adjusted_prediction']].rename(columns={'adjusted_prediction': 'transformed'}),
+            returns, period, "train_adjusted_raw", roll_win=15, scale_method='raw'
+        )
+
+        val_pred_raw_stats, _ = self._evaluate_factor(
+            val_factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
+            returns, period, "val_prediction_raw", roll_win=15, scale_method='raw'
+        )
+        val_adj_raw_stats, _ = self._evaluate_factor(
+            val_factor_df[['adjusted_prediction']].rename(columns={'adjusted_prediction': 'transformed'}),
+            returns, period, "val_adjusted_raw", roll_win=15, scale_method='raw'
+        )
+
+        self._display_fitting_raw_evaluation(
+            train_pred_raw_stats, train_adj_raw_stats,
+            val_pred_raw_stats, val_adj_raw_stats
+        )
+
+        for roll_win in self.roll_wins:
+            # 训练集评估
+            train_pred_stats, train_pred_returns = self._evaluate_factor(
+                    train_factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
+                    returns, period, "train_prediction", roll_win=roll_win
+                )
+            all_train_stats.append(train_pred_stats)
+
+            # 校验集评估
+            val_pred_stats, val_pred_returns = self._evaluate_factor(
+                    val_factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
+                    returns, period, "val_prediction", roll_win=roll_win
+                )
+            all_val_stats.append(val_pred_stats)
+
+        # 保存第一个 roll_win 的结果
+        results['train']['strategy_stats'] = all_train_stats[0]
+        results['train']['strategy_returns'] = train_pred_returns
+        results['val']['strategy_stats'] = all_val_stats[0]
+        results['val']['strategy_returns'] = val_pred_returns
+
+        # 展示多 roll_win 对比
+        self._display_fitting_multi_rollwin(all_train_stats, all_val_stats)
 
         #return results
+    def _display_rolling_comparison(
+        self,
+        train_stats: Dict,
+        val_stats: Dict,
+        train_returns: Dict,
+        val_returns: Dict
+    ):
+        """展示训练集/校验集滚动评估对比"""
+        # 构建对比表格
+        comparison_rows = []
+
+        # 关键指标
+        key_metrics = ['ic_mean', 'ic_std', 'ic_ir', 'annual_return', 'sharpe', 'calmar', 'max_drawdown']
+
+        for key in key_metrics:
+            train_val = train_stats.get(key, np.nan)
+            val_val = val_stats.get(key, np.nan)
+            if not np.isnan(train_val) and not np.isnan(val_val):
+                comparison_rows.append((
+                    key,
+                    f"{train_val:.4f}" if abs(train_val) < 100 else f"{train_val:.2f}",
+                    f"{val_val:.4f}" if abs(val_val) < 100 else f"{val_val:.2f}",
+                ))
+
+        if comparison_rows:
+            comparison_df = pd.DataFrame(
+                comparison_rows,
+                columns=["指标", "训练集", "校验集"]
+            )
+            logger.table(comparison_df, title="滚动评估对比 (FactorEvaluate1)")
 
     def final_evaluate(
         self,
@@ -239,6 +352,8 @@ class Evaluator(object):
         dates_test: np.ndarray,
         returns: pd.Series,
         period: int,
+        model=None,  # 新增: 用于参数诊断
+        test_loader=None,  # 新增: 用于 hidden 诊断
     ) -> Dict:
         """
         测试集评估 - 侧重策略评估
@@ -256,11 +371,20 @@ class Evaluator(object):
             dates_test: 测试集日期
             returns: 收益率序列 (需包含 nxt1_ret_{period}h 列)
             period: 预测周期
+            model: 模型对象，用于参数诊断 (可选)
+            test_loader: 测试数据加载器，用于 hidden 诊断 (可选)
 
         Returns:
             包含策略评估结果的Dict
         """
         logger.rule("测试集评估 (策略评估)")
+
+        # ========== 新增: 模型参数诊断 ==========
+        if model is not None:
+            self._display_model_diagnosis(model)
+            # Hidden 分布诊断 (方案A2)
+            if test_loader is not None:
+                self._display_hidden_diagnosis(model, test_loader)
 
         results = {}
 
@@ -282,7 +406,7 @@ class Evaluator(object):
         # 显示基础指标
         self._display_test_basic_results(results['basic'], test_cm)
 
-        # ========== 2. 策略评估 (FactorEvaluate1) ==========
+        # ========== 2. 策略评估 (FactorEvaluate1) - 多 roll_win ==========
         adjusted_pred = self.calculate_adjusted_prediction(y_test_pred, var_test)
 
         # 构建因子DataFrame
@@ -293,31 +417,71 @@ class Evaluator(object):
         })
         factor_df = factor_df.set_index('trade_time')
 
-        # 评估原始预测因子
-        #logger.rule("策略评估: 原始预测 (prediction)")
-        pred_stats, pred_returns = self._evaluate_factor(
+        # 对每个 roll_win 进行评估
+        all_pred_stats = []
+        all_adj_stats = []
+
+        # ========== 新增: 预测值分布统计 ==========
+        self._display_prediction_distribution(y_test_pred, adjusted_pred, y_test_true)
+
+        # ========== 新增: 原始预测评估 (不roll) ==========
+        logger.rule("原始预测评估 (不做roll标准化)")
+
+        pred_raw_stats, pred_raw_returns = self._evaluate_factor(
             factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
-            returns, period, "prediction"
+            returns, period, "prediction_raw", roll_win=15, scale_method='raw'
         )
-        results['prediction_strategy'] = {'stats': pred_stats, 'returns': pred_returns}
 
-        # 评估风险调整预测因子
-        #logger.rule("策略评估: 风险调整预测 (adjusted_prediction)")
-        adj_stats, adj_returns = self._evaluate_factor(
+        adj_raw_stats, adj_raw_returns = self._evaluate_factor(
             factor_df[['adjusted_prediction']].rename(columns={'adjusted_prediction': 'transformed'}),
-            returns, period, "adjusted_prediction"
+            returns, period, "adjusted_prediction_raw", roll_win=15, scale_method='raw'
         )
-        results['adjusted_strategy'] = {'stats': adj_stats, 'returns': adj_returns}
 
-        # ========== 3. 策略对比 ==========
-        self._display_strategy_comparison(pred_stats, adj_stats, pred_returns, adj_returns)
+        self._display_raw_evaluation(pred_raw_stats, adj_raw_stats)
+
+        # 设置 raw 的 roll_win 标识为 'raw'，便于在对比表中区分
+        pred_raw_stats['roll_win'] = 'raw'
+        adj_raw_stats['roll_win'] = 'raw'
+
+        results['prediction_raw'] = {'stats': pred_raw_stats, 'returns': pred_raw_returns}
+        results['adjusted_raw'] = {'stats': adj_raw_stats, 'returns': adj_raw_returns}
+
+        # ========== Roll标准化评估 ==========
+        logger.rule("Roll标准化评估")
+
+        for roll_win in self.roll_wins:
+            # 评估原始预测因子
+            pred_stats, pred_returns = self._evaluate_factor(
+                factor_df[['prediction']].rename(columns={'prediction': 'transformed'}),
+                returns, period, "prediction", roll_win=roll_win
+            )
+            all_pred_stats.append(pred_stats)
+
+            # 评估风险调整预测因子
+            adj_stats, adj_returns = self._evaluate_factor(
+                factor_df[['adjusted_prediction']].rename(columns={'adjusted_prediction': 'transformed'}),
+                returns, period, "adjusted_prediction", roll_win=roll_win
+            )
+            all_adj_stats.append(adj_stats)
+
+        # 保存结果（使用第一个 roll_win 作为默认）
+        results['prediction_strategy'] = {'stats': all_pred_stats[0], 'returns': pred_returns}
+        results['adjusted_strategy'] = {'stats': all_adj_stats[0], 'returns': adj_returns}
+
+        # ========== 3. 多 roll_win 策略对比 (包含 raw) ==========
+        # 将 raw 结果添加到对比列表的开头
+        all_pred_stats_with_raw = [pred_raw_stats] + all_pred_stats
+        all_adj_stats_with_raw = [adj_raw_stats] + all_adj_stats
+        self._display_multi_rollwin_comparison(all_pred_stats_with_raw, all_adj_stats_with_raw)
 
     def _evaluate_factor(
         self,
         factors: pd.DataFrame,
         returns: pd.Series,
         period: int,
-        name: str
+        name: str,
+        roll_win: int = 120,
+        scale_method: str = None,
     ) -> Tuple[Dict, Dict]:
         """使用FactorEvaluate1评估因子"""
         data = pd.merge(
@@ -326,26 +490,58 @@ class Evaluator(object):
             left_index=True,
             right_index=True
         )
+        actual_scale_method = scale_method if scale_method else self.scale_method
 
         evaluate = FactorEvaluate1(
             factor_data=data.reset_index(),
             factor_name='transformed',
             ret_name=f'nxt1_ret_{period}h',
-            roll_win=self.roll_win,
+            roll_win=roll_win,
             fee=self.fee,
-            scale_method=self.scale_method,
+            scale_method=actual_scale_method,
             expression="test",
             resampling_win=self.resampling_win
         )
 
         stats = evaluate.run()
         factor_returns = evaluate.cal_returns()
+        # 保存图表
+        if self.save_plots and self.output_dir and self.model_id:
+            self._save_evaluation_plot(evaluate, name, actual_scale_method, roll_win)
 
         stats['name'] = name
+        stats['roll_win'] = roll_win
         factor_returns['name'] = name
 
         return stats, factor_returns
     
+
+    def _save_evaluation_plot(
+        self,
+        evaluate,
+        factor_name: str,
+        scale_method: str,
+        roll_win: int
+    ):
+        """保存评估图表"""
+        import os
+
+        factor_type = 'adj_pred' if 'adjusted' in factor_name else 'pred'
+
+        if scale_method == 'raw':
+            subdir = f"{factor_type}_raw"
+        else:
+            subdir = f"{factor_type}_{scale_method}_{roll_win}"
+
+        plot_dir = os.path.join(self.output_dir, 'evaluation', self.model_id, subdir)
+        os.makedirs(plot_dir, exist_ok=True)
+
+        try:
+            evaluate.plot_results()
+            evaluate.save_results(plot_dir)
+            logger.print(f"图表已保存至: {plot_dir}")
+        except Exception as e:
+            logger.print(f"保存图表失败: {e}")
 
     def _display_fitting_results(self, results: Dict, val_cm: np.ndarray):
         """展示训练+校验集评估结果"""
@@ -479,3 +675,442 @@ class Evaluator(object):
             f"  → 建议在实盘中使用风险调整后的信号",
             title="结论"
         )
+
+    def _display_multi_rollwin_comparison(
+        self,
+        all_pred_stats: list,
+        all_adj_stats: list
+    ):
+        """展示多 roll_win 的策略对比"""
+        logger.rule("多 Roll_Win 策略对比")
+
+        # 关键指标列表
+        key_metrics = ['ic_mean', 'ic_ir', 'total_ret', 'calmar', 'sharpe2', 'turnover', 'profit_ratio']
+
+        # 构建 prediction 对比表
+        pred_rows = []
+        for stats in all_pred_stats:
+            row = {'roll_win': stats.get('roll_win', '-')}
+            for metric in key_metrics:
+                val = stats.get(metric, np.nan)
+                if not np.isnan(val):
+                    row[metric] = f"{val:.4f}" if abs(val) < 100 else f"{val:.2f}"
+                else:
+                    row[metric] = "-"
+            pred_rows.append(row)
+
+        if pred_rows:
+            pred_df = pd.DataFrame(pred_rows)
+            logger.table(pred_df, title="Prediction 策略 (不同 roll_win)")
+
+        # 构建 adjusted_prediction 对比表
+        adj_rows = []
+        for stats in all_adj_stats:
+            row = {'roll_win': stats.get('roll_win', '-')}
+            for metric in key_metrics:
+                val = stats.get(metric, np.nan)
+                if not np.isnan(val):
+                    row[metric] = f"{val:.4f}" if abs(val) < 100 else f"{val:.2f}"
+                else:
+                    row[metric] = "-"
+            adj_rows.append(row)
+
+        if adj_rows:
+            adj_df = pd.DataFrame(adj_rows)
+            logger.table(adj_df, title="Adjusted Prediction 策略 (不同 roll_win)")
+
+    def _display_fitting_multi_rollwin(
+        self,
+        all_train_stats: list,
+        all_val_stats: list
+    ):
+        """展示训练集/校验集在多 roll_win 下的对比"""
+        # 关键指标
+        key_metrics = ['ic_mean', 'ic_ir', 'total_ret', 'calmar', 'sharpe2']
+
+        # 构建对比表：每行一个 roll_win，列为 train/val 对比
+        rows = []
+        for train_stats, val_stats in zip(all_train_stats, all_val_stats):
+            roll_win = train_stats.get('roll_win', '-')
+            row = {'roll_win': roll_win}
+
+            for metric in key_metrics:
+                train_val = train_stats.get(metric, np.nan)
+                val_val = val_stats.get(metric, np.nan)
+
+                if not np.isnan(train_val) and not np.isnan(val_val):
+                    # 判断方向是否一致
+                    same_sign = (train_val * val_val) > 0
+                    sign_indicator = "✓" if same_sign else "✗"
+
+                    train_str = f"{train_val:.4f}" if abs(train_val) < 100 else f"{train_val:.2f}"
+                    val_str = f"{val_val:.4f}" if abs(val_val) < 100 else f"{val_val:.2f}"
+                    row[f"{metric}_train"] = train_str
+                    row[f"{metric}_val"] = val_str
+                    row[f"{metric}_sign"] = sign_indicator
+                else:
+                    row[f"{metric}_train"] = "-"
+                    row[f"{metric}_val"] = "-"
+                    row[f"{metric}_sign"] = "-"
+
+            rows.append(row)
+
+        if rows:
+            # 简化显示：只显示关键指标的 train vs val
+            simple_rows = []
+            for train_stats, val_stats in zip(all_train_stats, all_val_stats):
+                roll_win = train_stats.get('roll_win', '-')
+
+                train_ic = train_stats.get('ic_mean', np.nan)
+                val_ic = val_stats.get('ic_mean', np.nan)
+                train_calmar = train_stats.get('calmar', np.nan)
+                val_calmar = val_stats.get('calmar', np.nan)
+
+                # 方向一致性检查
+                ic_same = "✓" if (train_ic * val_ic) > 0 else "✗"
+                calmar_same = "✓" if (train_calmar * val_calmar) > 0 else "✗"
+
+                simple_rows.append({
+                    'roll_win': roll_win,
+                    'IC_train': f"{train_ic:.4f}" if not np.isnan(train_ic) else "-",
+                    'IC_val': f"{val_ic:.4f}" if not np.isnan(val_ic) else "-",
+                    'IC_一致': ic_same,
+                    'Calmar_train': f"{train_calmar:.2f}" if not np.isnan(train_calmar) else "-",
+                    'Calmar_val': f"{val_calmar:.2f}" if not np.isnan(val_calmar) else "-",
+                    'Calmar_一致': calmar_same,
+                })
+
+            simple_df = pd.DataFrame(simple_rows)
+            logger.table(simple_df, title="训练集 vs 校验集 (多 Roll_Win 对比)")
+
+
+    def _display_raw_evaluation(self, pred_stats: Dict, adj_stats: Dict):
+        """展示原始预测评估结果 (不roll)"""
+        key_metrics = ['ic_mean', 'ic_ir', 'total_ret', 'calmar', 'sharpe2', 'turnover']
+
+        rows = []
+        for metric in key_metrics:
+            pred_val = pred_stats.get(metric, np.nan)
+            adj_val = adj_stats.get(metric, np.nan)
+
+            if not np.isnan(pred_val) and not np.isnan(adj_val):
+                diff = adj_val - pred_val
+                rows.append({
+                    '指标': metric,
+                    'prediction': f"{pred_val:.4f}" if abs(pred_val) < 100 else f"{pred_val:.2f}",
+                    'adjusted_prediction': f"{adj_val:.4f}" if abs(adj_val) < 100 else f"{adj_val:.2f}",
+                    '差值': f"{diff:+.4f}" if abs(diff) < 100 else f"{diff:+.2f}",
+                })
+
+        if rows:
+            df = pd.DataFrame(rows)
+            logger.table(df, title="原始预测评估 (scale_method='raw', 不做roll标准化)")
+
+    def _display_fitting_raw_evaluation(
+        self,
+        train_pred_stats: Dict,
+        train_adj_stats: Dict,
+        val_pred_stats: Dict,
+        val_adj_stats: Dict
+    ):
+        """展示训练集/校验集原始预测评估结果"""
+        key_metrics = ['ic_mean', 'total_ret', 'calmar', 'sharpe2', 'turnover']
+
+        rows = []
+        for metric in key_metrics:
+            train_pred = train_pred_stats.get(metric, np.nan)
+            train_adj = train_adj_stats.get(metric, np.nan)
+            val_pred = val_pred_stats.get(metric, np.nan)
+            val_adj = val_adj_stats.get(metric, np.nan)
+
+            def fmt(v):
+                if np.isnan(v):
+                    return "-"
+                return f"{v:.4f}" if abs(v) < 100 else f"{v:.2f}"
+
+            rows.append({
+                '指标': metric,
+                'train_pred': fmt(train_pred),
+                'train_adj': fmt(train_adj),
+                'val_pred': fmt(val_pred),
+                'val_adj': fmt(val_adj),
+            })
+
+        if rows:
+            df = pd.DataFrame(rows)
+            logger.table(df, title="原始预测 vs 方差调整 (scale_method='raw', 不做roll标准化)")
+
+    def _display_prediction_distribution(
+        self,
+        prediction: np.ndarray,
+        adjusted_prediction: np.ndarray,
+        y_true: np.ndarray = None
+    ):
+        """展示预测值的分布统计，用于诊断模型偏置"""
+        logger.rule("预测值分布统计 (诊断模型偏置)")
+
+        pred = prediction.flatten()
+        adj_pred = adjusted_prediction.flatten()
+
+        # 如果有真实值，先展示目标分布
+        if y_true is not None:
+            y = y_true.flatten()
+            y_stats = {
+                '均值': np.mean(y),
+                '标准差': np.std(y),
+                '最小值': np.min(y),
+                '最大值': np.max(y),
+                '中位数': np.median(y),
+                '正值比例': (y > 0).mean(),
+                '负值比例': (y < 0).mean(),
+            }
+
+            y_rows = []
+            for key, val in y_stats.items():
+                if '比例' in key:
+                    y_rows.append({'统计量': key, '目标y (真实值)': f"{val:.2%}"})
+                else:
+                    y_rows.append({'统计量': key, '目标y (真实值)': f"{val:.6f}"})
+
+            y_df = pd.DataFrame(y_rows)
+            logger.table(y_df, title="目标变量 y 分布统计")
+
+        # 计算统计量
+        pred_stats = {
+            '均值': np.mean(pred),
+            '标准差': np.std(pred),
+            '最小值': np.min(pred),
+            '最大值': np.max(pred),
+            '中位数': np.median(pred),
+            '正值比例': (pred > 0).mean(),
+            '负值比例': (pred < 0).mean(),
+            '零值比例': (pred == 0).mean(),
+        }
+
+        adj_stats = {
+            '均值': np.mean(adj_pred),
+            '标准差': np.std(adj_pred),
+            '最小值': np.min(adj_pred),
+            '最大值': np.max(adj_pred),
+            '中位数': np.median(adj_pred),
+            '正值比例': (adj_pred > 0).mean(),
+            '负值比例': (adj_pred < 0).mean(),
+            '零值比例': (adj_pred == 0).mean(),
+        }
+
+        # 构建对比表
+        rows = []
+        for key in pred_stats.keys():
+            pred_val = pred_stats[key]
+            adj_val = adj_stats[key]
+
+            if '比例' in key:
+                rows.append({
+                    '统计量': key,
+                    'prediction': f"{pred_val:.2%}",
+                    'adjusted_prediction': f"{adj_val:.2%}",
+                })
+            else:
+                rows.append({
+                    '统计量': key,
+                    'prediction': f"{pred_val:.6f}",
+                    'adjusted_prediction': f"{adj_val:.6f}",
+                })
+
+        df = pd.DataFrame(rows)
+        logger.table(df, title="预测值分布统计")
+
+        # 诊断信息
+        bias_warning = ""
+        if pred_stats['正值比例'] > 0.9:
+            bias_warning = "⚠️ 预测值 90%+ 为正，模型可能存在正向偏置"
+        elif pred_stats['负值比例'] > 0.9:
+            bias_warning = "⚠️ 预测值 90%+ 为负，模型可能存在负向偏置"
+        elif abs(pred_stats['均值']) > 3 * pred_stats['标准差']:
+            bias_warning = "⚠️ 均值显著偏离0，模型可能存在偏置"
+        else:
+            bias_warning = "✓ 预测值分布正常，无明显偏置"
+
+        logger.panel(
+            f"{bias_warning}\n\n"
+            f"说明:\n"
+            f"  - 如果正/负值比例严重失衡 → 模型有偏置，但 roll_zscore 会自动修正\n"
+            f"  - 如果标准差很小 → 预测值集中，需要标准化才能产生有效交易信号\n"
+            f"  - 原始预测值量级小是正常的 (因为目标是收益率)",
+            title="诊断结论"
+        )
+
+    def _display_model_diagnosis(self, model):
+        """诊断模型参数 - 方案A"""
+        logger.rule("模型参数诊断 (方案A)")
+
+        diagnosis_rows = []
+
+        # 检查 mean_head
+        if hasattr(model, 'mean_head'):
+            bias_val = model.mean_head.bias.item() if model.mean_head.bias is not None else None
+            weight_mean = model.mean_head.weight.mean().item()
+            weight_std = model.mean_head.weight.std().item()
+            weight_min = model.mean_head.weight.min().item()
+            weight_max = model.mean_head.weight.max().item()
+
+            diagnosis_rows.extend([
+                {'参数': 'mean_head.bias', '值': f"{bias_val:.6f}" if bias_val is not None else 'None'},
+                {'参数': 'mean_head.weight.mean', '值': f"{weight_mean:.6f}"},
+                {'参数': 'mean_head.weight.std', '值': f"{weight_std:.6f}"},
+                {'参数': 'mean_head.weight.min', '值': f"{weight_min:.6f}"},
+                {'参数': 'mean_head.weight.max', '值': f"{weight_max:.6f}"},
+            ])
+
+        # 检查 variance_head
+        if hasattr(model, 'variance_head'):
+            var_bias = model.variance_head.bias.item() if model.variance_head.bias is not None else None
+            diagnosis_rows.append({
+                '参数': 'variance_head.bias',
+                '值': f"{var_bias:.6f}" if var_bias is not None else 'None'
+            })
+
+        if diagnosis_rows:
+            df = pd.DataFrame(diagnosis_rows)
+            logger.table(df, title="模型输出层参数")
+
+        # 诊断结论
+        if hasattr(model, 'mean_head') and model.mean_head.bias is not None:
+            bias_val = model.mean_head.bias.item()
+
+            # tanh 输出范围分析
+            # tanh(bias) * 0.05 的效果
+            import math
+            tanh_bias_effect = math.tanh(bias_val) * 0.05
+
+            if abs(bias_val) > 0.5:
+                logger.panel(
+                    f"⚠️ mean_head.bias = {bias_val:.6f}\n"
+                    f"   tanh(bias) * 0.05 = {tanh_bias_effect:.6f}\n\n"
+                    f"偏置值较大，可能是导致预测偏置的原因\n\n"
+                    f"建议:\n"
+                    f"  - 尝试方案B: 去除 bias 重新训练\n"
+                    f"  - 尝试方案C: 推理时去均值",
+                    title="诊断结论 - H2 可能成立"
+                )
+            elif abs(bias_val) > 0.1:
+                logger.panel(
+                    f"⚠️ mean_head.bias = {bias_val:.6f}\n"
+                    f"   tanh(bias) * 0.05 = {tanh_bias_effect:.6f}\n\n"
+                    f"偏置值中等，可能部分贡献预测偏置\n\n"
+                    f"建议: 继续检查 last_hidden 分布 (H3)",
+                    title="诊断结论 - H2 部分成立"
+                )
+            else:
+                logger.panel(
+                    f"✓ mean_head.bias = {bias_val:.6f} 接近0\n"
+                    f"   tanh(bias) * 0.05 = {tanh_bias_effect:.6f}\n\n"
+                    f"偏置可能来自 weight 或上游特征\n\n"
+                    f"建议: 检查 last_hidden 分布 (H3)",
+                    title="诊断结论 - H2 不成立，检查 H3"
+                )
+
+    def _display_hidden_diagnosis(self, model, test_loader):
+        """诊断 last_hidden 分布 - 方案A2 (验证 H3 假设)"""
+        import torch
+        logger.rule("Last Hidden 分布诊断 (方案A2)")
+
+        # 获取模型所在设备
+        device = next(model.parameters()).device
+
+        model.eval()
+        all_hidden = []
+
+        with torch.no_grad():
+            for batch in test_loader:
+                if isinstance(batch, (list, tuple)):
+                    x = batch[0]
+                else:
+                    x = batch
+
+                # 移动到模型所在设备
+                x = x.to(device)
+
+                # 调用模型获取 last_hidden
+                result = model(x, return_hidden=True)
+                last_hidden = result[-1]  # [batch, d_model]
+                all_hidden.append(last_hidden.cpu())
+
+        # 合并所有 hidden
+        all_hidden = torch.cat(all_hidden, dim=0)  # [N, d_model]
+        n_samples, d_model = all_hidden.shape
+
+        # 统计分析
+        global_mean = all_hidden.mean().item()
+        global_std = all_hidden.std().item()
+
+        # 每个维度的统计
+        dim_means = all_hidden.mean(dim=0)  # [d_model]
+        dim_stds = all_hidden.std(dim=0)    # [d_model]
+
+        avg_dim_std = dim_stds.mean().item()
+        min_dim_std = dim_stds.min().item()
+        max_dim_std = dim_stds.max().item()
+
+        # 每个样本的 L2 范数
+        sample_norms = torch.norm(all_hidden, dim=1)  # [N]
+        avg_norm = sample_norms.mean().item()
+        std_norm = sample_norms.std().item()
+
+        # 样本间余弦相似度 (采样计算，避免 O(N^2))
+        n_sample_pairs = min(1000, n_samples)
+        indices = torch.randperm(n_samples)[:n_sample_pairs]
+        sampled = all_hidden[indices]
+        sampled_norm = sampled / (sampled.norm(dim=1, keepdim=True) + 1e-8)
+        cos_sim_matrix = torch.mm(sampled_norm, sampled_norm.t())
+        # 取上三角 (不含对角线)
+        triu_indices = torch.triu_indices(n_sample_pairs, n_sample_pairs, offset=1)
+        cos_similarities = cos_sim_matrix[triu_indices[0], triu_indices[1]]
+        avg_cos_sim = cos_similarities.mean().item()
+
+        # 显示结果
+        rows = [
+            {'指标': 'n_samples', '值': f"{n_samples}"},
+            {'指标': 'd_model', '值': f"{d_model}"},
+            {'指标': 'global_mean', '值': f"{global_mean:.6f}"},
+            {'指标': 'global_std', '值': f"{global_std:.6f}"},
+            {'指标': 'avg_dim_std', '值': f"{avg_dim_std:.6f}"},
+            {'指标': 'min_dim_std', '值': f"{min_dim_std:.6f}"},
+            {'指标': 'max_dim_std', '值': f"{max_dim_std:.6f}"},
+            {'指标': 'avg_sample_norm', '值': f"{avg_norm:.4f}"},
+            {'指标': 'std_sample_norm', '值': f"{std_norm:.6f}"},
+            {'指标': 'avg_cos_similarity', '值': f"{avg_cos_sim:.4f}"},
+        ]
+
+        logger.table(rows, title="Last Hidden 统计")
+
+        # 诊断结论
+        collapse_threshold = 0.01
+        cos_sim_threshold = 0.95
+
+        is_variance_collapse = avg_dim_std < collapse_threshold
+        is_highly_similar = avg_cos_sim > cos_sim_threshold
+
+        if is_variance_collapse or is_highly_similar:
+            logger.panel(
+                f"H3 成立: Hidden 表示坍缩!\n\n"
+                f"avg_dim_std = {avg_dim_std:.6f} {'< ' + str(collapse_threshold) if is_variance_collapse else ''}\n"
+                f"avg_cos_sim = {avg_cos_sim:.4f} {'> ' + str(cos_sim_threshold) if is_highly_similar else ''}\n\n"
+                f"问题在 Decoder 层或输入特征\n\n"
+                f"建议方案:\n"
+                f"- F1: 检查输入特征分布\n"
+                f"- F2: 增大 Decoder 学习率\n"
+                f"- F3: 减少 Decoder 层数",
+                title="诊断结论 - H3 成立"
+            )
+        else:
+            logger.panel(
+                f"H3 不成立: Hidden 表示正常\n\n"
+                f"avg_dim_std = {avg_dim_std:.6f} >= {collapse_threshold}\n"
+                f"avg_cos_sim = {avg_cos_sim:.4f} <= {cos_sim_threshold}\n\n"
+                f"问题在 mean_head 权重或 tanh 压缩\n\n"
+                f"建议方案:\n"
+                f"- F4: 调整 tanh 输出范围\n"
+                f"- 检查 mean_head.weight 分布",
+                title="诊断结论 - H3 不成立"
+            )

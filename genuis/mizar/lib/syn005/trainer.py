@@ -18,6 +18,27 @@ class Trainer(object):
         if not os.path.exists(self.output_dirs):
             os.makedirs(self.output_dirs)
         self.feature_name_mapping = {}  # 存储原始特征名到清理后特征名的映射
+        # 自相关惩罚系数（可选），默认关闭。可在 train_params 中设置 autocorr_beta。
+        self.autocorr_beta = float(self.train_params.get("autocorr_beta", 0.0))
+
+    @staticmethod
+    def autocorr_penalty(h: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+        """
+        计算隐层时间步的 Lag-1 自相关惩罚。
+        h: [batch, seq_len, dim]
+        return: scalar tensor
+        """
+        if h.dim() != 3 or h.size(1) < 2:
+            return h.new_tensor(0.0)
+        x = h[:, 1:, :]
+        y = h[:, :-1, :]
+        x = x - x.mean(dim=(0, 1), keepdim=True)
+        y = y - y.mean(dim=(0, 1), keepdim=True)
+        num = (x * y).sum(dim=(0, 1))
+        den = (x.pow(2).sum(dim=(0, 1)).sqrt() * y.pow(2).sum(dim=(0, 1)).sqrt()) + eps
+        corr = num / den  # [dim]
+        return (corr.pow(2)).mean()
+
 
     def clean_feature_names(self, feature_names: List[str]) -> List[str]:
         """
@@ -328,9 +349,14 @@ class Trainer(object):
 
                 # 前向传播 (is_training=True 是模型内部的默认或需要手动设置)
                 # 我们的 TemporiorientTransformer 实现中，训练时自动遮盖
-                _enc_out, _dec_out, outputs = model(batch_inputs)
-
-                loss = criterion(outputs, batch_inputs)
+                enc_out, dec_out, outputs = model(batch_inputs)
+                
+                recon_loss = criterion(outputs, batch_inputs)
+                if self.autocorr_beta > 0:
+                    ac_penalty = self.autocorr_penalty(enc_out)
+                    loss = recon_loss + self.autocorr_beta * ac_penalty
+                else:
+                    loss = recon_loss
 
                 # 反向传播和优化
                 loss.backward()
@@ -348,9 +374,14 @@ class Trainer(object):
             with torch.no_grad():
                 for i, (batch_inputs, _) in enumerate(val_loader):
                     batch_inputs = batch_inputs.to(self.train_params['device'])
-                    _enc_out, _dec_out, outputs = model(
+                    enc_out, dec_out, outputs = model(
                         batch_inputs, masking_ratio=0)  # 重建任务，验证时也需要重建
-                    loss = criterion(outputs, batch_inputs)
+                    recon_loss = criterion(outputs, batch_inputs)
+                    if self.autocorr_beta > 0:
+                        ac_penalty = self.autocorr_penalty(enc_out)
+                        loss = recon_loss + self.autocorr_beta * ac_penalty
+                    else:
+                        loss = recon_loss
                     val_loss += loss.item()
                     if (i + 1) % 100 == 0:
                         logger.print(

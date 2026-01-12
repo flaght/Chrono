@@ -60,7 +60,7 @@ def train_model(method, task_id, instruments, period, name,
 
     name = create_train_records(method=method,task_id=task_id,instruments=instruments,period=period,
                          category='autoencode',params=TOTAL_PARAMS)
-
+    pdb.set_trace()
     # 理论分析
     compression_ratio_old = 128 / (240 * feature_dim)
     compression_ratio_new = AUTOENCODE_PARAMS['d_model'] / (TRAIN_PARAMS['seq_len'] * feature_dim)
@@ -171,11 +171,11 @@ def predict_model(method, task_id, instruments, period, name,
 if __name__ == '__main__':
     variant = Tactix().start()
 
-    #train_model(method=variant.method, instruments=variant.instruments,
-    #                task_id=variant.task_id, period=variant.period,
-    #                name=variant.name, nan_threshold=0.5,
-    #                var_threshold=1e-10,corr_threshold=0.95,
-    #                ic_threshold=0.01)
+    train_model(method=variant.method, instruments=variant.instruments,
+                    task_id=variant.task_id, period=variant.period,
+                    name=variant.name, nan_threshold=0.5,
+                    var_threshold=1e-10,corr_threshold=0.95,
+                    ic_threshold=0.01)
     predict_model(method=variant.method, instruments=variant.instruments,
                     task_id=variant.task_id, period=variant.period,
                     name=variant.name, nan_threshold=0.5,

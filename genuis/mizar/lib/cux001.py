@@ -278,8 +278,7 @@ class FactorEvaluate1(object):
         else:
             print(f"✅ ICIR ({ic_ir:.3f}) indicates stable performance.")
 
-    
-    def run(self, is_check=False, direction=None):
+    def run(self, is_check=False):
         ### 滚动标准化
         self._scale()
         ### 重采样
@@ -290,14 +289,11 @@ class FactorEvaluate1(object):
         self.resample_data = self.factor_data[is_on_mark].copy()
 
         ic_stats = self.cal_ic()
-        if isinstance(direction, int): ## 手动调整
-            self.resample_data['f_scaled'] *= direction
-        else:
-            if ic_stats['ic_mean'] < 0 :
-                self.resample_data['f_scaled'] *= -1
-                if is_check:
-                    print("INFO: IC Mean is negative. Factor has been inverted.")
-        self.resample_data = self.resample_data.dropna()
+        if ic_stats['ic_mean'] < 0:
+            self.resample_data['f_scaled'] *= -1
+            #ic_stats = self.cal_ic()
+            if is_check:
+                print("INFO: IC Mean is negative. Factor has been inverted.")
         if self.resample_data['f_scaled'].dropna().empty:
             return {
                 'total_ret': -1.0,
@@ -555,14 +551,10 @@ class FactorEvaluate1(object):
                 "Please run the 'plot_results()' method before saving results."
             )
 
-        timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
-        name = self.name if isinstance(self.name, str) else timestamp
-        output_dir = os.path.join(base_output_dir, name)
+        # 直接使用 base_output_dir，不创建子目录
+        output_dir = base_output_dir
         os.makedirs(output_dir, exist_ok=True)
         print(f"Saving results to: {output_dir}")
-
-        plot_output_dir = os.path.join(base_output_dir, "plot")
-        os.makedirs(plot_output_dir, exist_ok=True)
 
         # 1. 保存绩效文本
         summary_path = os.path.join(output_dir, "performance_summary.txt")
@@ -591,9 +583,5 @@ class FactorEvaluate1(object):
         # 3. 保存图表
         image_path = os.path.join(output_dir, "evaluation_plot.png")
         self.figure.savefig(image_path, dpi=300)
-        print(f"Evaluation plot saved to: {image_path}")
-
-        image_new_path = os.path.join(plot_output_dir, "{0}.png".format(name))
-        self.figure.savefig(image_new_path, dpi=300)
         plt.close(self.figure)
-        print(f"Evaluation plot also saved to: {image_new_path}")
+        print(f"Evaluation plot saved to: {image_path}")
