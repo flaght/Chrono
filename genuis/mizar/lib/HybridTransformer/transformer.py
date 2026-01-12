@@ -617,14 +617,16 @@ class SeqDecOnlyNLLTransformer(nn.Module):
                  output_variance=True,  # 是否输出方差
                  var_min=1e-6,        # 方差下限
                  var_max=1e-4,        # 方差上限
-                 bias=0.05):          # 均值输出范围
+                 bias=0.05,             # 均值输出范围
+                 weight_init_range=0.05):        
         super(SeqDecOnlyNLLTransformer, self).__init__()
         self.d_model = d_model
         self.output_variance = output_variance
         self.var_min = var_min
         self.var_max = var_max
         self.bias = bias
-
+        self.weight_init_range = weight_init_range
+        
         # 输入嵌入层
         self.embedding = DataEmbedding(enc_in, d_model, dropout)
 
@@ -654,7 +656,8 @@ class SeqDecOnlyNLLTransformer(nn.Module):
         # 均值预测头
         self.mean_head = nn.Linear(d_model, 1, bias=True)
         nn.init.constant_(self.mean_head.bias, 0.0)
-        nn.init.uniform_(self.mean_head.weight, -0.01, 0.01)
+        nn.init.uniform_(self.mean_head.weight, -self.weight_init_range, self.weight_init_range)
+        #nn.init.xavier_uniform_(self.mean_head.weight)  # 方案F1:
 
         # 方差预测头
         if self.output_variance:
@@ -664,15 +667,17 @@ class SeqDecOnlyNLLTransformer(nn.Module):
     def hidden_size(self):
         return self.d_model
 
-    def forward(self, inputs):
+    def forward(self, inputs, return_hidden=False):
         """
         Args:
             inputs: [batch, seq_len, enc_in]  例如 [256, 60, 64]
+            return_hidden: 是否返回 last_hidden 用于诊断
 
         Returns:
             dec_out: [batch, seq_len, d_model]  解码器输出
             output: [batch, 2] 如果 output_variance=True
                     [batch, 1] 如果 output_variance=False
+            last_hidden: [batch, d_model] 如果 return_hidden=True
         """
         # 1. 嵌入
         x = self.embedding(inputs)  # [batch, seq_len, d_model]
@@ -704,4 +709,6 @@ class SeqDecOnlyNLLTransformer(nn.Module):
 
         # 返回格式保持与原模型兼容
         # 注意: 没有 enc_out 了，用 None 或 dec_out 替代
+        if return_hidden:
+            return None, dec_out, output, last_hidden
         return None, dec_out, output

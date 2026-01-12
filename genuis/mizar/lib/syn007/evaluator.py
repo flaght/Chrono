@@ -353,6 +353,7 @@ class Evaluator(object):
         returns: pd.Series,
         period: int,
         model=None,  # 新增: 用于参数诊断
+        test_loader=None,  # 新增: 用于 hidden 诊断
     ) -> Dict:
         """
         测试集评估 - 侧重策略评估
@@ -371,6 +372,7 @@ class Evaluator(object):
             returns: 收益率序列 (需包含 nxt1_ret_{period}h 列)
             period: 预测周期
             model: 模型对象，用于参数诊断 (可选)
+            test_loader: 测试数据加载器，用于 hidden 诊断 (可选)
 
         Returns:
             包含策略评估结果的Dict
@@ -380,6 +382,9 @@ class Evaluator(object):
         # ========== 新增: 模型参数诊断 ==========
         if model is not None:
             self._display_model_diagnosis(model)
+            # Hidden 分布诊断 (方案A2)
+            if test_loader is not None:
+                self._display_hidden_diagnosis(model, test_loader)
 
         results = {}
 
@@ -1004,3 +1009,108 @@ class Evaluator(object):
                     f"建议: 检查 last_hidden 分布 (H3)",
                     title="诊断结论 - H2 不成立，检查 H3"
                 )
+
+    def _display_hidden_diagnosis(self, model, test_loader):
+        """诊断 last_hidden 分布 - 方案A2 (验证 H3 假设)"""
+        import torch
+        logger.rule("Last Hidden 分布诊断 (方案A2)")
+
+        # 获取模型所在设备
+        device = next(model.parameters()).device
+
+        model.eval()
+        all_hidden = []
+
+        with torch.no_grad():
+            for batch in test_loader:
+                if isinstance(batch, (list, tuple)):
+                    x = batch[0]
+                else:
+                    x = batch
+
+                # 移动到模型所在设备
+                x = x.to(device)
+
+                # 调用模型获取 last_hidden
+                result = model(x, return_hidden=True)
+                last_hidden = result[-1]  # [batch, d_model]
+                all_hidden.append(last_hidden.cpu())
+
+        # 合并所有 hidden
+        all_hidden = torch.cat(all_hidden, dim=0)  # [N, d_model]
+        n_samples, d_model = all_hidden.shape
+
+        # 统计分析
+        global_mean = all_hidden.mean().item()
+        global_std = all_hidden.std().item()
+
+        # 每个维度的统计
+        dim_means = all_hidden.mean(dim=0)  # [d_model]
+        dim_stds = all_hidden.std(dim=0)    # [d_model]
+
+        avg_dim_std = dim_stds.mean().item()
+        min_dim_std = dim_stds.min().item()
+        max_dim_std = dim_stds.max().item()
+
+        # 每个样本的 L2 范数
+        sample_norms = torch.norm(all_hidden, dim=1)  # [N]
+        avg_norm = sample_norms.mean().item()
+        std_norm = sample_norms.std().item()
+
+        # 样本间余弦相似度 (采样计算，避免 O(N^2))
+        n_sample_pairs = min(1000, n_samples)
+        indices = torch.randperm(n_samples)[:n_sample_pairs]
+        sampled = all_hidden[indices]
+        sampled_norm = sampled / (sampled.norm(dim=1, keepdim=True) + 1e-8)
+        cos_sim_matrix = torch.mm(sampled_norm, sampled_norm.t())
+        # 取上三角 (不含对角线)
+        triu_indices = torch.triu_indices(n_sample_pairs, n_sample_pairs, offset=1)
+        cos_similarities = cos_sim_matrix[triu_indices[0], triu_indices[1]]
+        avg_cos_sim = cos_similarities.mean().item()
+
+        # 显示结果
+        rows = [
+            {'指标': 'n_samples', '值': f"{n_samples}"},
+            {'指标': 'd_model', '值': f"{d_model}"},
+            {'指标': 'global_mean', '值': f"{global_mean:.6f}"},
+            {'指标': 'global_std', '值': f"{global_std:.6f}"},
+            {'指标': 'avg_dim_std', '值': f"{avg_dim_std:.6f}"},
+            {'指标': 'min_dim_std', '值': f"{min_dim_std:.6f}"},
+            {'指标': 'max_dim_std', '值': f"{max_dim_std:.6f}"},
+            {'指标': 'avg_sample_norm', '值': f"{avg_norm:.4f}"},
+            {'指标': 'std_sample_norm', '值': f"{std_norm:.6f}"},
+            {'指标': 'avg_cos_similarity', '值': f"{avg_cos_sim:.4f}"},
+        ]
+
+        logger.table(rows, title="Last Hidden 统计")
+
+        # 诊断结论
+        collapse_threshold = 0.01
+        cos_sim_threshold = 0.95
+
+        is_variance_collapse = avg_dim_std < collapse_threshold
+        is_highly_similar = avg_cos_sim > cos_sim_threshold
+
+        if is_variance_collapse or is_highly_similar:
+            logger.panel(
+                f"H3 成立: Hidden 表示坍缩!\n\n"
+                f"avg_dim_std = {avg_dim_std:.6f} {'< ' + str(collapse_threshold) if is_variance_collapse else ''}\n"
+                f"avg_cos_sim = {avg_cos_sim:.4f} {'> ' + str(cos_sim_threshold) if is_highly_similar else ''}\n\n"
+                f"问题在 Decoder 层或输入特征\n\n"
+                f"建议方案:\n"
+                f"- F1: 检查输入特征分布\n"
+                f"- F2: 增大 Decoder 学习率\n"
+                f"- F3: 减少 Decoder 层数",
+                title="诊断结论 - H3 成立"
+            )
+        else:
+            logger.panel(
+                f"H3 不成立: Hidden 表示正常\n\n"
+                f"avg_dim_std = {avg_dim_std:.6f} >= {collapse_threshold}\n"
+                f"avg_cos_sim = {avg_cos_sim:.4f} <= {cos_sim_threshold}\n\n"
+                f"问题在 mean_head 权重或 tanh 压缩\n\n"
+                f"建议方案:\n"
+                f"- F4: 调整 tanh 输出范围\n"
+                f"- 检查 mean_head.weight 分布",
+                title="诊断结论 - H3 不成立"
+            )

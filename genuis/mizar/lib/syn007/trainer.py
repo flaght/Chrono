@@ -9,35 +9,44 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from lib import logger
 
-def gaussian_nll_loss(pred_mean, pred_var, target, 
-                      lambda_diversity=1.0):
+def gaussian_nll_loss(pred_mean, pred_var, target,
+                      lambda_diversity=1.0, lambda_pred_mean=0.0):
     """
-    改进版：使用相对标准差计算多样性惩罚
+    改进版：使用相对标准差计算多样性惩罚 + 添加预测均值约束
+
+    Args:
+        lambda_diversity: 方差多样性惩罚系数
+        lambda_pred_mean: 预测均值约束系数 (方案C: 约束预测均值接近0)
     """
     # 转换参数类型
     lambda_diversity = float(lambda_diversity)
-    
+    lambda_pred_mean = float(lambda_pred_mean)
+
     if pred_mean.shape != target.shape:
         target = target.view_as(pred_mean)
     if pred_var.shape != target.shape:
         pred_var = pred_var.view_as(pred_mean)
-    
+
     # NLL Loss (不需要裁剪)
     nll = 0.5 * (torch.log(pred_var) + (target - pred_mean).pow(2) / pred_var)
     nll_loss = nll.mean()
-    
+
     # 方差多样性鼓励 (使用相对标准差)
     var_mean = torch.mean(pred_var)
     var_std = torch.std(pred_var)
-    
+
     # 相对标准差: std / mean，范围在 0~1 之间
     # 加 1e-8 防止除零
     relative_std = var_std / (var_mean + 1e-8)
-    
+
     # 多样性惩罚: 鼓励高相对标准差
     diversity_penalty = -lambda_diversity * relative_std
-    
-    return nll_loss + diversity_penalty
+
+    # 方案C: 预测均值约束 - 惩罚预测均值偏离0
+    # 这比直接约束 bias 更合理，因为它约束的是整体预测分布
+    pred_mean_penalty = lambda_pred_mean * pred_mean.mean().pow(2)
+
+    return nll_loss + diversity_penalty + pred_mean_penalty
 
 
 
@@ -325,9 +334,10 @@ class Trainer(object):
                         pred_mean = outputs[:, 0]
                         pred_var = outputs[:, 1]
                         loss = criterion(
-                            pred_mean=pred_mean, pred_var=pred_var, 
+                            pred_mean=pred_mean, pred_var=pred_var,
                             target=batch_targets,
-                            lambda_diversity=self.train_params['lambda_diversity'])
+                            lambda_diversity=self.train_params['lambda_diversity'],
+                            lambda_pred_mean=self.train_params.get('lambda_pred_mean', 0.0))
                     else:
                         # 如果模型输出形状不对，抛出异常
                         raise ValueError("Model output shape mismatch for Gaussian NLL. Expected [batch, 2].")
@@ -366,7 +376,8 @@ class Trainer(object):
                         if outputs.shape[-1] == 2:
                             pred_mean = outputs[:, 0]
                             pred_var = outputs[:, 1]
-                            loss = criterion(pred_mean, pred_var, batch_targets,lambda_diversity=self.train_params.get('lambda_diversity', 0))
+                            loss = criterion(pred_mean, pred_var, batch_targets,
+                                    lambda_diversity=self.train_params.get('lambda_diversity', 0))
                             # 同时记录 MSE 以便对比
                             mse = F.mse_loss(pred_mean, batch_targets.view_as(pred_mean))
                             val_mse += mse.item()
