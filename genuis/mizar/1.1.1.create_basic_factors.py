@@ -12,6 +12,8 @@ from kdutils.ttimes import get_dates
 from kdutils.macro import base_path
 from config.contract import INSTRUMENTS_CODES
 from kdutils.data import fetch_main_market
+from kdutils.tactix import Tactix
+
 import lumina.env as env
 
 env.g_format = 2
@@ -219,6 +221,7 @@ def fetch_returns(begin_date, end_date, codes):
 
 
 def returns(method, instruments):
+    pdb.set_trace()
     start_date, end_date = get_dates(method)
     begin_date1 = advanceDateByCalendar("china.sse", start_date,
                                         '-5b').strftime('%Y-%m-%d')
@@ -237,10 +240,10 @@ def returns(method, instruments):
 
     times = returns_data['trade_time'].unique().tolist()
 
-    len1 = round(len(times) * 0.7)  # 70%部分
+    len1 = round(len(times) * 0.6)  # 70%部分
     len2 = round(len(times) * 0.2)  # 20%部分
     len3 = len(times) - len1 - len2
-
+    pdb.set_trace()
     ## 训练集
     train_data = returns_data[returns_data['trade_time'].isin(times[:len1])]
     val_data = returns_data[returns_data['trade_time'].isin(times[len1:len1 +
@@ -262,6 +265,17 @@ def returns(method, instruments):
         os.path.join(target_dir, 'test_returns.feather'))
 
 
+if __name__ == '__main__':
+    pdb.set_trace()
+    variant = Tactix().start()
+    if variant.form == 'factors':
+        main(method=variant.method, instruments=variant.instruments)
+    elif variant.form == 'merge':
+        merge(method=variant.method, instruments=variant.instruments)
+    elif variant.form == 'returns':
+        returns(method=variant.method, instruments=variant.instruments)
+        
+
 #main(method='dicso2', instruments='rbb')
-merge(method='dicso2', instruments='rbb')
-returns(method='dicso2', instruments='rbb')
+#merge(method='dicso2', instruments='rbb')
+#returns(method='dicso2', instruments='rbb')

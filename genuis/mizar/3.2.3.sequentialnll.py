@@ -374,7 +374,10 @@ def train_model(method, task_id, instruments, period, name, nan_threshold,
     evaluator = Evaluator(
         resampling_win=period,
         roll_wins=[15,60, 120, 240],
-        scale_method="roll_zscore"
+        scale_method="roll_zscore",
+        output_dir=outdirs,
+        model_id=name,
+        save_plots=True
     )
     
     returns_df = autocode_data[['trade_time', f'nxt1_ret_{period}h']].copy()
@@ -457,7 +460,10 @@ def predict_model(method, task_id, instruments, period, name, nan_threshold,
     evaluator = Evaluator(
         resampling_win=period,
         roll_wins=[15,60, 120, 240],
-        scale_method="roll_zscore"
+        scale_method="roll_zscore",
+        output_dir=outdirs,
+        model_id=name,
+        save_plots=True
     )
 
     returns_df = autocode_data[['trade_time', f'nxt1_ret_{period}h']].copy()

@@ -124,6 +124,7 @@ def metrics1(method,
                                     instruments=instruments,
                                     task_id=task_id,
                                     period=period)
+    pdb.set_trace()
     evalute_metrics(method=method,
                     instruments=instruments,
                     lnstruments=instruments,
