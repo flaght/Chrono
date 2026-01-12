@@ -110,14 +110,14 @@ def run2(method,
                                instruments=instruments,
                                task_id=task_id,
                                period=period)
-
+    pdb.set_trace()
     formulas_in = chosen_data['formula']
     is_not_in_p2 = ~programs['formual'].isin(formulas_in)
     programs = programs[is_not_in_p2]
 
     programs['final_fitness'] = np.abs(programs['final_fitness'])
 
-    programs = programs[programs['final_fitness'] > 0.03]
+    programs = programs[programs['final_fitness'] > 0.02]
 
     features = [
         eval(program.formual)._dependency for program in programs.itertuples()
@@ -137,8 +137,9 @@ def run2(method,
     expression_list = programs['formual'].tolist()
     expression_list = [
         expression for expression in expression_list
-        if len(extract_operators(expression)) < 4
+        if len(extract_operators(expression)) < 5
     ]
+    pdb.set_trace()
     process_list = split_k(k_split, expression_list)
     res = create_parellel(process_list=process_list,
                           callback=run_evalute,

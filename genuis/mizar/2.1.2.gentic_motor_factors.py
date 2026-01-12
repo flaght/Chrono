@@ -9,7 +9,10 @@ load_dotenv()
 from kdutils.tactix import Tactix
 
 #from ultron.factor.genetic.geneticist.operators import custom_transformer
+from ultron.ump.similar.corrcoef import corr_xy
+from ultron.ump.similar.corrcoef import ECoreCorrType
 from ultron.factor.genetic.geneticist.operators import Operators
+from ultron.factor.genetic.geneticist.operators import calc_factor
 from lumina.evolution.genetic import merge_factors
 from lumina.evolution.engine import Engine
 from lumina.evolution.warehouse import sequential_gain
@@ -20,6 +23,37 @@ from kdutils.common import fetch_temp_data, fetch_temp_returns
 #from lib.aux001 import *
 from lib.cux001 import *
 
+
+class Warehouse(object):
+    def __init__(self):
+        ##预计算好精选因子库的收益率值
+        self.factors = [
+            "DELTA(120,MSUM(120,DELTA(90,'high')))",
+            "MSLMean(30,'pct_change','corr_vwap_ret')",
+            "MARGMAX(30,MVARIANCE(10,MARGMAX(5,'delta_volume_bid5')))"
+        ]
+        self.evaluate_results = []
+
+    
+    ## 计算绩效 保留收益率
+    def calculate_evaluate(self, total_data, horizon, indexs=['trade_time'], key='code'):
+        for factor in self.factors:
+            factor_data = calc_factor(factor, total_data, indexs, key)
+            factor_data = factor_data.reset_index().merge(
+                total_data.reset_index()[['trade_time','code','nxt1_ret']], 
+                on=['trade_time', 'code'])
+            evaluate1 = FactorEvaluate1(factor_data=factor_data,
+                                factor_name='transformed',
+                                ret_name='nxt1_ret',
+                                roll_win=15,resampling_win=horizon,
+                                fee=0.000,
+                                scale_method='roll_zscore')
+            evaluate1.run()
+            returns = evaluate1.resample_data['nav']
+            returns.name = factor
+            self.evaluate_results.append(returns)
+
+warehouse = Warehouse()
 
 def callback_models(gen, rootid, best_programs, custom_params, total_data):
     #candidate_factors = merge_factors(best_programs=best_programs)
@@ -118,6 +152,7 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
                      default_value):
     fee = 0.000003
     min_ic_threshold = 0.001  # 全周期IC至少要大于1%
+
     try:
         returns = total_data[['trade_time', 'code', 'nxt1_ret']]
         if 'trade_time' not in factor_data.columns:
@@ -164,6 +199,7 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     if abs(fitness) < min_ic_threshold:
         return 0.0  # 预测能力太弱，直接淘汰
 
+    
     ## 不是有限数   ## 为nan
     if not np.isfinite(stats_df['calmar']) or np.isnan(
             stats_df['calmar']) or stats_df['calmar'] <= 0:
@@ -178,17 +214,30 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     ## ic 绝对值大于1 不正常
     if fitness >= 1:
         return 0.0
+
+
     '''
+    ### 过滤相关性
+    if custom_params['corr']['corr_threshold'] > 0 and custom_params['corr']['corr_threshold'] < 1:
+        for results in warehouse.evaluate_results:
+            corr = corr_xy(evaluate1.resample_data['nav'], results, ECoreCorrType.E_CORE_TYPE_SPERM)
+            if corr > custom_params['corr']['corr_threshold']:
+                return 0.0
+
+    ### 过滤那些毫无波动的因子
     if data['transformed'].std() < 1e-8:
         return 0.0
-
+    '''
     ic, _ = stats.spearmanr(data['transformed'], data['nxt1_ret'])
     if not np.isfinite(ic):
         return 0.0
+    
+    '''
     if abs(ic) < min_ic_threshold:
         return 0.0  # 预测能力太弱，直接淘汰
-    fitness = math.fabs(ic)
     '''
+    fitness = math.fabs(ic)
+    
     '''
     try:
         #   i. 因子缩放 (使用全样本z-score，速度快)
@@ -236,7 +285,7 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     return fitness
 
 
-def train(method, instruments, period, session, task_id, count=0):
+def train(method, instruments, period, session, task_id, corr_threshold, count=0):
     two_operators_sets = [
         'MConVariance', 'MMASSI', 'MACCBands', 'MPWMA', 'MIChimoku', 'MRes',
         'MMeanRes', 'MCORR', 'MCoef', 'MSLMean', 'MSmart', 'MSharp',
@@ -274,12 +323,14 @@ def train(method, instruments, period, session, task_id, count=0):
                                        datasets=['train', 'val'],
                                        category='returns')
     total_data = total_factors.merge(total_returns, on=['trade_time', 'code'])
-
+    
     total_data.filter(regex="^nxt1").columns.to_list()
     nxt1_columns = total_data.filter(regex="^nxt1").columns.to_list()
+   
     basic_columns = [
         'close', 'high', 'low', 'open', 'value', 'volume', 'openint'
     ]
+    basic_columns = list(set(basic_columns) & set(total_data.columns))
 
     regex_pattern = r'^[^_]+_(5|10|15)_.*'
     not_columns = total_data.columns[total_data.columns.str.contains(
@@ -289,12 +340,17 @@ def train(method, instruments, period, session, task_id, count=0):
         if col not in ['trade_time', 'code', 'symbol'] + nxt1_columns +
         basic_columns + ['time_weight', 'equal_weight'] + not_columns.tolist()
     ]
+    filter_columns = ['twap','pct_change','high','close','low','open',
+                        'smart_tick_in','smart_money_in_pct','pct_change_close',
+                        'smart_tick_in_pct','pct_change']
+    pdb.set_trace()
+
+    use_factor_columns = [col for col in factor_columns if col not in filter_columns]
     ## 随机取个数
 
     ##
     #if feature_count > 0:
     #    pdb.set_trace()
-    pdb.set_trace()
     if str(rootid) != '200037':
         factor_columns = factor_columns if count == 0 else random.sample(factor_columns, count)
         factor_columns = ['cj010_1_2_0', 'cr006_1_2_0', 'tc002_1_2_0', 'cr020_1_2_0', 'iv010_1_2_1', 'cj010_2_3_0', 'oi008_1_2_1', 'cr020_1_2_1', 'tv011_1_1_2_1', 'ixy010_1_2_0', 'tv019_1_2_0', 'ixy011_1_2_0', 'cj003_2_3_0', 'rv008_1_2_1_2', 'dv011_1_2_1', 'tc010_1_2_1', 'cr006_1_2_1', 'oi013_1_2_0', 'iv010_1_2_0', 'tc016_1_1_2_1']
@@ -332,7 +388,7 @@ def train(method, instruments, period, session, task_id, count=0):
                                                    on=['trade_time', 'code'])
     else:
         factors_data = total_data[['trade_time', 'code'] +
-                                  factor_columns].merge(
+                                  factor_columns + basic_columns].merge(
                                       total_returns[[
                                           'trade_time', 'code', return_name
                                       ]],
@@ -340,17 +396,16 @@ def train(method, instruments, period, session, task_id, count=0):
 
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
     operators_sets = two_operators_sets  + one_operators_sets
-    pdb.set_trace()
     #operators_sets = custom_transformer(operators_sets)
     #  5 10 15 30 60 90 120 240
 
     operators_sets = Operators(periods=[5, 10, 15, 30, 60, 90, 120, 240
                                         ]).custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 1000  # 5w
-    tournament_size = 500  # 1K
+    population_size = 3000  # 5w
+    tournament_size = 1000  # 1K
     standard_score = 0.001
-    generations = 3
+    generations = 4
     custom_params = {
         'horizon': str(period),
         'rootid': rootid,
@@ -361,6 +416,9 @@ def train(method, instruments, period, session, task_id, count=0):
         'g_instruments': instruments,
         'return_name': return_name,
         'session': session,
+        'corr':{
+            'corr_threshold': corr_threshold,  ## 单纯计算收益率相关性
+        },
         #'gain': {
         #    'corr_threshold': 0.75,  ## 相关性
         #    'fitness_scale': 0.5,  ## 标准分缩放
@@ -418,7 +476,7 @@ def train(method, instruments, period, session, task_id, count=0):
                     p_hoist_mutation=configure['hoist_mutation'],
                     p_point_replace=configure['point_replace'],
                     rootid=configure['rootid'],
-                    factor_sets=factor_columns,
+                    factor_sets=use_factor_columns, #factor_columns, 用于使用的特征例
                     standard_score=configure['standard_score'],
                     operators_sets=operators_sets,
                     backup_cycle=1,
@@ -426,8 +484,9 @@ def train(method, instruments, period, session, task_id, count=0):
                     fitness=callback_fitness,
                     save_model=callback_models,
                     custom_params=configure['custom_params'])
-    pdb.set_trace()
     factors_data = factors_data.set_index('trade_time')
+    if corr_threshold > 0 and corr_threshold < 1: ## 使用精选因子库相关性过滤
+        warehouse.calculate_evaluate(factors_data, period)
     engine.train(total_data=factors_data)
 
 
@@ -467,4 +526,5 @@ if __name__ == '__main__':
           period=variant.period,
           task_id=variant.task_id,
           session=variant.session,
-          count=variant.count)
+          count=variant.count,
+          corr_threshold=variant.corr_threshold)

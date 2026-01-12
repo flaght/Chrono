@@ -97,6 +97,7 @@ def main(method, instruments):
                              end_date=end_date,
                              codes=[INSTRUMENTS_CODES[instruments]])
     data = data.set_index(['trade_time', 'code']).unstack()
+    pdb.set_trace()
     calculate_factors(data,
                       instruments=instruments,
                       callback=callback_save,
