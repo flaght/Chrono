@@ -39,23 +39,8 @@ if __name__ == '__main__':
                           name=variant.name)
 
     elif variant.form == 'lgb':
-        pdb.set_trace()
         lgb_train_model(method=variant.method,
                         instruments=variant.instruments,
                         task_id=variant.task_id,
                         period=variant.period,
                           name=variant.name)
-   
-    elif variant.form == 'opt_lgb':
-        lgb_optuna_model(method=variant.method,
-                         instruments=variant.instruments,
-                         task_id=variant.task_id,
-                         period=variant.period)
-    
-    elif variant.form == 'multi_opt_lgb':
-        multi_lgb_optuna_model(
-            method=variant.method,
-                         instruments=variant.instruments,
-                         task_id=variant.task_id,
-                         period=variant.period
-        )

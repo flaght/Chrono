@@ -19,7 +19,8 @@ class Featurer(object):
     
     def calculate_ic(self, df: pd.DataFrame, 
                     feature_cols: List[str],
-                    roll_method=None, roll_win=0, resampling_win=0,) -> Dict[str, float]:
+                    roll_win=0, 
+                    resampling_win=0) -> Dict[str, float]:
         #logger.print("\n计算因子IC（Information Coefficient）")
         #logger.print("-" * 40)
         #logger.print(f"  【说明】IC是因子与目标变量的相关系数，衡量因子的预测能力")
@@ -29,7 +30,7 @@ class Featurer(object):
         ic_dict = {}
         for i, col in enumerate(logger.progress(feature_cols, description="[green]计算因子IC...[/green]"), 1):
             try:
-                if isinstance(roll_method, str) and roll_win > 0 and resampling_win > 0:
+                if roll_win > 0 and resampling_win > 0:
                     df1 = df[['trade_time','code',col, self.target_col]]
                     is_on_mark = df1['trade_time'].dt.minute % int(resampling_win) == 0
                     resample_data = df1[is_on_mark]
@@ -84,7 +85,6 @@ class Featurer(object):
         logger.panel(f"    矩阵大小: {len(feature_cols)} × {len(feature_cols)}",
                      f"计算特征相关性矩阵...")
 
-        pdb.set_trace()
         corr_matrix = X.corr().abs()
 
         #logger.print(f"\n  步骤2: 识别高相关特征对...")
@@ -132,22 +132,24 @@ class Featurer(object):
         
         
     def select_features(self, df: pd.DataFrame,
-                       corr_threshold: float = None,
-                       ic_threshold: float = None) -> Tuple[List[str], Dict[str, float]]:
-
+                       ic_threshold: float = None,
+                       roll_win: int = 0,
+                       resampling_win: int = 0) -> Tuple[List[str], Dict[str, float]]:
+        
         logger.rule(f"特征工程 【目的】筛选有效特征，提升模型性能")
 
         # 获取特征列
         logger.print("\n提取特征列")
         logger.print("-" * 40)
         feature_cols = self.get_feature_columns(df)
-        pdb.set_trace()
+        
         logger.print(f"  原始特征数: {len(feature_cols)}")
 
-        ic_dict,ic_series = self.calculate_ic(df, feature_cols)
-        pdb.set_trace()
-        droped_features = ic_series[ic_series<0.01].index.tolist()
-        selected_features = ic_series[ic_series>=0.01].index.tolist()
+        ic_dict,ic_series = self.calculate_ic(df=df, feature_cols=feature_cols,
+                                roll_win=roll_win, resampling_win=resampling_win)
+        
+        droped_features = ic_series[ic_series<ic_threshold].index.tolist()
+        selected_features = ic_series[ic_series>=ic_threshold].index.tolist()
 
         df = df.drop(droped_features,axis=1)
 

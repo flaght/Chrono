@@ -69,7 +69,7 @@ class DataLoader(object):
         return df
 
     def load_from_project(self, method: str, task_id: int, instruments: str,
-                          period: int, name: str) -> pd.DataFrame:
+                          period: int, name: str, features:list=[]) -> pd.DataFrame:
         """
         从项目特定路径加载数据（如果项目模块可用）
         
@@ -89,7 +89,7 @@ class DataLoader(object):
                                  task_id=task_id,
                                  instruments=instruments)
 
-        pdb.set_trace()
+        
         # 构建文件路径
         dirs = os.path.join(base_path, method, instruments, 'temp', "model",
                             str(task_id), str(period))
@@ -98,6 +98,8 @@ class DataLoader(object):
         logger.print(f"从项目路径加载数据: {filename}")
         df = pd.read_feather(filename)
         logger.print(f"✓ 数据加载成功: {df.shape}")
+        if len(features) > 0:
+            df = df[['trade_time','code', "nxt1_ret_{0}h".format(period)] + features]
 
         #df = df[(df.trade_time >= time_array['train_time'][0])&(df.trade_time <= time_array['val_time'][1])]
         train_data = df[(df.trade_time >= time_array['train_time'][0])&(df.trade_time <= time_array['train_time'][1])]
@@ -160,3 +162,4 @@ class DataLoader(object):
         logger.info(f"  内存占用: {df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
 
         return True
+
