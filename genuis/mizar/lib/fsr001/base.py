@@ -243,7 +243,6 @@ def train_model_coefs(method, task_id, instruments, period, name,
     X = fit_data[features]
     X.columns = new_columns
     y = fit_data['nxt1_ret_{0}h'.format(period)]
-    
     # 训练模型
     model = model_class(random_state=random_state, **model_params)
     model.fit(X, y)

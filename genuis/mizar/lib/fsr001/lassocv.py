@@ -17,7 +17,7 @@ def train_model(method, task_id, instruments, period, name):
                     period=period,name=name,
                     model_class=LassoCV, 
                     model_params=use_params['model_params'])
-    
+    pdb.set_trace()
     analysis_results = analyze_feature(valid_coefficients)
     show_results(analysis_results=analysis_results, name=LassoCV.__name__)
     
