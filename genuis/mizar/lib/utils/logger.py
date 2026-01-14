@@ -1,5 +1,5 @@
 # rich_logger.py
-import logging
+import logging, os, pdb
 import pandas as pd
 from typing import Optional, Iterable
 from io import StringIO
@@ -36,8 +36,25 @@ class RichLogger:
         self.log_file = log_file
         self.console = Console()
         self.logger = logging.getLogger(name)
+
+        if self.log_file:
+            self._ensure_log_directory()
         
         self._setup_logger()
+
+    def _ensure_log_directory(self):
+        if not self.log_file:
+            return
+        
+        log_dir = os.path.dirname(self.log_file)
+        # 如果目录路径不为空（即log_file包含目录路径）
+        if log_dir and not os.path.exists(log_dir):
+            try:
+                os.makedirs(log_dir, exist_ok=True)
+                # 可选：记录目录创建信息
+                print(f"创建日志目录: {log_dir}")
+            except (OSError, PermissionError) as e:
+                raise RuntimeError(f"无法创建日志目录 '{log_dir}': {e}") from e
 
     def _setup_logger(self):
         """内部方法，根据当前设置配置logger handlers。"""
@@ -305,4 +322,6 @@ class RichLogger:
             # 同时写入文件
             self._write_to_file("")
 
-logger = RichLogger(name="mizar", log_file="pipeline.log")
+logger = RichLogger(name="mizar", 
+                    log_file=os.path.join(os.path.expanduser('~'), 
+                    "kd", "rich.log"))

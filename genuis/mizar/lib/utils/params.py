@@ -32,12 +32,11 @@ class Params(object):
     def create_tag(cls, params):
         return cls._create_tag(params=params)
 
-    def save_params_with_content(self, params: dict, artifacts: dict=None):
+    def save_params_with_content(self, params: dict, artifacts: dict=None, params_tag: dict=None):
         # 1. 切换到当前对象的环境 (关键步骤)
         self._activate_context()
         # 2. 生成指纹
-        params_tag = self._create_tag(params)
-        
+        params_tag = self._create_tag(params) if params_tag is None else params_tag         
         # 3. 执行存储
         with mlflow.start_run(run_name=params_tag):
             mlflow.set_tag("params_tag", params_tag)

@@ -15,29 +15,47 @@ from lib.syn004.evaluator import Evaluator
 from kdutils.tactix import Tactix
 
 
-def preprocess_data(method, instruments, task_id, period, name, 
-          nan_threshold, var_threshold, corr_threshold,
-          ic_threshold):
 
-    logger.configure(log_file="./filename.log")
+def select_features(outdirs, feature_id):
+    filename = os.path.join(outdirs, "selection", str(feature_id), "selected_features.feather")
+    selected_features = pd.read_feather(filename)
+    return selected_features
+
+def preprocess_data(method, instruments, task_id, period, name):
+
     outdirs = os.path.join(base_path, method, instruments, 'temp', "model",
                         str(task_id), str(period),"research")
     if not os.path.exists(outdirs):
         os.makedirs(outdirs)
+
+    _,_,DATA_PARAMS = load_params1(
+        file_dirs=outdirs, name="lgbm", model_name='params1', 
+        train_name="params1", data_name="params1")
+
+    features_pd = select_features(outdirs=outdirs, feature_id=DATA_PARAMS['feature_id'])
     loader = DataLoader() ## 加载数据
-    ### 加载所有数据，进行预处理
-    train_data,val_data,test_data = loader.load_from_project(method=method, task_id=task_id, 
-                                    instruments=instruments, 
-                                    period=period, name=name)
+    ### 加载所有数据，进行预处理, 加载指定筛选特征表
     pdb.set_trace()
+
+    TOTAL_PARAMS = copy.deepcopy(DATA_PARAMS)
+    pdb.set_trace()
+    create_train_records(method=method,task_id=task_id,instruments=instruments,
+                        period=period,category='lgbm',params=TOTAL_PARAMS)
+
+
+    train_data,val_data,test_data = loader.load_from_project(
+                                    method=method, task_id=task_id, 
+                                    instruments=instruments, 
+                                    period=period, name=name,
+                                    features=features_pd['factor'].tolist())
     ### 特征评估基于 训练集 + 校验集
     ### 清洗数据基于 训练集 + 校验集 + 测试集
     final_data = pd.concat([train_data, val_data, test_data],axis=0).sort_values(by=['trade_time','code'])
     factors_data = pd.concat([train_data, val_data],axis=0).sort_values(by=['trade_time','code'])
 
     cleaner = DataCleaner(
-            nan_threshold=nan_threshold,
-            var_threshold=var_threshold,
+            nan_threshold=float(DATA_PARAMS['nan_threshold']),
+            var_threshold=float(DATA_PARAMS['var_threshold']),
             target_col="nxt1_ret_{}h".format(period)
         )
     
@@ -48,67 +66,69 @@ def preprocess_data(method, instruments, task_id, period, name,
 
     ### 保存用于后面训练
     save_clean_data(output=outdirs, data=final_data, 
-                    params={'nan_threshold':nan_threshold,'var_threshold':var_threshold})
+                    params=DATA_PARAMS)
 
     ### 用于特征功能 不能接触测试集
-    engineer = Featurer(corr_threshold=corr_threshold,
-                        ic_threshold=ic_threshold,
+    engineer = Featurer(corr_threshold=float(DATA_PARAMS['corr_threshold']),
+                        ic_threshold=float(DATA_PARAMS['ic_threshold']),
                         target_col="nxt1_ret_{}h".format(period))
     
-    selected_features, ic_dict = engineer.select_features(factors_data)
+    ### 根据数据特性再做一次处理
+    selected_features, ic_dict = engineer.select_features(
+        df=factors_data,ic_threshold=float(DATA_PARAMS['ic_threshold']),
+        roll_win=int(DATA_PARAMS['roll_win']),
+        resampling_win=int(DATA_PARAMS['resampling_win']))
+
     feature_df = pd.DataFrame({'feature': selected_features})
     ic_df = pd.DataFrame({'feature': list(ic_dict.keys()),'IC': list(ic_dict.values())}).sort_values('IC', ascending=False)
 
     params = Params(base_path=os.path.join(outdirs), experiment_name="feature")
     
-    params.save_params_with_content(params={'nan_threshold':nan_threshold,'var_threshold':var_threshold,
-                                        'corr_threshold':corr_threshold,'ic_threshold':ic_threshold},
+    params.save_params_with_content(params=DATA_PARAMS,
                         artifacts={'feature':feature_df,
                                    "ic":ic_df})
 
 
-def train_model(method, instruments, task_id, period, name, 
-          nan_threshold, var_threshold, corr_threshold,
-          ic_threshold):
-    
-
-    FEATURE_PARAMS = {
-        'nan_threshold':nan_threshold,
-        'var_threshold':var_threshold,
-        'corr_threshold':corr_threshold,
-        'ic_threshold':ic_threshold
-    }
+def train_model(method, instruments, task_id, period, name):
+    pdb.set_trace()
     outdirs = os.path.join(base_path, method, instruments, 'temp', "model",
                         str(task_id), str(period), "research")
     
-    factors_data = DataLoader().load_from_project(method=method, task_id=task_id, 
+    MODEL_PARAMS,TRAIN_PARAMS,DATA_PARAMS = load_params1(
+        file_dirs=outdirs, name="lgbm", model_name='params1', 
+        train_name="params1", data_name="params1")
+
+    features_pd = select_features(outdirs=outdirs, feature_id=DATA_PARAMS['feature_id'])
+
+    train_data,val_data,_ = DataLoader().load_from_project(method=method, task_id=task_id, 
                                     instruments=instruments, 
-                                    period=period, name=name)
+                                    period=period, name=name,
+                                    features=features_pd['factor'].tolist())
+    pdb.set_trace()
+    factors_data = pd.concat([train_data, val_data],axis=0).sort_values(by=['trade_time','code'])
     returns_data = factors_data[['trade_time','code', "nxt1_ret_{0}h".format(period)]].set_index(['trade_time','code'])["nxt1_ret_{0}h".format(period)]
     code = returns_data.index.get_level_values('code')[0]
-    
-    LGB_PARAMS,TRAIN_PARAMS = load_params(file_dirs=outdirs, name="lgbm", model_name='params1', train_name="params1")
 
 
     features_df = fetch_research_fetures(
         method=method, instruments=instruments,task_id=task_id,
         period=period, name='feature', 
-        params=FEATURE_PARAMS)
+        params=DATA_PARAMS)
     selected_features = features_df['feature'].tolist()
     
-    
+    pdb.set_trace()
     train_data, test_data = fetch_clean_data2(method=method,task_id=task_id,instruments=instruments,
-        output=outdirs, params={'nan_threshold':nan_threshold,'var_threshold':var_threshold})
+        output=outdirs, params=DATA_PARAMS)
 
 
-    TOTAL_PARAMS = copy.deepcopy(LGB_PARAMS)
+    TOTAL_PARAMS = copy.deepcopy(MODEL_PARAMS)
     TOTAL_PARAMS.update(TRAIN_PARAMS)
-    TOTAL_PARAMS.update(FEATURE_PARAMS)
+    TOTAL_PARAMS.update(DATA_PARAMS)
 
     create_train_records(method=method,task_id=task_id,instruments=instruments,period=period,
                          category='lgbm',params=TOTAL_PARAMS)
 
-    trainer = Trainer(params=LGB_PARAMS, train_params=TRAIN_PARAMS)
+    trainer = Trainer(params=MODEL_PARAMS, train_params=TRAIN_PARAMS)
 
     X, y, dates = trainer.prepare_data(train_data, selected_features, "nxt1_ret_{}h".format(period))
 
@@ -169,9 +189,6 @@ def train_model(method, instruments, task_id, period, name,
 
 if __name__ == '__main__':
     variant = Tactix().start()
-
-    preprocess_data(method=variant.method, instruments=variant.instruments,
+    train_model(method=variant.method, instruments=variant.instruments,
                     task_id=variant.task_id, period=variant.period,
-                    name=variant.name, nan_threshold=0.5,
-                    var_threshold=1e-10,corr_threshold=0.95,
-                    ic_threshold=0.01)
+                    name=variant.name)
