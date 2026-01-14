@@ -32,7 +32,7 @@ def preprocess_data(method, instruments, task_id, period, name):
         file_dirs=outdirs, name="lgbm", model_name='params1', 
         train_name="params1", data_name="params1")
 
-    features_pd = select_features(outdirs=outdirs, feature_id=DATA_PARAMS['feature_id'])
+    features_list = select_features(outdirs=outdirs, feature_id=DATA_PARAMS['feature_id'])
     loader = DataLoader() ## 加载数据
     ### 加载所有数据，进行预处理, 加载指定筛选特征表
     pdb.set_trace()
@@ -47,7 +47,7 @@ def preprocess_data(method, instruments, task_id, period, name):
                                     method=method, task_id=task_id, 
                                     instruments=instruments, 
                                     period=period, name=name,
-                                    features=features_pd['factor'].tolist())
+                                    features=features_list)
     ### 特征评估基于 训练集 + 校验集
     ### 清洗数据基于 训练集 + 校验集 + 测试集
     final_data = pd.concat([train_data, val_data, test_data],axis=0).sort_values(by=['trade_time','code'])
@@ -98,12 +98,12 @@ def train_model(method, instruments, task_id, period, name):
         file_dirs=outdirs, name="lgbm", model_name='params1', 
         train_name="params1", data_name="params1")
 
-    features_pd = select_features(outdirs=outdirs, feature_id=DATA_PARAMS['feature_id'])
+    features_list = select_features(outdirs=outdirs, feature_id=DATA_PARAMS['feature_id'])
 
     train_data,val_data,_ = DataLoader().load_from_project(method=method, task_id=task_id, 
                                     instruments=instruments, 
                                     period=period, name=name,
-                                    features=features_pd['factor'].tolist())
+                                    features=features_list)
     pdb.set_trace()
     factors_data = pd.concat([train_data, val_data],axis=0).sort_values(by=['trade_time','code'])
     returns_data = factors_data[['trade_time','code', "nxt1_ret_{0}h".format(period)]].set_index(['trade_time','code'])["nxt1_ret_{0}h".format(period)]
