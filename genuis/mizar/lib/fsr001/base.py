@@ -228,6 +228,7 @@ def train_model_coefs(method, task_id, instruments, period, name,
     ### 数据已经进行过时序标准化处理
     final_data = pd.read_feather(filename).set_index(['trade_time', 'code'])
 
+
     ### 使用训练集+验证集作为fit数据 (无交叉验证)
     fit_data = final_data.loc[
         time_array['train_time'][0]:time_array['val_time'][1]]
