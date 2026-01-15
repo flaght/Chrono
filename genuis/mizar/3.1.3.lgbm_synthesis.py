@@ -32,7 +32,10 @@ def preprocess_data(method, instruments, task_id, period, name):
         file_dirs=outdirs, name="lgbm", model_name='params1', 
         train_name="params1", data_name="params1")
 
-    features_list = select_features(outdirs=outdirs, feature_id=DATA_PARAMS['feature_id'])
+    if int(DATA_PARAMS['feature_id']) != 0:
+        features_list = select_features(outdirs=outdirs, feature_id=DATA_PARAMS['feature_id'])
+    else:
+        features_list = []
     loader = DataLoader() ## 加载数据
     ### 加载所有数据，进行预处理, 加载指定筛选特征表
     pdb.set_trace()
@@ -50,6 +53,7 @@ def preprocess_data(method, instruments, task_id, period, name):
                                     features=features_list)
     ### 特征评估基于 训练集 + 校验集
     ### 清洗数据基于 训练集 + 校验集 + 测试集
+    pdb.set_trace()
     final_data = pd.concat([train_data, val_data, test_data],axis=0).sort_values(by=['trade_time','code'])
     factors_data = pd.concat([train_data, val_data],axis=0).sort_values(by=['trade_time','code'])
 
