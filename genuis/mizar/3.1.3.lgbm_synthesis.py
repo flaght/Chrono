@@ -71,17 +71,18 @@ def preprocess_data(method, instruments, task_id, period, name):
     ### 保存用于后面训练
     save_clean_data(output=outdirs, data=final_data, 
                     params=DATA_PARAMS)
-
     ### 用于特征功能 不能接触测试集
     engineer = Featurer(corr_threshold=float(DATA_PARAMS['corr_threshold']),
                         ic_threshold=float(DATA_PARAMS['ic_threshold']),
-                        target_col="nxt1_ret_{}h".format(period))
+                        target_col="nxt1_ret_{0}h".format(period),
+                        )
     
     ### 根据数据特性再做一次处理
     selected_features, ic_dict = engineer.select_features(
         df=factors_data,ic_threshold=float(DATA_PARAMS['ic_threshold']),
         roll_win=int(DATA_PARAMS['roll_win']),
-        resampling_win=int(DATA_PARAMS['resampling_win']))
+        resampling_win=int(DATA_PARAMS['resampling_win']),
+        method=DATA_PARAMS['ic_method'])
 
     feature_df = pd.DataFrame({'feature': selected_features})
     ic_df = pd.DataFrame({'feature': list(ic_dict.keys()),'IC': list(ic_dict.values())}).sort_values('IC', ascending=False)
