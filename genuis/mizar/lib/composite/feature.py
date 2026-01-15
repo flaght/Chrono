@@ -40,7 +40,7 @@ class Featurer(object):
                     ic = df[col].corr(df[self.target_col])
                 
                 # 使用绝对值，因为正相关和负相关都有预测价值
-                ic_dict[col] = abs(ic) if not np.isnan(ic) else 0
+                ic_dict[col] = abs(ic) if not np.isnan(ic) and not np.isinf(ic) else 0
             except:
                 ic_dict[col] = 0
         ic_series = pd.Series(ic_dict).sort_values(ascending=False)
@@ -114,7 +114,8 @@ class Featurer(object):
                 to_drop.add(col2)
         
         #logger.print(f"    删除 {len(to_drop)} 个低IC特征")
-        logger.panel(f"    删除 {len(to_drop)} 个低IC特征","基于IC筛选高相关特征...")
+        logger.panel(f"    从 {len(high_corr_pairs)} 个高相关对中删除 {len(to_drop)} 个IC较低的特征",
+             "基于IC筛选高相关特征...")
 
         remaining_features = [f for f in feature_cols if f not in to_drop]
         

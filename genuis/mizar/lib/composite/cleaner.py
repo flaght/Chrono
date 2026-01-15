@@ -169,11 +169,11 @@ class DataCleaner(object):
         # 简单的模式识别：完全同时缺失的特征组
         corr_matrix = missing_matrix.T.corr()
 
-        # 找到相关性>0.9的特征组
+        # 找到相关性>0.7的特征组
         high_corr_pairs = []
         for i in range(len(corr_matrix.columns)):
             for j in range(i+1, len(corr_matrix.columns)):
-                if corr_matrix.iloc[i, j] > 0.9:
+                if corr_matrix.iloc[i, j] > 0.7:
                     high_corr_pairs.append((corr_matrix.columns[i], corr_matrix.columns[j], corr_matrix.iloc[i, j]))
 
         patterns['highly_synchronized_missing'] = len(high_corr_pairs)
