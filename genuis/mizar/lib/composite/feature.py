@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple
 from lib import logger
+from lib.fa001 import calculate_correlation_matrix
 
 class Featurer(object):
     def __init__(self, corr_threshold: float = None,
@@ -68,15 +69,25 @@ class Featurer(object):
         
     def smart_feature_selection(self, df: pd.DataFrame,
                                feature_cols: List[str],
-                               ic_dict: Dict[str, float]) -> List[str]:
+                               ic_dict: Dict[str, float],
+                               method: str = 'custom_ic_correlation',
+                               **kwargs) -> List[str]:
+        method_descriptions = {
+            'factor_values': '全量因子值相关性',
+            'rolling_factor_values': '滚动因子值相关性',
+            'ic_correlation': '通用时序因子收益率相关性',
+            'custom_ic_correlation': '滚动因子收益率相关性'}
+        method_name = method_descriptions[method]
 
         logger.panel(f"  筛选策略:"
                      f"    1. 对于高度相关的因子对，保留IC更高的\n"
                      f"    2. 删除IC过低（无预测能力）的因子\n"
                      f"\n  参数设置:\n"
                      f"    相关性阈值: {self.corr_threshold}\n"
-                     f"    IC阈值: {self.ic_threshold}\n","【说明】基于相关性和IC进行特征筛选")
+                     f"    IC阈值: {self.ic_threshold}\n","【说明】基于相关性和IC进行特征筛选"
+                     f"    基于{method_name}进行特征筛选")
         
+        '''
         X = df[feature_cols]
 
         # 步骤1: 计算相关性矩阵-->此处可替换成，因子收益率相关性
@@ -86,8 +97,10 @@ class Featurer(object):
                      f"计算特征相关性矩阵...")
 
         corr_matrix = X.corr().abs()
+        '''
+        corr_matrix = calculate_correlation_matrix(df=df, feature_cols=feature_cols, method=method, **kwargs)
 
-        #logger.print(f"\n  步骤2: 识别高相关特征对...")
+
         upper_tri = np.triu(corr_matrix.values, k=1)
         high_corr_pairs = []
 
@@ -99,7 +112,6 @@ class Featurer(object):
                         corr_matrix.columns[j],
                         upper_tri[i, j]
                     ))
-        
         #logger.print(f"    发现 {len(high_corr_pairs)} 个高相关特征对（相关性>{self.corr_threshold}）")
         logger.panel(f"    发现 {len(high_corr_pairs)} 个高相关特征对（相关性>{self.corr_threshold}）","识别高相关特征对...")
 
@@ -134,6 +146,7 @@ class Featurer(object):
         
     def select_features(self, df: pd.DataFrame,
                        ic_threshold: float = None,
+                       method: str = None,
                        roll_win: int = 0,
                        resampling_win: int = 0) -> Tuple[List[str], Dict[str, float]]:
         
@@ -156,9 +169,13 @@ class Featurer(object):
 
         # 智能特征筛选
         selected_features = self.smart_feature_selection(
-            df, selected_features, ic_dict
+            df=df, feature_cols=selected_features, ic_dict=ic_dict,
+            target_col=self.target_col,
+            roll_win=roll_win,
+            resampling_win=resampling_win,
+            method=method
         )
-
+        pdb.set_trace()
         #logger.print(f"\n[特征筛选总结]")
         #logger.print(f"  原始特征数: {len(feature_cols)}")
         #logger.print(f"  筛选后特征数: {len(selected_features)}")
@@ -167,5 +184,7 @@ class Featurer(object):
         logger.panel(f"  原始特征数: {len(feature_cols)}"
                      f"  筛选后特征数: {len(selected_features)}"
                      f"  保留率: {len(selected_features)/len(feature_cols)*100:.1f}%","[特征筛选总结]")
-        
+        pdb.set_trace()
+        final_factors_ic = {f: ic_dict[f] for f in selected_features if f in ic_dict}
+        logger.table(data=pd.DataFrame(list(final_factors_ic.items()), columns=["feature", "value"]).head(30), title="筛选后 Top 20 高IC因子")
         return selected_features, ic_dict
