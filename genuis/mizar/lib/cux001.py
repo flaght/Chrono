@@ -130,7 +130,7 @@ class FactorEvaluate1(object):
         计算因子与预期收益的滚动相关性
         """
         self.resample_data['ic'] = self.resample_data[self.ret_name].rolling(
-            window=self.roll_win,
+            window=self.roll_win if self.scale_method != 'raw' else 5,
             min_periods=5).corr(self.resample_data[self.factor_name])
 
         self.resample_data['cumsum_ic'] = self.resample_data['ic'].cumsum()
