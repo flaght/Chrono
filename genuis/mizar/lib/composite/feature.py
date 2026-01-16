@@ -175,7 +175,7 @@ class Featurer(object):
             resampling_win=resampling_win,
             method=method
         )
-        pdb.set_trace()
+        
         #logger.print(f"\n[特征筛选总结]")
         #logger.print(f"  原始特征数: {len(feature_cols)}")
         #logger.print(f"  筛选后特征数: {len(selected_features)}")
@@ -184,7 +184,6 @@ class Featurer(object):
         logger.panel(f"  原始特征数: {len(feature_cols)}"
                      f"  筛选后特征数: {len(selected_features)}"
                      f"  保留率: {len(selected_features)/len(feature_cols)*100:.1f}%","[特征筛选总结]")
-        pdb.set_trace()
         final_factors_ic = {f: ic_dict[f] for f in selected_features if f in ic_dict}
         logger.table(data=pd.DataFrame(list(final_factors_ic.items()), columns=["feature", "value"]).head(30), title="筛选后 Top 20 高IC因子")
         return selected_features, ic_dict

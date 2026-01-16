@@ -254,7 +254,7 @@ class Evaluator(object):
             stats1['name'] = name
             returns1['name'] = name
             return stats1,returns1
-        
+        pdb.set_trace()
         stats_test,returns_test = metrics(factors=test_factors, returns=returns, name='test', period=period)
         stats_dt = pd.DataFrame([stats_test]).set_index('name').reset_index()
         returns_dt = pd.DataFrame([returns_test]).set_index('name').reset_index()
