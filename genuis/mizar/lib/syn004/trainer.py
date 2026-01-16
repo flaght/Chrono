@@ -360,10 +360,25 @@ class Trainer(object):
 
         content = f"    训练用时: {training_time:.2f} 秒"
         content += f"    最佳迭代: {self.model.best_iteration}"
+        
+        # 动态获取评估指标名称
         if hasattr(self.model, 'best_score'):
-            content += f"    训练集最佳RMSE: {self.model.best_score['train']['rmse']:.6f}"
+            # 获取训练集上的评估指标
+            if 'train' in self.model.best_score:
+                train_scores = self.model.best_score['train']
+                if train_scores:
+                    metric_name = list(train_scores.keys())[0]  # 获取第一个指标名称
+                    metric_value = train_scores[metric_name]
+                    content += f"    训练集最佳{metric_name.upper()}: {metric_value:.6f}"
+
+            # 获取验证集上的评估指标
             if 'valid' in self.model.best_score:
-                content += f"    验证集最佳RMSE: {self.model.best_score['valid']['rmse']:.6f}"
+                valid_scores = self.model.best_score['valid']
+                if valid_scores:
+                    metric_name = list(valid_scores.keys())[0]  # 获取第一个指标名称
+                    metric_value = valid_scores[metric_name]
+                    content += f"    验证集最佳{metric_name.upper()}: {metric_value:.6f}"
+
         logger.panel(content=content, title="✓ 训练完成！")
         return self.model
 
