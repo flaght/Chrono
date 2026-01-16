@@ -95,7 +95,7 @@ def preprocess_data(method, instruments, task_id, period, name):
 
 
 def train_model(method, instruments, task_id, period, name):
-    
+    pdb.set_trace()
     outdirs = os.path.join(base_path, method, instruments, 'temp', "model",
                         str(task_id), str(period), "research")
     
@@ -107,12 +107,12 @@ def train_model(method, instruments, task_id, period, name):
         features_list = select_features(outdirs=outdirs, feature_id=DATA_PARAMS['feature_id'])
     else:
         features_list = []
-
+    pdb.set_trace()
     train_data,val_data,_ = DataLoader().load_from_project(method=method, task_id=task_id, 
                                     instruments=instruments, 
                                     period=period, name=name,
                                     features=features_list)
-    
+    pdb.set_trace()
     factors_data = pd.concat([train_data, val_data],axis=0).sort_values(by=['trade_time','code'])
     returns_data = factors_data[['trade_time','code', "nxt1_ret_{0}h".format(period)]].set_index(['trade_time','code'])["nxt1_ret_{0}h".format(period)]
     code = returns_data.index.get_level_values('code')[0]
@@ -124,6 +124,7 @@ def train_model(method, instruments, task_id, period, name):
         params=DATA_PARAMS)
     selected_features = features_df['feature'].tolist()
     
+    pdb.set_trace()
     train_data, test_data = fetch_clean_data2(method=method,task_id=task_id,instruments=instruments,
         output=outdirs, params=DATA_PARAMS)
 
@@ -172,8 +173,10 @@ def train_model(method, instruments, task_id, period, name):
     )
 
     logger.rule("以下是测试集信息")
+    pdb.set_trace()
     X_test, y_test, date_test = trainer.prepare_data(test_data, selected_features, "nxt1_ret_{}h".format(period))
     y_test_pred = trainer.predict(X_test, model)
+    test_returns = test_data[['trade_time','code', "nxt1_ret_{0}h".format(period)]].set_index(['trade_time','code'])["nxt1_ret_{0}h".format(period)]
 
     test_factors = pd.Series(y_test_pred, index=pd.MultiIndex.from_arrays(
         [date_test, [code] * len(date_test)],        # 传入两层索引的数据
@@ -187,7 +190,7 @@ def train_model(method, instruments, task_id, period, name):
 
     Evaluator(resampling_win=period, roll_win=240,scale_method='roll_zscore').final_metrics(
         test_factors=test_factors,
-        returns=returns_data,period=period
+        returns=test_returns,period=period
     )
 
 
