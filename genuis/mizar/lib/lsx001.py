@@ -2,9 +2,10 @@ import os, pdb, math, itertools
 import pandas as pd
 from ultron.factor.genetic.geneticist.operators import *
 from kdutils.macro2 import *
-from lib.iux001 import fetch_data, aggregation_data, fetch_times
+from lib.iux001 import fetch_data, aggregation_data, fetch_times, merging_data1
 from lib.aux001 import calc_expression
 from lib.svx001 import scale_factors
+from lib.cux001 import FactorEvaluate1
 
 def fetch_draft_factors(method, instruments, task_id, period, name):
     pdb.set_trace()
@@ -85,7 +86,6 @@ def build_factors(method,
                                            task_id=task_id,
                                            period=period,
                                            name=name)
-    pdb.set_trace()
     total_data = fetch_data1(method=method,
                              task_id=task_id,
                              instruments=instruments,
@@ -94,6 +94,9 @@ def build_factors(method,
                              expressions=expressions)
     factors_data = create_factors(total_data=total_data,
                                   expressions=expressions)
+
+
+
 
     factors_data = factors_data.unstack().fillna(method='ffill').stack()
     ## 标准化 保持和绩效验证一直

@@ -6,7 +6,7 @@ from kdutils.macro2 import *
 from sklearn.linear_model import LassoCV
  
 def train_model(method, task_id, instruments, period, name):
-    
+    pdb.set_trace()
     param_id, use_params = load_params(method=method, 
                 instruments=instruments, task_id=task_id,
                 period=period, name='lassocv')
