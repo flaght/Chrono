@@ -34,6 +34,34 @@ def fetch_clean_data2(method, task_id, instruments, output, params,
         final_data['trade_time'] <= time_array[test_time[-1]][-1])]
     return train_data, test_data
 
+def load_params2(file_dirs: str, name:str, model_name: str, data_name:str):
+    file_path = os.path.join(file_dirs, "params", "{}.yaml".format(name))
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+
+        if 'params' not in config  or 'data' not in config:
+            raise KeyError("配置文件中必须包含 'params' 'train' 'data' 两个顶级键。")
+        
+        model_params = config['params'][model_name]
+        data_params = config['data'][data_name]
+        
+        print(f"成功从 '{file_path}' 加载配置。")
+        return model_params, data_params
+
+    except FileNotFoundError:
+        print(f"错误：配置文件 '{file_path}' 不存在。")
+        return None, None
+    except yaml.YAMLError as e:
+        print(f"错误：解析YAML文件 '{file_path}' 失败: {e}")
+        return None, None
+    except KeyError as e:
+        print(f"错误：配置文件中缺少必需的键路径: {e}")
+        return None, None
+    except Exception as e:
+        print(f"发生未知错误: {e}")
+        return None, None
+        
 def load_params1(file_dirs: str, name:str, model_name: str, train_name: str, data_name:str):
     file_path = os.path.join(file_dirs, "params", "{}.yaml".format(name))
     try:

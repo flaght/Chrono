@@ -4,9 +4,11 @@ import numpy as np
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import Lasso
+from sklearn.linear_model import Lasso
 
 from lib.lsx001 import fetch_times
 from kdutils.macro2 import *
+from lib.syn001.base import train_model as base_train_model
 
 
 def train_model(method, task_id, instruments, period):
@@ -120,3 +122,12 @@ def train_model(method, task_id, instruments, period):
         os.path.join(dirs, "lasso_predict_data.feather"))
 
     print("\n模型训练和预测完成，结果已保存。")
+
+
+def train_model1(train_data, test_data, selected_features, 
+            params, roll_win, period, outdirs):
+    base_train_model(model_class=Lasso, train_data=train_data, test_data=test_data, 
+                selected_features=selected_features, 
+                params=params, roll_win=roll_win, 
+                period=period, outdirs=outdirs)
+    
