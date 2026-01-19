@@ -51,6 +51,7 @@ def train_model1(train_data, test_data, selected_features, roll_win, period, out
         data1 = data1[selected_features].mean(axis=1)
         data1.name = 'transformed'
         return data1
+        
     calc(data=train_data, selected_features=selected_features, period=period, 
             category='train', outdirs=outdirs)
     calc(data=test_data, selected_features=selected_features, period=period, 

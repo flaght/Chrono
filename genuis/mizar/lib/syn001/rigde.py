@@ -120,3 +120,12 @@ def train_model(method, task_id, instruments, period, name):
         os.path.join(dirs, "rigde_{0}_data.feather".format(name)))
 
     print("\n模型训练和预测完成，结果已保存。")
+
+
+def train_model1(train_data, test_data, selected_features, 
+            params, roll_win, period, outdirs):
+    base_train_model(model_class=Ridge, train_data=train_data, test_data=test_data, 
+                selected_features=selected_features, 
+                params=params, roll_win=roll_win, 
+                period=period, outdirs=outdirs)
+    
