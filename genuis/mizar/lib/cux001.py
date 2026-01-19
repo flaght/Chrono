@@ -130,13 +130,14 @@ class FactorEvaluate1(object):
         计算因子与预期收益的滚动相关性
         """
         self.resample_data['ic'] = self.resample_data[self.ret_name].rolling(
-            window=self.roll_win if self.scale_method != 'raw' else 5,
+            window=self.roll_win,
             min_periods=5).corr(self.resample_data[self.factor_name])
-
+        total_ic = self.resample_data[self.ret_name].corr(self.resample_data[self.factor_name])
         self.resample_data['cumsum_ic'] = self.resample_data['ic'].cumsum()
         ic_mean = self.resample_data['ic'].mean()
         ic_std = self.resample_data['ic'].std()
         return {
+            'total_ic': total_ic,
             'ic_mean': ic_mean,
             'ic_std': ic_std,
             'ic_ir': ic_mean / ic_std if ic_std != 0 else 0  # 衡量因子预测能力的稳定性和质量。
@@ -304,6 +305,7 @@ class FactorEvaluate1(object):
                 'turnover': 10.0,
                 'win_rate': 0,
                 'profit_ratio': 0.0,
+                'total_ic': 0.0,
                 'ic_mean': 0.00,
                 'ic_std': 1.0,
                 'ic_ir': 1.0,
@@ -431,6 +433,7 @@ class FactorEvaluate1(object):
             f"{'Win Rate':<20}: {self.stats['win_rate']:.2%}\n"
             f"{'Profit/Loss Ratio':<20}: {self.stats['profit_ratio']:.2f}\n"
             f"\n--- Factor Characteristics ---\n"
+            f"{'Total IC':<20}: {self.stats['total_ic']:.4f}\n"
             f"{'IC Mean':<20}: {self.stats['ic_mean']:.4f}\n"
             f"{'ICIR':<20}: {self.stats['ic_ir']:.4f}\n"
             f"{'Mean Turnover':<20}: {self.stats['turnover']:.4f}\n"

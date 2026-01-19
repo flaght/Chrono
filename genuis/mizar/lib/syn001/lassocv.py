@@ -1,4 +1,4 @@
-import os, pdb
+import os, pdb, copy
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import TimeSeriesSplit
@@ -7,6 +7,7 @@ from sklearn.linear_model import LassoCV
 
 from lib.lsx001 import fetch_times
 from kdutils.macro2 import *
+from lib.syn001.base import train_model as base_train_model
 
 
 def train_model(method, task_id, instruments, period, name):
@@ -132,3 +133,16 @@ def train_model(method, task_id, instruments, period, name):
         os.path.join(dirs, "lasso_{0}_data.feather".format(name)))
 
     print("\n模型训练和预测完成，结果已保存。")
+
+
+def train_model1(train_data, test_data, selected_features, 
+            params, roll_win, period, outdirs):
+    pdb.set_trace()
+    new_params = copy.deepcopy(params)
+    if 'n_splits' in params:
+        del new_params['n_splits']
+        new_params = TimeSeriesSplit(n_splits=params['n_splits'])
+    base_train_model(model_class=LassoCV, train_data=train_data, test_data=test_data, 
+                selected_features=selected_features, 
+                params=params, roll_win=roll_win, 
+                period=period, outdirs=outdirs)
