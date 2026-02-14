@@ -1,3 +1,4 @@
+import pdb
 from lib.syn001.trainer import Trainer
 from lib import logger
 
@@ -16,17 +17,19 @@ def train_model(model_class, train_data, test_data, selected_features,
                     X_train=X_train, y_train=y_train,
                     X_val=X_val, y_val=y_val,
                     selected_features=selected_features)
-    
+    pdb.set_trace()
     y_train_pred = trainer.predict(X_train, model)
     
     ## 训练集
     trainer.predict_all(X=X_train, dates_val=dates_train,
                 code=code, period=period,roll_win=roll_win,
-                data=train_data, expression='train',outdirs=outdirs)
+                data=train_data, expression='train',
+                outdirs=outdirs, title="训练集")
     ## 校验集
     trainer.predict_all(X=X_val, dates_val=dates_val,
                 code=code, period=period,roll_win=roll_win,
-                data=train_data, expression='val',outdirs=outdirs)
+                data=train_data, expression='val',
+                outdirs=outdirs, title="校验集")
 
     ##测试集
     X_test, y_test, date_test = trainer.prepare_data(
@@ -34,4 +37,5 @@ def train_model(model_class, train_data, test_data, selected_features,
 
     trainer.predict_all(X=X_test, dates_val=date_test,
                 code=code, period=period,roll_win=roll_win,
-                data=test_data, expression='test',outdirs=outdirs)
+                data=test_data, expression='test',
+                outdirs=outdirs, title="测试集")

@@ -121,9 +121,33 @@ def load_params(file_dirs: str, name:str, model_name: str, train_name: str):
         return None, None
     
 
+
+def load_params3(file_dirs: str, file_name:str, signal_name: str=None):
+    file_path = os.path.join(file_dirs, "params", "{}.yaml".format(file_name))
+    with open(file_path, 'r', encoding='utf-8') as f:
+        raw_data = yaml.safe_load(f)
+    
+    output_list = []
+    for method_name , signals in raw_data['signal_configs'].items():
+        if method_name != signal_name:
+            continue
+        for signal_id, param in signals. items():
+            item = {
+                "param_id":f"{method_name}_{signal_id}",
+                "method":f"{method_name}_signal",
+                "param": param
+            }
+            output_list.append(item)
+    return output_list
+            
+        
+    
+    
+    
 def create_train_records(method, task_id, instruments, period, category, params):
     '''
     # 同时设置多个参数
+    
 logger.configure(
     verbose=True,           # 或使用 level=logging.DEBUG
     log_file="debug.log"

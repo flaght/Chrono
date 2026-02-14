@@ -8,6 +8,7 @@ from lib import logger
 
 from lib.cux001 import FactorEvaluate1
 
+
 class Evaluator(object):
     def __init__(
         self,
@@ -15,12 +16,14 @@ class Evaluator(object):
         resampling_win: int = 1,
         roll_win: int = 252,
         scale_method: str = "raw",
+        scale:int=10000
     ):
 
         self.fee = fee
         self.resampling_win = max(1, int(resampling_win))
         self.roll_win = max(5, int(roll_win))
         self.scale_method = scale_method
+        self.scale = scale
 
     
     def calculate_regression_metrics(
@@ -138,33 +141,37 @@ class Evaluator(object):
         y_val_true: np.ndarray,
         y_val_pred: np.ndarray,
         dates_test: Optional[np.ndarray] = None)->Dict:
-        
+
         logger.rule("模型评估绩效")
 
-        train_metrics = self.calculate_regression_metrics(y_train_true, y_train_pred)
-        val_metrics = self.calculate_regression_metrics(y_val_true, y_val_pred)
+        # 将放大后的预测值缩小回原始尺度
+        y_train_pred_scaled = y_train_pred / self.scale
+        y_val_pred_scaled = y_val_pred / self.scale
+
+        train_metrics = self.calculate_regression_metrics(y_train_true, y_train_pred_scaled)
+        val_metrics = self.calculate_regression_metrics(y_val_true, y_val_pred_scaled)
         logger.panel(
             f"  RMSE 训练/测试: {train_metrics['rmse']:.6f} / {val_metrics['rmse']:.6f}\n"
             f"  MAE  训练/测试: {train_metrics['mae']:.6f} / {val_metrics['mae']:.6f}\n",
             title="基础回归指标"
         )
 
-        train_corr = self.calculate_correlation_metrics(y_train_true, y_train_pred)
-        test_corr = self.calculate_correlation_metrics(y_val_true, y_val_pred)
+        train_corr = self.calculate_correlation_metrics(y_train_true, y_train_pred_scaled)
+        test_corr = self.calculate_correlation_metrics(y_val_true, y_val_pred_scaled)
         logger.panel(
             f"  IC    训练/校验: {train_corr['ic']:.4f} / {test_corr['ic']:.4f}\n"
             f"  RankIC 训练/校验: {train_corr['rank_ic']:.4f} / {test_corr['rank_ic']:.4f}\n",
             title="相关性指标"
         )
 
-        train_dir_acc, _ = self.calculate_direction_accuracy(y_train_true, y_train_pred)
-        val_dir_acc, val_cm = self.calculate_direction_accuracy(y_val_true, y_val_pred)
+        train_dir_acc, _ = self.calculate_direction_accuracy(y_train_true, y_train_pred_scaled)
+        val_dir_acc, val_cm = self.calculate_direction_accuracy(y_val_true, y_val_pred_scaled)
         logger.panel(
             f"  训练集方向准确率: {train_dir_acc*100:.2f}% \n"
             f"  校验集方向准确率: {val_dir_acc*100:.2f}%",title="方向预测能力"
             )
         
-        self.show_matrix(val_cm=val_cm)
+        #self.show_matrix(val_cm=val_cm)
 
 
 
@@ -210,14 +217,16 @@ class Evaluator(object):
 
     def final_evaluate(self, y_test_true:np.ndarray,
                        y_test_pred:np.ndarray):
-        test_metrics = self.calculate_regression_metrics(y_test_true, y_test_pred)
+        # 将放大后的预测值缩小回原始尺度
+        y_test_pred_scaled = y_test_pred / self.scale
+        test_metrics = self.calculate_regression_metrics(y_test_true, y_test_pred_scaled)
         logger.panel(
             f"  RMSE 测试: {test_metrics['rmse']:.6f}\n"
             f"  MAE  测试: {test_metrics['mae']:.6f}\n",
             title="基础回归指标"
         )
 
-        test_corr = self.calculate_correlation_metrics(y_test_true, y_test_pred)
+        test_corr = self.calculate_correlation_metrics(y_test_true, y_test_pred_scaled)
 
         logger.panel(
             f"  IC    测试: {test_corr['ic']:.4f}\n"
@@ -225,13 +234,13 @@ class Evaluator(object):
             title="相关性指标"
         )
 
-        test_dir_acc, test_cm = self.calculate_direction_accuracy(y_test_true, y_test_pred)
+        test_dir_acc, test_cm = self.calculate_direction_accuracy(y_test_true, y_test_pred_scaled)
 
         logger.panel(
             f"  测试集方向准确率: {test_dir_acc*100:.2f}%",title="方向预测能力"
             )
         
-        self.show_matrix(val_cm=test_cm)
+        #self.show_matrix(val_cm=test_cm)
         
     def final_metrics(self, test_factors: pd.Series,
             returns: pd.Series,
@@ -247,14 +256,16 @@ class Evaluator(object):
                                 roll_win=self.roll_win,
                                 fee=0.000,
                                 scale_method=self.scale_method,
-                                expression="train",
+                                expression="test",
                                 resampling_win=self.resampling_win)
             stats1 = evaluate1.run()
             returns1 = evaluate1.cal_returns()
+            evaluate1.plot_results()
+            evaluate1.save_results("./temp")
             stats1['name'] = name
             returns1['name'] = name
             return stats1,returns1
-        pdb.set_trace()
+        
         stats_test,returns_test = metrics(factors=test_factors, returns=returns, name='test', period=period)
         stats_dt = pd.DataFrame([stats_test]).set_index('name').reset_index()
         returns_dt = pd.DataFrame([returns_test]).set_index('name').reset_index()
@@ -267,3 +278,4 @@ class Evaluator(object):
         )
         logger.table(stats_dt, "绩效说明")
         logger.table(returns_dt, "多空收益")
+        return stats_test
