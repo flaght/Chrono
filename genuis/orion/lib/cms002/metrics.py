@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 from collections import namedtuple
 from .booster import Booster
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 DALIY_PER_YEAR = 252
 WEEKLY_PER_YEAR = 52
@@ -36,7 +38,7 @@ class EvaluateTuple(
         namedtuple('EvaluateTuple',
                    ('returns_mean', 'returns_std', 'sharp', 'turnover',
                     'maxdd', 'returns_mdd', 'win_rate', 'ic', 'ir', 'fitness',
-                    'category', 'count', 'ret2tv', 'count_series',
+                    'category', 'count', 'calmar', 'count_series',
                     'returns_series', 'ic_series', 'turnover_series'))):
 
     __slots__ = ()
@@ -52,7 +54,7 @@ class EvaluateTuple(
                 f"\nwin_rate:{self.win_rate:.4f}"
                 f"\nic:{self.ic:.4f}"
                 f"\nir:{self.ir:.4f}"
-                f"\nret2tv:{self.ret2tv:.4f}"
+                f"\calmar:{self.calmar:.4f}"
                 f"\nfitness:{self.fitness:.4f}"
                 f"\ncount:{self.count:.1f}")
 
@@ -72,6 +74,167 @@ class MetricsTuple(
                 f"hold:{self.hold}, freq:{self.freq}, "
                 f"direction:{self.direction}, bias:{self.bias:.2f}, "
                 f"category:{self.category}, top_n:{self.top_n}")
+
+    def plot_results(self, title_prefix="Factor Evaluation"):
+        """
+        绘制 ArbMetrics 评估器的四组策略 (Long, Short, Both, TopN) 对比报告。
+        参照 cux001.py 的风格，但针对四线并发和大数据量(8760x100)进行极速优化的渲染。
+        """
+        # 确保必须是带序列运行 (is_series=True) 才能画图
+        if self.long_evaluate.returns_series is None:
+            raise ValueError("必须以 is_series=True 运行的 Metrics 才能进行画图！")
+
+        import seaborn as sns
+        
+        # 解决 Matplotlib 中文乱码和负号显示问题
+        plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+        plt.rcParams['axes.unicode_minus'] = False
+        
+        sns.set_style('whitegrid')
+
+        fig, axes = plt.subplots(3, 2, figsize=(20, 16))
+        fig.suptitle(f"{title_prefix} | TopN={self.top_n}, Hold={self.hold}, Freq={self.freq}", fontsize=18)
+
+        def set_sequential_xticks(ax, series, num_ticks=7):
+            """X轴时间刻度辅助方法"""
+            tick_positions = np.linspace(0, len(series) - 1, num_ticks, dtype=int)
+            if hasattr(series.index, 'strftime'):
+                tick_labels = [series.index[i].strftime('%Y-%m-%d') for i in tick_positions]
+            else:
+                tick_labels = [str(series.index[i]) for i in tick_positions]
+            ax.set_xticks(tick_positions)
+            ax.set_xticklabels(tick_labels, rotation=30, ha='right')
+
+        # ------------------------------------------------------------------
+        # 1. 净值曲线 (NAV) - 四组策略同台竞技
+        # ------------------------------------------------------------------
+        ax1 = axes[0, 0]
+        # 计算 cumulative return NAV (1+r).cumprod()
+        nav_long = (1 + self.long_evaluate.returns_series.fillna(0)).cumprod()
+        nav_short = (1 + self.short_evaluate.returns_series.fillna(0)).cumprod()
+        nav_both = (1 + self.both_evaluate.returns_series.fillna(0)).cumprod()
+        nav_topn = (1 + self.topn_evaluate.returns_series.fillna(0)).cumprod()
+
+        ax1.plot(nav_long.values, label='Long NAV', color='red', alpha=0.8)
+        ax1.plot(nav_short.values, label='Short NAV', color='blue', alpha=0.8)
+        ax1.plot(nav_both.values, label='Both (L-S) NAV', color='purple', alpha=0.9, linewidth=2)
+        ax1.plot(nav_topn.values, label='TopN NAV', color='green', alpha=0.9, linewidth=2)
+
+        set_sequential_xticks(ax1, nav_long)
+        ax1.set_title("Performance (NAV)")
+        ax1.set_ylabel("NAV")
+        ax1.legend()
+        ax1.grid(True)
+
+        # ------------------------------------------------------------------
+        # 2. 绩效指标表格对比 (KPIs)
+        # ------------------------------------------------------------------
+        ax_table = axes[0, 1]
+        ax_table.axis('off')
+        
+        # 提取指标格式化
+        def fmt(val, is_pct=False):
+            if pd.isna(val): return "N/A"
+            return f"{val:.2%}" if is_pct else f"{val:.4f}"
+
+        stats_text = (
+            f"{'Metric':<18} | {'Long':<14} | {'Short':<14} | {'Both':<14} | {'TopN':<14}\n"
+            f"{'-'*78}\n"
+            f"{'Ret Mean (Ann)':<18} | {fmt(self.long_evaluate.returns_mean,1):<14} | {fmt(self.short_evaluate.returns_mean,1):<14} | {fmt(self.both_evaluate.returns_mean,1):<14} | {fmt(self.topn_evaluate.returns_mean,1):<14}\n"
+            f"{'Sharpe Ratio':<18} | {fmt(self.long_evaluate.sharp):<14} | {fmt(self.short_evaluate.sharp):<14} | {fmt(self.both_evaluate.sharp):<14} | {fmt(self.topn_evaluate.sharp):<14}\n"
+            f"{'Max Drawdown':<18} | {fmt(self.long_evaluate.maxdd,1):<14} | {fmt(self.short_evaluate.maxdd,1):<14} | {fmt(self.both_evaluate.maxdd,1):<14} | {fmt(self.topn_evaluate.maxdd,1):<14}\n"
+            f"{'Win Rate':<18} | {fmt(self.long_evaluate.win_rate,1):<14} | {fmt(self.short_evaluate.win_rate,1):<14} | {fmt(self.both_evaluate.win_rate,1):<14} | {fmt(self.topn_evaluate.win_rate,1):<14}\n"
+            f"{'Turnover Mean':<18} | {fmt(self.long_evaluate.turnover):<14} | {fmt(self.short_evaluate.turnover):<14} | {fmt(self.both_evaluate.turnover):<14} | {fmt(self.topn_evaluate.turnover):<14}\n"
+            f"{'Calmar':<18} | {fmt(self.long_evaluate.calmar):<14} | {fmt(self.short_evaluate.calmar):<14} | {fmt(self.both_evaluate.calmar):<14} | {fmt(self.topn_evaluate.calmar):<14}\n"
+            f"{'IC Mean':<18} | {fmt(self.long_evaluate.ic):<14} | {fmt(self.short_evaluate.ic):<14} | {fmt(self.both_evaluate.ic):<14} | {fmt(self.topn_evaluate.ic):<14}\n"
+            f"{'ICIR':<18} | {fmt(self.long_evaluate.ir):<14} | {fmt(self.short_evaluate.ir):<14} | {fmt(self.both_evaluate.ir):<14} | {fmt(self.topn_evaluate.ir):<14}\n"
+            f"{'Fitness':<18} | {fmt(self.long_evaluate.fitness):<14} | {fmt(self.short_evaluate.fitness):<14} | {fmt(self.both_evaluate.fitness):<14} | {fmt(self.topn_evaluate.fitness):<14}\n"
+            f"{'Avg Holding Count':<18} | {fmt(self.long_evaluate.count):<14} | {fmt(self.short_evaluate.count):<14} | {fmt(self.both_evaluate.count):<14} | {fmt(self.topn_evaluate.count):<14}\n"
+        )
+        ax_table.text(0.02, 0.95, stats_text, transform=ax_table.transAxes, fontsize=12, verticalalignment='top', fontfamily='monospace', bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray'))
+        ax_table.set_title("Strategy Key Performance Indicators", fontsize=14)
+
+        # ------------------------------------------------------------------
+        # 3. 截面 IC 序列与累积图（取多头/TopN 代表性特征）
+        # ------------------------------------------------------------------
+        ax3 = axes[1, 0]
+        # 展示4条累计IC曲线
+        ic_long = self.long_evaluate.ic_series.fillna(0)
+        ic_short = self.short_evaluate.ic_series.fillna(0)
+        ic_both = self.both_evaluate.ic_series.fillna(0)
+        ic_topn = self.topn_evaluate.ic_series.fillna(0)
+
+        ax3.plot(ic_long.cumsum().values, label='Long CumIC', color='red', alpha=0.8)
+        ax3.plot(ic_short.cumsum().values, label='Short CumIC', color='blue', alpha=0.8)
+        ax3.plot(ic_both.cumsum().values, label='Both CumIC', color='purple', alpha=0.9, linewidth=2)
+        ax3.plot(ic_topn.cumsum().values, label='TopN CumIC', color='green', alpha=0.9, linewidth=2)
+
+        set_sequential_xticks(ax3, ic_long)
+        ax3.set_ylabel("Cumulative IC")
+        ax3.set_title("Cross-sectional IC Analysis (Cumulative)")
+        ax3.axhline(0, color='gray', linestyle='--', linewidth=1)
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+
+        # ------------------------------------------------------------------
+        # 4. 每日收益率分布取代臃肿散点图 (提高渲染效率)
+        # ------------------------------------------------------------------
+        ax4 = axes[1, 1]
+        ax4.hist(self.topn_evaluate.returns_series.dropna().values, bins=60, alpha=0.6, color='green', label='TopN Returns')
+        ax4.hist(self.both_evaluate.returns_series.dropna().values, bins=60, alpha=0.5, color='purple', label='Both Returns')
+        ax4.set_title("Daily Portfolio Returns Distribution")
+        ax4.set_xlabel("Return")
+        ax4.set_ylabel("Frequency")
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+
+        # ------------------------------------------------------------------
+        # 5. 动态历史回撤对比区
+        # ------------------------------------------------------------------
+        ax5 = axes[2, 0]
+        # 计算回撤
+        def draw_dd(nav_series, name, c, ax):
+            dd = (nav_series / nav_series.cummax() - 1) * 100
+            ax.plot(dd.values, color=c, alpha=0.8, label=name)
+            ax.fill_between(np.arange(len(dd)), dd.values, 0, color=c, alpha=0.2)
+            
+        draw_dd(nav_both, "Both Drawdown", "purple", ax5)
+        draw_dd(nav_topn, "TopN Drawdown", "green", ax5)
+
+        set_sequential_xticks(ax5, nav_topn)
+        ax5.set_title(f"Drawdown Over Time")
+        ax5.set_ylabel("Drawdown (%)")
+        ax5.set_ylim(bottom=None, top=0.5)
+        ax5.legend()
+        ax5.grid(True)
+
+        # ------------------------------------------------------------------
+        # 6. 换手率监控
+        # ------------------------------------------------------------------
+        ax6 = axes[2, 1]
+        # 去掉初始位置 (第一天)，避免初始建仓时的换手率峰值影响图表比例
+        turnover_long = self.long_evaluate.turnover_series.fillna(0).iloc[1:]
+        turnover_short = self.short_evaluate.turnover_series.fillna(0).iloc[1:]
+        turnover_both = self.both_evaluate.turnover_series.fillna(0).iloc[1:]
+        turnover_topn = self.topn_evaluate.turnover_series.fillna(0).iloc[1:]
+
+        # 平滑换手率展示，避免刺破天际看不清趋势
+        smooth_win = max(1, len(turnover_topn) // 100)
+        ax6.plot(turnover_long.rolling(smooth_win, min_periods=1).mean().values, color='red', alpha=0.6, label='Long Turnover')
+        ax6.plot(turnover_short.rolling(smooth_win, min_periods=1).mean().values, color='blue', alpha=0.6, label='Short Turnover')
+        ax6.plot(turnover_both.rolling(smooth_win, min_periods=1).mean().values, color='purple', alpha=0.7, label='Both Turnover (Smoothed)')
+        ax6.plot(turnover_topn.rolling(smooth_win, min_periods=1).mean().values, color='green', label='TopN Turnover (Smoothed)')
+        
+        set_sequential_xticks(ax6, turnover_topn)
+        ax6.set_title("Turnover Over Time (Rolling Mean)")
+        ax6.set_ylabel("Turnover")
+        ax6.legend()
+        ax6.grid(True)
+
+        # 调整布局，防止标题/指标表格被裁切覆盖，同时抑制 UserWarning
+        plt.subplots_adjust(top=0.92, bottom=0.08, wspace=0.2, hspace=0.35)
+        
+        plt.show()
 
 
 def valid_check(func):
@@ -174,7 +337,7 @@ class Metrics(object):
                              weight, category):
         """将 booster 输出转换为 EvaluateTuple"""
         (rets_sum, rets_mean, rets_std, sharp, turnover, maxdd,
-         ret2mdd, ret2tv, win_rate, fitness, turnover_series,
+         ret2mdd, calmar, win_rate, fitness, turnover_series,
          count_series) = indicator
 
         ir = ic_mean / ic_std if ic_std > 1e-10 else 0.0
@@ -188,8 +351,11 @@ class Metrics(object):
             ic_series = pd.Series(ic_arr,
                                   index=self._returns_index,
                                   name='ic')
-            tv_series = pd.Series(turnover_series,
-                                  index=self._returns_index[1:],
+            
+            # turnover has Length T-1, so we pad the first value as 0 to match T
+            padded_tv = np.concatenate([[0.0], turnover_series])
+            tv_series = pd.Series(padded_tv,
+                                  index=self._returns_index,
                                   name='turnover')
             cnt_series = pd.Series(count_series,
                                    index=self._returns_index,
@@ -210,7 +376,7 @@ class Metrics(object):
             win_rate=win_rate,
             ic=ic_mean,
             ir=ir,
-            ret2tv=ret2tv,
+            calmar=calmar,
             fitness=fitness,
             count=count,
             category=category,

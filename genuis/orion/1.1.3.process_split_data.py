@@ -33,7 +33,7 @@ def split_factors(method, period, source):
         's_vwap'] = raw_basic_data['s_value'] / raw_basic_data['s_vol']
     raw_basic_data[
         'f_vwap'] = raw_basic_data['f_value'] / raw_basic_data['f_vol']
-
+    pdb.set_trace()
     ## 数据合并
     factors_data = factors_data.merge(returns_data,
                                       on=['trade_time', 'code'
@@ -69,7 +69,7 @@ def split_factors(method, period, source):
         f for f in factors_data.columns
         if f not in returns_columns + factors_columns + ['trade_time', 'code']
     ]
-    pdb.set_trace()
+    
     target_dir = os.path.join(base_path, method, 'base', period, source)
     os.makedirs(target_dir, exist_ok=True)
 
@@ -97,11 +97,6 @@ def split_factors(method, period, source):
         os.path.join(target_dir, "val_return.feather"))
     test_returns_data.reset_index(drop=True).to_feather(
         os.path.join(target_dir, "test_return.feather"))
-
-
-## 切割收益率
-def split_data(method, period, source):
-    pass
 
 
 if __name__ == '__main__':

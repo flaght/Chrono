@@ -202,7 +202,7 @@ cdef class Booster(object):
         # 所有的 cdef 声明必须前置在方法的最顶部
         cdef rets_sum, total_periods, years, total_log_ret, rets_mean, rets_std, sharp
         cdef weight0, turnover_series, turnover, pnl, maxdd, ret2mdd
-        cdef ret2tv, valid_rets_count, win_rate, fitness, count_series
+        cdef calmar, valid_rets_count, win_rate, fitness, count_series
         
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -223,7 +223,7 @@ cdef class Booster(object):
             maxdd = np.nanmax(np.maximum.accumulate(pnl) - pnl)
             
             ret2mdd = rets_mean / maxdd if maxdd > 1e-10 else 0.0
-            ret2tv = rets_mean / turnover if turnover > 1e-10 else 0.0
+            calmar = rets_mean / maxdd if maxdd > 1e-10 else 0.0
             
             valid_rets_count = np.sum(~np.isnan(rets_sum))
             win_rate = np.sum(rets_sum > 0) / valid_rets_count if valid_rets_count > 0 else 0.0
@@ -232,5 +232,5 @@ cdef class Booster(object):
             count_series = np.count_nonzero(~np.isnan(weight), axis=1)
 
         return (rets_sum, rets_mean, rets_std, sharp, turnover, maxdd,
-                ret2mdd, ret2tv, win_rate, fitness, turnover_series,
+                ret2mdd, calmar, win_rate, fitness, turnover_series,
                 count_series)
