@@ -1,4 +1,4 @@
-### 处理KLine数据
+### BN处理funding数据
 import pdb, os
 import pandas as pd
 from pathlib import Path
