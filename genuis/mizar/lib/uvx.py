@@ -61,7 +61,12 @@ def load_params2(file_dirs: str, name:str, model_name: str, data_name:str):
     except Exception as e:
         print(f"发生未知错误: {e}")
         return None, None
+<<<<<<< HEAD
+
+
+=======
         
+>>>>>>> 66e8759435795d6ab369cc6d47868cd1b7218278
 def load_params1(file_dirs: str, name:str, model_name: str, train_name: str, data_name:str):
     file_path = os.path.join(file_dirs, "params", "{}.yaml".format(name))
     try:
