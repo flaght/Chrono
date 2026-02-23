@@ -75,7 +75,7 @@ class MetricsTuple(
                 f"direction:{self.direction}, bias:{self.bias:.2f}, "
                 f"category:{self.category}, top_n:{self.top_n}")
 
-    def plot_results(self, title_prefix="Factor Evaluation"):
+    def plot_results(self, title_prefix="Factor Evaluation", show=True):
         """
         绘制 ArbMetrics 评估器的四组策略 (Long, Short, Both, TopN) 对比报告。
         参照 cux001.py 的风格，但针对四线并发和大数据量(8760x100)进行极速优化的渲染。
@@ -234,7 +234,86 @@ class MetricsTuple(
         # 调整布局，防止标题/指标表格被裁切覆盖，同时抑制 UserWarning
         plt.subplots_adjust(top=0.92, bottom=0.08, wspace=0.2, hspace=0.35)
         
-        plt.show()
+        if show:
+            plt.show()
+        
+        return fig
+
+    def to_dataframe(self):
+        """
+        提取非序列的核心指标，输出为 pandas DataFrame。
+        行索引: ['long', 'short', 'both', 'topn']
+        列名: ['returns_mean', 'returns_std', 'sharp', 'turnover', 'maxdd', 
+               'returns_mdd', 'win_rate', 'ic', 'ir', 'calmar', 'fitness', 'count']
+        """
+        cols = ['returns_mean', 'returns_std', 'sharp', 'turnover', 'maxdd', 
+                'returns_mdd', 'win_rate', 'ic', 'ir', 'calmar', 'fitness', 'count']
+        
+        data = {}
+        for row_name, evaluate in [('long', self.long_evaluate), 
+                                   ('short', self.short_evaluate), 
+                                   ('both', self.both_evaluate), 
+                                   ('topn', self.topn_evaluate)]:
+            data[row_name] = {col: getattr(evaluate, col, np.nan) for col in cols}
+            
+        return pd.DataFrame.from_dict(data, orient='index')
+
+    def save_results(self, base_output_dir: str, title_prefix="Factor Evaluation"):
+        """
+        保存所有结果，包括性能摘要、指标表格、时间序列数据和图表。
+        """
+        import os
+        os.makedirs(base_output_dir, exist_ok=True)
+        print(f"Saving results to: {base_output_dir}")
+
+        # 1. 保存绩效文本
+        summary_path = os.path.join(base_output_dir, "performance_summary.txt")
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            f.write(f"=== ArbMetrics Report [Cython] ===\n")
+            f.write(f"Parameters: TopN={self.top_n}, Hold={self.hold}, Freq={self.freq}, Direction={self.direction}\n")
+            f.write(str(self.long_evaluate) + "\n")
+            f.write(str(self.short_evaluate) + "\n")
+            f.write(str(self.both_evaluate) + "\n")
+            f.write(str(self.topn_evaluate) + "\n")
+        print(f"Performance summary saved to: {summary_path}")
+
+        # 2. 保存 DataFrame 版的核心指标为 CSV
+        df_metrics = self.to_dataframe()
+        metrics_csv_path = os.path.join(base_output_dir, "performance_metrics.csv")
+        df_metrics.to_csv(metrics_csv_path, header=True, index_label='strategy')
+        print(f"Metrics dataframe saved to: {metrics_csv_path}")
+
+        # 3. 保存时间序列数据为独立文件
+        if self.long_evaluate.returns_series is not None:
+            print("Saving time series data as separate files...")
+            for eval_name, evaluate in [('long', self.long_evaluate), 
+                                        ('short', self.short_evaluate), 
+                                        ('both', self.both_evaluate), 
+                                        ('topn', self.topn_evaluate)]:
+                df = pd.DataFrame()
+                if evaluate.returns_series is not None:
+                     df['returns'] = evaluate.returns_series
+                     df['nav'] = (1 + evaluate.returns_series.fillna(0)).cumprod()
+                if getattr(evaluate, 'ic_series', None) is not None:
+                     df['ic'] = evaluate.ic_series
+                if getattr(evaluate, 'turnover_series', None) is not None:
+                     df['turnover'] = evaluate.turnover_series
+                if getattr(evaluate, 'count_series', None) is not None:
+                     df['count'] = evaluate.count_series
+                
+                if not df.empty:
+                    file_path = os.path.join(base_output_dir, f"{eval_name}_series.csv")
+                    df.to_csv(file_path, header=True)
+                    print(f" -> Saved {file_path}")
+
+            # 3. 保存图表
+            fig = self.plot_results(title_prefix=title_prefix, show=False)
+            image_path = os.path.join(base_output_dir, "evaluation_plot.png")
+            fig.savefig(image_path, dpi=300)
+            plt.close(fig)
+            print(f"Evaluation plot saved to: {image_path}")
+        else:
+            print("Time series saving and plotting skipped because is_series=False.")
 
 
 def valid_check(func):
