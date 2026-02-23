@@ -54,7 +54,7 @@ class EvaluateTuple(
                 f"\nwin_rate:{self.win_rate:.4f}"
                 f"\nic:{self.ic:.4f}"
                 f"\nir:{self.ir:.4f}"
-                f"\calmar:{self.calmar:.4f}"
+                f"\ncalmar:{self.calmar:.4f}"
                 f"\nfitness:{self.fitness:.4f}"
                 f"\ncount:{self.count:.1f}")
 
