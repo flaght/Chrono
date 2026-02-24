@@ -11,6 +11,7 @@ from kdutils.logger import logger
 
 from lib.rl002.train import train_model
 from lib.rl002.signal import Config
+from lib.rl002.features import CrossSectionalExtractor
 
 def load_data(method, source, task_id, ret_name):
     target_dir = os.path.join(base_path, method, source, 'rl', str(task_id))
@@ -28,7 +29,7 @@ def load_data(method, source, task_id, ret_name):
     
 def train(method, source, task_id, ret_name):
     train_data, val_data = load_data(method=method, source=source, task_id=task_id, ret_name=ret_name)
-    pdb.set_trace()
+    
     return_columns = train_data.filter(regex="^nxt1").columns.to_list() + train_data.filter(regex="^abret_").columns.to_list() 
     features = [
         f for f in train_data.columns
@@ -69,11 +70,19 @@ def train(method, source, task_id, ret_name):
         'ent_coef': 'auto',
         'target_update_interval': 1,
         'policy_kwargs': {
+            'features_extractor_class': CrossSectionalExtractor,
+            
+            # 向类的 __init__ 传参数
+            'features_extractor_kwargs': dict(
+                features_dim=256,        # 提取器最终吐出来的信号长度
+                n_assets=n_codes, 
+                n_stock_features=len(features)  # 你的原始因子数
+            ),
+            # 因为提取器已经输出了极高价值的 256 维浓缩信号
+            # 所以 Pi 和 Qf 只需要两层小扁平网络做最终判断即可
             'net_arch': {
-                # 【打破瓶颈】：7万维输入如果进 [128,128]，所有因子信号全碎了。
-                # 必须用深广的漏斗网络。
-                'pi': [1024, 512, 256],
-                'qf': [1024, 512, 256]
+                'pi': [128, 128],
+                'qf': [128, 128]
             }
         }
     }
