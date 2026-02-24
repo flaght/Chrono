@@ -111,8 +111,4 @@ def train(method, period, source):
 
 if __name__ == '__main__':
     variant = Tactix().start()
-    #preprocess_basic_factors(method=variant.method,
-    #                         period=variant.period,
-    #                         source=variant.source)
-
     train(method=variant.method, period=variant.period, source=variant.source)

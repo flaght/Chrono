@@ -1,9 +1,13 @@
 import os, pdb
 import pandas as pd
+from sklearn.linear_model import LinearRegression
 
+from lib.syn001.base import train_model as base_train_model
 from lib.lsx001 import fetch_times
 from lib.cux001 import FactorEvaluate1
 from kdutils.macro2 import *
+from lib import logger
+
 
 def train_model(method, task_id, instruments, period, name):
     time_array = fetch_times(method=method,
@@ -26,7 +30,14 @@ def train_model(method, task_id, instruments, period, name):
     test_data.reset_index().to_feather(
         os.path.join(dirs, "linear_{0}_data.feather".format(name)))
 
-def train_model1(train_data, test_data, selected_features, roll_win, period, outdirs):
+def train_model1(train_data, test_data, selected_features, 
+            params, roll_win, period, outdirs):
+    base_train_model(model_class=LinearRegression, train_data=train_data, test_data=test_data, 
+                selected_features=selected_features, 
+                params={}, roll_win=roll_win, 
+                period=period, outdirs=outdirs)
+
+def train_model2(train_data, test_data, selected_features, roll_win, period, outdirs):
 
     def calc(data, selected_features, period, category, outdirs):
         data = data.set_index(['trade_time','code'])
@@ -42,7 +53,12 @@ def train_model1(train_data, test_data, selected_features, roll_win, period, out
                                 expression=category,
                                 resampling_win=15)
         state1 = evaluate1.run()
+        logger.table(pd.DataFrame([state1]), title="{0} 绩效".format(category))
         evaluate1.plot_results()
+        ## 保存因子值 用于转信号
+        factors_path = os.path.join(outdirs, "factors")
+        os.makedirs(factors_path,exist_ok=True)
+        data1.reset_index().to_feather(os.path.join(factors_path, f"{category}.feather"))
         evaluate1.save_results(os.path.join(outdirs, category))
                         
 
