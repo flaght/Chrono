@@ -188,7 +188,7 @@ def train_model(method, instruments, task_id, period, name, model_name):
                         )
                     )
     elif model_name == 'rigde':
-        lasso_train_model(train_data=train_data, test_data=test_data,
+        rigde_train_model(train_data=train_data, test_data=test_data,
                         selected_features=selected_features, 
                         params=MODEL_PARAMS,
                         roll_win=15, period=period,
