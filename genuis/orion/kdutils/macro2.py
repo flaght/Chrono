@@ -13,14 +13,17 @@ PERIOD_MAPPING = {
     "1h": "1hour"
 }
 
-### 20260201  dx  ashare
+### 10260201  un  binance
+### 11260201  dx  ashare
+
+###
 TASK_MAPPING = {
-    "20260201": {
+    "1010101301": {
         "source": "ashare",
         "period": "1d",
         "cycle": "1h" ## 持仓1 horizon
     },
-    "202060101": {
+    "1000201201": {
         "source": "binance",
         "period": "1h",
         "cycle": "1h" ## 持仓1 horizon
