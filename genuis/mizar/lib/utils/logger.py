@@ -108,7 +108,7 @@ class RichLogger:
         """捕获Rich对象的纯文本输出。"""
         # 创建一个临时的StringIO来捕获输出
         string_io = StringIO()
-        temp_console = Console(file=string_io, width=120, force_terminal=False)
+        temp_console = Console(file=string_io, width=1000, force_terminal=False)
         temp_console.print(*objects, **kwargs)
         return string_io.getvalue()
 

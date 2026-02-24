@@ -148,23 +148,26 @@ class Trainer(object):
                     y_val: Optional[np.ndarray] = None,
                     selected_features: Optional[List[str]] = None):
         content = f"""
-
         模型参数详解:\n"""
-                        
+
         for key, value in self.params.items():
             content += f"    {key}: {value}\n"
         logger.panel(content=content, title="模型训练（单次训练）")
 
         cleaned_feature_names = self.clean_feature_names(selected_features) if selected_features else None
-
-        self.model = model_class(**self.params)
-        self.model.fit(X_train, y_train)
+        y_train_scaled = y_train * 1000 
+        self.model = model_class(**self.params) if len(self.params) > 0 else model_class()
+        self.model.fit(X_train, y_train_scaled)
 
         y_pred_val = self.model.predict(X_val)
         
         val_mae = np.mean(np.abs(y_pred_val - y_val))
 
-        logger.panel(content=f"本验证集 MAE: {val_mae:.6f}", 
+        logger.panel(content=f"Intercept (截距): {self.model.intercept_}\n"
+            f"Coefficients (系数): {self.model.coef_}\n"
+            f"Sample Prediction (前5个预测值): {self.model.predict(X_train[:5])}\n"
+            f"Target Y Mean (目标均值): {y_train.mean()}\n"
+            f"本验证集 MAE: {val_mae:.6f}\n", 
             title="✓ 训练完成！")
         return self.model
 
@@ -187,9 +190,10 @@ class Trainer(object):
 
     
     def predict_all(self, X: np.ndarray, dates_val:np.ndarray, code:str, period:int, roll_win:int,
-                    data:pd.DataFrame, expression:str, outdirs:str, model = None):
-        y_val_pred = self.predict(X, model)
-        val_factors = pd.Series(y_val_pred, index=pd.MultiIndex.from_arrays(
+                    data:pd.DataFrame, expression:str, outdirs:str, title:str, model = None):
+        #pdb.set_trace()
+        y_pred = self.predict(X, model)
+        val_factors = pd.Series(y_pred, index=pd.MultiIndex.from_arrays(
             [dates_val, [code] * len(dates_val)],names=['trade_time', 'code']    # 为每一层索引命名
         ), name='transformed')
 
@@ -205,5 +209,7 @@ class Trainer(object):
                                 expression=expression,
                                 resampling_win=roll_win)
         state1 = evaluate1.run()
+        #pdb.set_trace()
+        logger.table(pd.DataFrame([state1]), title="{0} 绩效".format(title))
         evaluate1.plot_results()
         evaluate1.save_results(os.path.join(outdirs, expression))

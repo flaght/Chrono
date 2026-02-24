@@ -7,6 +7,8 @@ from sklearn.linear_model import Ridge
 
 from lib.lsx001 import fetch_times
 from kdutils.macro2 import *
+from lib.syn001.base import train_model as base_train_model
+
 
 
 def train_model(method, task_id, instruments, period, name):
@@ -124,6 +126,7 @@ def train_model(method, task_id, instruments, period, name):
 
 def train_model1(train_data, test_data, selected_features, 
             params, roll_win, period, outdirs):
+    #pdb.set_trace()
     base_train_model(model_class=Ridge, train_data=train_data, test_data=test_data, 
                 selected_features=selected_features, 
                 params=params, roll_win=roll_win, 

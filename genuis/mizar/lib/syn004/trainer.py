@@ -6,6 +6,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from typing import Tuple, List, Dict, Optional
 from lib import logger
 
+
 class Trainer(object):
     """
     支持两种训练方式：
@@ -71,18 +72,18 @@ class Trainer(object):
         y = df[taget_col].values
         dates = df['trade_time'].values
 
-        logger.panel(f"  特征矩阵 X: {X.shape} (样本数 × 特征数) \n"
-                     f"  目标变量 y: {y.shape}"
-                     f"  时间序列: {len(dates)}\n"
-                     f"\n  数据类型:\n"
-                     f"    X: {X.dtype}\n"
-                     f"    y: {y.dtype}\n"
-                     f"\n  数据范围:\n"
-                     f"    X最小值: {X.min():.6f}\n"
-                     f"    X最大值: {X.max():.6f}\n"
-                     f"    y最小值: {y.min():.6f}\n"
-                     f"    y最大值: {y.max():.6f}",
-                     "提取特征矩阵和目标变量")
+        #logger.panel(f"  特征矩阵 X: {X.shape} (样本数 × 特征数) \n"
+        #             f"  目标变量 y: {y.shape}"
+        #             f"  时间序列: {len(dates)}\n"
+        #             f"\n  数据类型:\n"
+        #             f"    X: {X.dtype}\n"
+        #             f"    y: {y.dtype}\n"
+        #             f"\n  数据范围:\n"
+        #             f"    X最小值: {X.min():.6f}\n"
+        #             f"    X最大值: {X.max():.6f}\n"
+        #             f"    y最小值: {y.min():.6f}\n"
+        #             f"    y最大值: {y.max():.6f}",
+        #             "提取特征矩阵和目标变量")
         return X, y, dates
     
 
@@ -104,37 +105,37 @@ class Trainer(object):
             Tuple: (X_train, X_val, y_train, y_val, dates_train, dates_val)
         """
 
-        logger.panel(
-            f"  ✓ 正确: 前70%训练，后30%校验\n"
-            "  ✗ 错误: 随机划分（会导致用未来预测过去\n",
-            title="时间序列预测必须按时间顺序划分数据"
-        )
+        #logger.panel(
+        #    f"  ✓ 正确: 前70%训练，后30%校验\n"
+        #    "  ✗ 错误: 随机划分（会导致用未来预测过去\n",
+        #    title="时间序列预测必须按时间顺序划分数据"
+        #)
         split_idx = int(len(X) * train_ratio)
 
         X_train, X_val = X[:split_idx], X[split_idx:]
         y_train, y_val = y[:split_idx], y[split_idx:]
         dates_train, dates_val = dates[:split_idx], dates[split_idx:]
 
-        logger.panel(
-            f"  训练/校验比例: {train_ratio*100:.0f}% / {(1-train_ratio)*100:.0f}%\n"
-            f"  划分点索引: {split_idx}\n"
-            f"\n  [训练集]\n"
-            f"    样本数: {len(X_train):,}\n"
-            f"    时间范围: {dates_train[0]} 至 {dates_train[-1]}\n"
-            f"    时间跨度: {(pd.Timestamp(dates_train[-1]) - pd.Timestamp(dates_train[0])).days} 天\n"
-            f"    目标变量统计:\n"
-            f"      均值: {y_train.mean():.6f}\n"
-            f"      标准差: {y_train.std():.6f}\n"
-            f"      正收益比例: {(y_train > 0).mean()*100:.2f}%\n"
-            f"\n  [校验集]\n"
-            f"    样本数: {len(X_val):,}\n"
-            f"    时间范围: {dates_val[0]} 至 {dates_val[-1]}\n"
-            f"    时间跨度: {(pd.Timestamp(dates_val[-1]) - pd.Timestamp(dates_val[0])).days} 天\n"
-            f"    目标变量统计:\n"
-            f"      均值: {y_val.mean():.6f}\n"
-            f"      标准差: {y_val.std():.6f}\n"
-            f"      正收益比例: {(y_val > 0).mean()*100:.2f}%\n", title="数据集信息"
-        )
+        #logger.panel(
+        #    f"  训练/校验比例: {train_ratio*100:.0f}% / {(1-train_ratio)*100:.0f}%\n"
+        #    f"  划分点索引: {split_idx}\n"
+        #    f"\n  [训练集]\n"
+        #    f"    样本数: {len(X_train):,}\n"
+        #    f"    时间范围: {dates_train[0]} 至 {dates_train[-1]}\n"
+        #    f"    时间跨度: {(pd.Timestamp(dates_train[-1]) - pd.Timestamp(dates_train[0])).days} 天\n"
+        #    f"    目标变量统计:\n"
+        #    f"      均值: {y_train.mean():.6f}\n"
+        #    f"      标准差: {y_train.std():.6f}\n"
+        #    f"      正收益比例: {(y_train > 0).mean()*100:.2f}%\n"
+        #    f"\n  [校验集]\n"
+        #    f"    样本数: {len(X_val):,}\n"
+        #    f"    时间范围: {dates_val[0]} 至 {dates_val[-1]}\n"
+        #    f"    时间跨度: {(pd.Timestamp(dates_val[-1]) - pd.Timestamp(dates_val[0])).days} 天\n"
+        #    f"    目标变量统计:\n"
+        #    f"      均值: {y_val.mean():.6f}\n"
+        #    f"      标准差: {y_val.std():.6f}\n"
+        #    f"      正收益比例: {(y_val > 0).mean()*100:.2f}%\n", title="数据集信息"
+        #)
 
 
         # 检查训练集和测试集分布差异
@@ -149,9 +150,9 @@ class Trainer(object):
         else:
             content+= f"    ✓ 训练集和测试集分布相对一致\n"
 
-        logger.panel(
-            content=content,title="[分布一致性检查]"
-        )
+        #logger.panel(
+        #    content=content,title="[分布一致性检查]"
+        #)
         
         return X_train, X_val, y_train, y_val, dates_train, dates_val
         
@@ -170,14 +171,14 @@ class Trainer(object):
          Tuple[List[lgb.Booster], pd.DataFrame]: 每折的模型列表和验证结果
         """
 
-        logger.rule("LightGBM模型训练（滚动训练 - Walk-Forward Validation）")
+        #logger.rule("LightGBM模型训练（滚动训练 - Walk-Forward Validation）")
 
-        logger.print("\n【目的】模拟真实交易场景，评估模型稳定性")
-        logger.print("【方法】逐步向前验证，每次用历史数据训练，预测未来数据")
-        logger.print("\n【关键】这是时间序列预测的正确训练方式！")
-        logger.print("  ✓ 每次用历史数据训练")
-        logger.print("  ✓ 用训练好的模型预测未来数据")
-        logger.print("  ✗ 不能用未来信息预测过去（数据泄露）")
+        #logger.print("\n【目的】模拟真实交易场景，评估模型稳定性")
+        #logger.print("【方法】逐步向前验证，每次用历史数据训练，预测未来数据")
+        #logger.print("\n【关键】这是时间序列预测的正确训练方式！")
+        #logger.print("  ✓ 每次用历史数据训练")
+        #logger.print("  ✓ 用训练好的模型预测未来数据")
+        #logger.print("  ✗ 不能用未来信息预测过去（数据泄露）")
 
         tscv = TimeSeriesSplit(n_splits=n_splits)
 
@@ -196,7 +197,7 @@ class Trainer(object):
             X_tr, X_te = X[train_idx], X[test_idx]
             y_tr, y_te = y[train_idx], y[test_idx]
 
-            logger.print(f"    训练模型中...")
+            #logger.print(f"    训练模型中...")
             cleaned_feature_names = self.clean_feature_names(selected_features) if selected_features else None
 
             train_set = lgb.Dataset(
@@ -216,7 +217,7 @@ class Trainer(object):
             models.append(model_fold)
 
             # 预测和评估
-            logger.print(f"    预测和评估中...")
+            #logger.print(f"    预测和评估中...")
             y_pred = model_fold.predict(X_te)
 
             # 计算指标
@@ -251,26 +252,26 @@ class Trainer(object):
                 'sharpe': sharpe,
                 'cum_return': strategy_returns.sum()
             })
-            logger.print(f"    IC: {ic:.4f}, 方向准确率: {direction_acc:.2%}, Sharpe: {sharpe:.2f}")
+            #logger.print(f"    IC: {ic:.4f}, 方向准确率: {direction_acc:.2%}, Sharpe: {sharpe:.2f}")
 
         results_df = pd.DataFrame(results)
 
-        logger.rule("Walk-Forward验证结果汇总:")
-        logger.table(results_df, "训练结果")
+        #logger.rule("Walk-Forward验证结果汇总:")
+        #logger.table(results_df, "训练结果")
         
-        logger.print(f"\n  统计量:")
-        logger.print(f"    平均IC: {results_df['IC'].mean():.4f} ± {results_df['IC'].std():.4f}")
-        logger.print(f"    平均RankIC: {results_df['RankIC'].mean():.4f} ± {results_df['RankIC'].std():.4f}")
-        logger.print(f"    平均方向准确率: {results_df['direction_acc'].mean():.2%} ± {results_df['direction_acc'].std():.2%}")
-        logger.print(f"    平均Sharpe: {results_df['sharpe'].mean():.2f} ± {results_df['sharpe'].std():.2f}")
+        #logger.print(f"\n  统计量:")
+        #logger.print(f"    平均IC: {results_df['IC'].mean():.4f} ± {results_df['IC'].std():.4f}")
+        #logger.print(f"    平均RankIC: {results_df['RankIC'].mean():.4f} ± {results_df['RankIC'].std():.4f}")
+        #logger.print(f"    平均方向准确率: {results_df['direction_acc'].mean():.2%} ± {results_df['direction_acc'].std():.2%}")
+        #logger.print(f"    平均Sharpe: {results_df['sharpe'].mean():.2f} ± {results_df['sharpe'].std():.2f}")
         
         # 稳定性评估
         ic_mean = results_df['IC'].mean()
         ic_std = results_df['IC'].std()
         ic_cv = ic_std / abs(ic_mean) if ic_mean != 0 else float('inf')
         
-        logger.rule("稳定性评估:")
-        logger.print(f"    IC变异系数: {ic_cv:.2f}")
+        #logger.rule("稳定性评估:")
+        #logger.print(f"    IC变异系数: {ic_cv:.2f}")
         if ic_cv < 0.5:
             logger.print(f"    ✓ 模型稳定性良好")
         elif ic_cv < 1.0:
@@ -301,12 +302,13 @@ class Trainer(object):
                         
         for key, value in self.params.items():
             content += f"    {key}: {value}\n"
-        logger.panel(content=content, title="LightGBM模型训练（单次训练）")
+        #logger.panel(content=content, title="LightGBM模型训练（单次训练）")
+        #logger.table(data=pd.DataFrame(selected_features, columns=['name']), title="使用的特征")
 
         cleaned_feature_names = self.clean_feature_names(selected_features) if selected_features else None
         train_data = lgb.Dataset(
             X_train,
-            label=y_train,
+            label=y_train * self.train_params['scale'],
             feature_name=cleaned_feature_names
         )
 
@@ -314,25 +316,25 @@ class Trainer(object):
         valid_names = ['train']
         
         if X_val is not None and y_val is not None:
-            logger.print(f"  转换验证数据为LightGBM格式...")
+            #logger.print(f"  转换验证数据为LightGBM格式...")
             val_data = lgb.Dataset(
                 X_val,
-                label=y_val,
+                label=y_val * self.train_params['scale'],
                 reference=train_data,
                 feature_name=cleaned_feature_names
             )
             valid_sets.append(val_data)
             valid_names.append('valid')
-        logger.print(f"  ✓ 数据集创建完成")
+        #logger.print(f"  ✓ 数据集创建完成")
         
-        logger.panel(f"  训练参数:"
-                     f"    最大迭代次数: {self.train_params['num_boost_round']}"
-                     f"    早停轮数: {self.train_params['early_stopping_rounds']}"
-                     f"    显示间隔: {self.train_params.get('verbose_eval', 50)}",
-                     "开始训练模型")
+        #logger.panel(f"  训练参数:"
+        #             f"    最大迭代次数: {self.train_params['num_boost_round']}"
+        #             f"    早停轮数: {self.train_params['early_stopping_rounds']}"
+        #             f"    显示间隔: {self.train_params.get('verbose_eval', 50)}",
+        #             "开始训练模型")
 
-        logger.print(f"\n  训练中...")
-        logger.print(f"  " + "-" * 40)
+        #logger.print(f"\n  训练中...")
+        #logger.print(f"  " + "-" * 40)
         
         train_start_time = time.time()
 
@@ -379,7 +381,7 @@ class Trainer(object):
                     metric_value = valid_scores[metric_name]
                     content += f"    验证集最佳{metric_name.upper()}: {metric_value:.6f}"
 
-        logger.panel(content=content, title="✓ 训练完成！")
+        #logger.panel(content=content, title="✓ 训练完成！")
         return self.model
 
     def predict(self, X: np.ndarray, model: Optional[lgb.Booster] = None) -> np.ndarray:
@@ -399,7 +401,10 @@ class Trainer(object):
             model = self.model
         
         num_iteration = self.best_iteration if self.best_iteration else None
-        return model.predict(X, num_iteration=num_iteration)
+        predictions = model.predict(X, num_iteration=num_iteration)
+        # 注意: 保持放大后的预测值，用于后续的头寸计算
+        # 这样f_scaled会有足够的变化范围，换手率会显著提升
+        return predictions
     
     def save(self, output:str, model: Optional[lgb.Booster]):
         model_path = os.path.join(output, 'lgb_model.txt')

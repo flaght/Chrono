@@ -8,6 +8,7 @@ from lib.composite.loader import DataLoader
 from lib.composite.cleaner import DataCleaner
 from lib.composite.feature import Featurer
 from lib.syn001.linear import train_model1 as linear_train_model
+from lib.syn001.linear import train_model2 as linear_equal_model
 from lib.syn001.lasso import train_model1 as lasso_train_model
 from lib.syn001.rigde import train_model1 as rigde_train_model
 from lib.syn001.lassocv import train_model1 as lassocv_train_model
@@ -130,6 +131,7 @@ def train_model(method, instruments, task_id, period, name, model_name):
         period=period, name='feature', 
         params=DATA_PARAMS)
     #selected_features = features_df['feature'].tolist()[-1:]
+    '''
     selected_features = ["MMASSI(120,MNPOSITIVE(90,'corr_vwap_ask_price_0'),WMA(5,'smart_tick_in'))",
                         "MVHF(10,MMASSI(120,MPRO(60,MVHF(10,MPRO(60,'money'))),MAPOSITIVE(10,'twap')))",
                         "DELTA(120,MMAX(90,DELTA(90,'low')))",
@@ -156,17 +158,22 @@ def train_model(method, instruments, task_id, period, name, model_name):
                         "MMedian(90,MVHF(10,MT3(120,'pct_change')))",
                         "DELTA(90,MMaxDiff(90,DELTA(90,SHIFT(60,'low'))))"]
     
+    '''
     selected_features = ["DELTA(5,MT3(120,MCPS(120,MA(120,'pct_change'))))",
                         "MMASSI(90,'twap',MADecay(15,'order_flow_imbanlace_1'))",
                         "RSI(120,MCPS(120,RSI(120,'pct_change_close')))",
                         "MT3(90,MCPS(15,MSUM(120,'smart_tick_in')))"
                         ]
     
-    pdb.set_trace()
+
+    #selected_features = ["MT3(90,MCPS(15,MSUM(120,'smart_tick_in')))"]
+    
+    
+    #pdb.set_trace()
     train_data, test_data = fetch_clean_data2(method=method,task_id=task_id,instruments=instruments,
         output=outdirs, params=DATA_PARAMS)
 
-    pdb.set_trace()
+    #pdb.set_trace()
     TOTAL_PARAMS = copy.deepcopy(MODEL_PARAMS)
     TOTAL_PARAMS.update(DATA_PARAMS)
 
@@ -176,6 +183,7 @@ def train_model(method, instruments, task_id, period, name, model_name):
     if  model_name == 'linear':
         linear_train_model(train_data=train_data, test_data=test_data, 
                         selected_features=selected_features, 
+                        params=MODEL_PARAMS,
                         roll_win=15, period=period, outdirs=os.path.join(outdirs,"result", model_name, str(int(Params.create_tag(TOTAL_PARAMS)))
                         )
                     )
@@ -195,6 +203,15 @@ def train_model(method, instruments, task_id, period, name, model_name):
                         outdirs=os.path.join(outdirs,"result", model_name, str(int(Params.create_tag(TOTAL_PARAMS)))
                         )
                     )
+
+    elif model_name == 'equal':
+        linear_equal_model(train_data=train_data, test_data=test_data,
+                        selected_features=selected_features, 
+                        roll_win=15, period=period,
+                        outdirs=os.path.join(outdirs,"result", model_name, str(int(Params.create_tag(TOTAL_PARAMS))))
+                        )
+        
+
 
 
                 

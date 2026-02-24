@@ -44,6 +44,8 @@ class EvaluateTuple(
     __slots__ = ()
 
     def __repr__(self):
+        ic_str = f"{self.ic:.4f}" if self.category == BOTH_SIDE else "N/A"
+        ir_str = f"{self.ir:.4f}" if self.category == BOTH_SIDE else "N/A"
         return (f"\n--- {self.category} ---"
                 f"\nreturns_mean:{self.returns_mean:.6f}"
                 f"\nreturns_std:{self.returns_std:.6f}"
@@ -52,8 +54,8 @@ class EvaluateTuple(
                 f"\nmaxdd:{self.maxdd:.4f}"
                 f"\nreturns_mdd:{self.returns_mdd:.4f}"
                 f"\nwin_rate:{self.win_rate:.4f}"
-                f"\nic:{self.ic:.4f}"
-                f"\nir:{self.ir:.4f}"
+                f"\nic:{ic_str}"
+                f"\nir:{ir_str}"
                 f"\ncalmar:{self.calmar:.4f}"
                 f"\nfitness:{self.fitness:.4f}"
                 f"\ncount:{self.count:.1f}")
@@ -63,7 +65,7 @@ class MetricsTuple(
         namedtuple('MetricsTuple',
                    ('long_evaluate', 'short_evaluate', 'both_evaluate',
                     'topn_evaluate', 'hold', 'freq', 'direction', 'bias',
-                    'category', 'top_n'))):
+                    'category', 'top_n', 'quantile_evaluations'))):
     __slots__ = ()
 
     def __repr__(self):
@@ -117,7 +119,7 @@ class MetricsTuple(
 
         ax1.plot(nav_long.values, label='Long NAV', color='red', alpha=0.8)
         ax1.plot(nav_short.values, label='Short NAV', color='blue', alpha=0.8)
-        ax1.plot(nav_both.values, label='Both (L-S) NAV', color='purple', alpha=0.9, linewidth=2)
+        ax1.plot(nav_both.values, label='Both NAV', color='purple', alpha=0.9, linewidth=2)
         ax1.plot(nav_topn.values, label='TopN NAV', color='green', alpha=0.9, linewidth=2)
 
         set_sequential_xticks(ax1, nav_long)
@@ -137,6 +139,11 @@ class MetricsTuple(
             if pd.isna(val): return "N/A"
             return f"{val:.2%}" if is_pct else f"{val:.4f}"
 
+        def fmt_ic(val, is_both=False):
+            if not is_both: return "N/A"
+            if pd.isna(val): return "N/A"
+            return f"{val:.4f}"
+
         stats_text = (
             f"{'Metric':<18} | {'Long':<14} | {'Short':<14} | {'Both':<14} | {'TopN':<14}\n"
             f"{'-'*78}\n"
@@ -146,8 +153,8 @@ class MetricsTuple(
             f"{'Win Rate':<18} | {fmt(self.long_evaluate.win_rate,1):<14} | {fmt(self.short_evaluate.win_rate,1):<14} | {fmt(self.both_evaluate.win_rate,1):<14} | {fmt(self.topn_evaluate.win_rate,1):<14}\n"
             f"{'Turnover Mean':<18} | {fmt(self.long_evaluate.turnover):<14} | {fmt(self.short_evaluate.turnover):<14} | {fmt(self.both_evaluate.turnover):<14} | {fmt(self.topn_evaluate.turnover):<14}\n"
             f"{'Calmar':<18} | {fmt(self.long_evaluate.calmar):<14} | {fmt(self.short_evaluate.calmar):<14} | {fmt(self.both_evaluate.calmar):<14} | {fmt(self.topn_evaluate.calmar):<14}\n"
-            f"{'IC Mean':<18} | {fmt(self.long_evaluate.ic):<14} | {fmt(self.short_evaluate.ic):<14} | {fmt(self.both_evaluate.ic):<14} | {fmt(self.topn_evaluate.ic):<14}\n"
-            f"{'ICIR':<18} | {fmt(self.long_evaluate.ir):<14} | {fmt(self.short_evaluate.ir):<14} | {fmt(self.both_evaluate.ir):<14} | {fmt(self.topn_evaluate.ir):<14}\n"
+            f"{'IC Mean':<18} | {fmt_ic(self.long_evaluate.ic, False):<14} | {fmt_ic(self.short_evaluate.ic, False):<14} | {fmt_ic(self.both_evaluate.ic, True):<14} | {fmt_ic(self.topn_evaluate.ic, False):<14}\n"
+            f"{'ICIR':<18} | {fmt_ic(self.long_evaluate.ir, False):<14} | {fmt_ic(self.short_evaluate.ir, False):<14} | {fmt_ic(self.both_evaluate.ir, True):<14} | {fmt_ic(self.topn_evaluate.ir, False):<14}\n"
             f"{'Fitness':<18} | {fmt(self.long_evaluate.fitness):<14} | {fmt(self.short_evaluate.fitness):<14} | {fmt(self.both_evaluate.fitness):<14} | {fmt(self.topn_evaluate.fitness):<14}\n"
             f"{'Avg Holding Count':<18} | {fmt(self.long_evaluate.count):<14} | {fmt(self.short_evaluate.count):<14} | {fmt(self.both_evaluate.count):<14} | {fmt(self.topn_evaluate.count):<14}\n"
         )
@@ -155,21 +162,14 @@ class MetricsTuple(
         ax_table.set_title("Strategy Key Performance Indicators", fontsize=14)
 
         # ------------------------------------------------------------------
-        # 3. 截面 IC 序列与累积图（取多头/TopN 代表性特征）
+        # 3. 截面 IC 序列与累积图（只展示有意义的全市场 Both IC）
         # ------------------------------------------------------------------
         ax3 = axes[1, 0]
-        # 展示4条累计IC曲线
-        ic_long = self.long_evaluate.ic_series.fillna(0)
-        ic_short = self.short_evaluate.ic_series.fillna(0)
         ic_both = self.both_evaluate.ic_series.fillna(0)
-        ic_topn = self.topn_evaluate.ic_series.fillna(0)
 
-        ax3.plot(ic_long.cumsum().values, label='Long CumIC', color='red', alpha=0.8)
-        ax3.plot(ic_short.cumsum().values, label='Short CumIC', color='blue', alpha=0.8)
-        ax3.plot(ic_both.cumsum().values, label='Both CumIC', color='purple', alpha=0.9, linewidth=2)
-        ax3.plot(ic_topn.cumsum().values, label='TopN CumIC', color='green', alpha=0.9, linewidth=2)
+        ax3.plot(ic_both.cumsum().values, label='Factor CumIC (Both)', color='purple', alpha=0.9, linewidth=2)
 
-        set_sequential_xticks(ax3, ic_long)
+        set_sequential_xticks(ax3, ic_both)
         ax3.set_ylabel("Cumulative IC")
         ax3.set_title("Cross-sectional IC Analysis (Cumulative)")
         ax3.axhline(0, color='gray', linestyle='--', linewidth=1)
@@ -177,16 +177,33 @@ class MetricsTuple(
         ax3.grid(True, alpha=0.3)
 
         # ------------------------------------------------------------------
-        # 4. 每日收益率分布取代臃肿散点图 (提高渲染效率)
+        # 4. 分位数累计收益曲线图 (Quantile Cumulative Returns)
         # ------------------------------------------------------------------
         ax4 = axes[1, 1]
-        ax4.hist(self.topn_evaluate.returns_series.dropna().values, bins=60, alpha=0.6, color='green', label='TopN Returns')
-        ax4.hist(self.both_evaluate.returns_series.dropna().values, bins=60, alpha=0.5, color='purple', label='Both Returns')
-        ax4.set_title("Daily Portfolio Returns Distribution")
-        ax4.set_xlabel("Return")
-        ax4.set_ylabel("Frequency")
-        ax4.legend()
-        ax4.grid(True, alpha=0.3)
+        
+        if getattr(self, 'quantile_evaluations', None):
+            import matplotlib.cm as cm
+            q_num = len(self.quantile_evaluations)
+            colors = cm.coolwarm_r(np.linspace(0, 1, q_num))  # 红到蓝的渐变色谱
+            
+            # 画每条分位数的净值曲线 (NAV)
+            for i, q_eval in enumerate(self.quantile_evaluations):
+                if q_eval.returns_series is not None:
+                    q_nav = (1 + q_eval.returns_series.fillna(0)).cumprod()
+                    ax4.plot(q_nav.values, label=q_eval.category, color=colors[i], alpha=0.85, linewidth=1.5)
+            
+            if self.quantile_evaluations and self.quantile_evaluations[0].returns_series is not None:
+                set_sequential_xticks(ax4, self.quantile_evaluations[0].returns_series)
+            
+            ax4.set_title(f"Quantile Cumulative Returns ({q_num} groups)")
+            ax4.set_ylabel("NAV")
+            
+            # 把图例放在外侧避免遮挡严重区域
+            ax4.legend(loc='lower left', prop={'size': 9})
+            ax4.grid(True, alpha=0.5)
+        else:
+            ax4.text(0.5, 0.5, "Quantile Evaluations Not Available", ha='center', va='center')
+            ax4.axis('off')
 
         # ------------------------------------------------------------------
         # 5. 动态历史回撤对比区
@@ -250,17 +267,31 @@ class MetricsTuple(
                 'returns_mdd', 'win_rate', 'ic', 'ir', 'calmar', 'fitness', 'count']
         
         data = {}
-        for row_name, evaluate in [('long', self.long_evaluate), 
-                                   ('short', self.short_evaluate), 
-                                   ('both', self.both_evaluate), 
-                                   ('topn', self.topn_evaluate)]:
-            data[row_name] = {col: getattr(evaluate, col, np.nan) for col in cols}
+        # 搜集主策略表现
+        eval_list = [('long', self.long_evaluate), 
+                     ('short', self.short_evaluate), 
+                     ('both', self.both_evaluate), 
+                     ('topn', self.topn_evaluate)]
+        
+        # 追加分位数策略表现
+        if getattr(self, 'quantile_evaluations', None):
+            for q_eval in self.quantile_evaluations:
+                eval_list.append((q_eval.category, q_eval))
+
+        for row_name, evaluate in eval_list:
+            row_data = {col: getattr(evaluate, col, np.nan) for col in cols}
+            # 清理对于多空分组无统计学意义的噪音 IC 指标
+            if row_name != 'both':
+                row_data['ic'] = np.nan
+                row_data['ir'] = np.nan
+            data[row_name] = row_data
             
         return pd.DataFrame.from_dict(data, orient='index')
 
-    def save_results(self, base_output_dir: str, title_prefix="Factor Evaluation"):
+    def save_results(self, base_output_dir: str, title_prefix="Factor Evaluation", image_export_dir: str=None):
         """
         保存所有结果，包括性能摘要、指标表格、时间序列数据和图表。
+        如果指定了 image_export_dir，除了存到自身目录外，图表还会额外拷贝一份到该统一下，用来统一翻图。
         """
         import os
         os.makedirs(base_output_dir, exist_ok=True)
@@ -286,10 +317,15 @@ class MetricsTuple(
         # 3. 保存时间序列数据为独立文件
         if self.long_evaluate.returns_series is not None:
             print("Saving time series data as separate files...")
-            for eval_name, evaluate in [('long', self.long_evaluate), 
-                                        ('short', self.short_evaluate), 
-                                        ('both', self.both_evaluate), 
-                                        ('topn', self.topn_evaluate)]:
+            eval_series_list = [('long', self.long_evaluate), 
+                                ('short', self.short_evaluate), 
+                                ('both', self.both_evaluate), 
+                                ('topn', self.topn_evaluate)]
+            if getattr(self, 'quantile_evaluations', None):
+                for q_eval in self.quantile_evaluations:
+                    eval_series_list.append((q_eval.category, q_eval))
+
+            for eval_name, evaluate in eval_series_list:
                 df = pd.DataFrame()
                 if evaluate.returns_series is not None:
                      df['returns'] = evaluate.returns_series
@@ -310,6 +346,19 @@ class MetricsTuple(
             fig = self.plot_results(title_prefix=title_prefix, show=False)
             image_path = os.path.join(base_output_dir, "evaluation_plot.png")
             fig.savefig(image_path, dpi=300)
+            
+            # 如果配置了图库目录，单独再抽存一张图过去方便阅览
+            if image_export_dir is not None:
+                os.makedirs(image_export_dir, exist_ok=True)
+                import re
+                # 将可能带有非法字符的名字转为下划线，作为文件名
+                safe_name = re.sub(r'[^\w\u4e00-\u9fa5\-]+', '_', title_prefix).strip('_')
+                if not safe_name:
+                    safe_name = "factor_plot"
+                export_path = os.path.join(image_export_dir, f"{safe_name}.png")
+                fig.savefig(export_path, dpi=300)
+                print(f"Evaluation plot also exported to: {export_path}")
+
             plt.close(fig)
             print(f"Evaluation plot saved to: {image_path}")
         else:
@@ -351,7 +400,8 @@ class Metrics(object):
                 fee=0.0,
                 show_log=True,
                 is_series=False,
-                topn_weight_method='factor'):
+                topn_weight_method='factor',
+                quantiles=5):
         """工厂方法：一行调用完成全量评估。"""
         metrics = cls(returns=returns,
                       factors=factors,
@@ -365,7 +415,8 @@ class Metrics(object):
                       fee=fee,
                       show_log=show_log,
                       is_series=is_series,
-                      topn_weight_method=topn_weight_method)
+                      topn_weight_method=topn_weight_method,
+                      quantiles=quantiles)
         return metrics.fit_metrics()
 
     def __init__(self,
@@ -381,7 +432,8 @@ class Metrics(object):
                  fee=0.0,
                  show_log=True,
                  is_series=False,
-                 topn_weight_method='factor'):
+                 topn_weight_method='factor',
+                 quantiles=5):
         self.valid = False
         self.category = category
         self.skip = skip
@@ -393,6 +445,7 @@ class Metrics(object):
         self.is_series = is_series
         self.direction = direction
         self.topn_weight_method = topn_weight_method
+        self.quantiles = quantiles
 
         # 保存 pandas 引用 (用于输出)
         self._returns_index = returns.index
@@ -545,6 +598,35 @@ class Metrics(object):
             topn_ind, topn_ic, topn_ic_mean, topn_ic_std,
             topn_weight, TOP_N)
 
+        # ---------- Quantiles ----------
+        quantile_evals = []
+        if self.quantiles > 0:
+            # Cython accelerated percent rank (replaces pd.DataFrame.rank)
+            pct_ranks = self.booster.percent_rank(score)
+            for q in range(1, self.quantiles + 1):
+                lower_bound = (q - 1) / self.quantiles
+                upper_bound = q / self.quantiles
+                
+                # Filter indices within percentile borders
+                mask = (pct_ranks > lower_bound) & (pct_ranks <= upper_bound)
+                qw = np.where(mask, 1.0, 0.0)
+                
+                # Avoid division by zero
+                row_sums = np.sum(qw, axis=1, keepdims=True)
+                qw = np.divide(qw, row_sums, where=row_sums > 0, out=qw)
+                
+                qw = self._apply_hold_smoothing(qw)
+                # Re-normalize after smoothing (equal weight within quantile group)
+                if self.hold > 1:
+                    row_sums_smooth = np.nansum(qw, axis=1, keepdims=True)
+                    qw = np.divide(qw, row_sums_smooth, where=row_sums_smooth > 0, out=qw)
+                
+                q_ind = self.booster.evaluate(qw, self.ereturns, self.hold, self.freq)
+                # IC isn't strictly necessary for local quantiles, but we calculate it for tuple completeness
+                q_ic, q_ic_mean, q_ic_std = self.booster.correlation(qw, self.ereturns, 'long')
+                q_eval = self._make_evaluate_tuple(q_ind, q_ic, q_ic_mean, q_ic_std, qw, f'Q{q}')
+                quantile_evals.append(q_eval)
+
         self.direction = direction_val
 
         if self.show_log:
@@ -571,4 +653,5 @@ class Metrics(object):
                   if short_evaluate.count != 0 else 0),
             category=self.category,
             direction=self.direction,
-            top_n=self.top_n)
+            top_n=self.top_n,
+            quantile_evaluations=quantile_evals)

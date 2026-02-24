@@ -59,6 +59,28 @@ cdef class Booster(object):
         ranked = (ranked - 3. / 8.) / (count + 1. / 4.)
         return norm.ppf(ranked)
 
+    cpdef percent_rank(self, factors):
+        """计算截面分位数 (纯 Numpy 向量化版本替代 pd.DataFrame.rank(pct=True))"""
+        cdef valid_mask = ~np.isnan(factors)
+        cdef mask_factors = np.where(valid_mask, factors, np.inf)
+        
+        cdef sort_idx = np.argsort(mask_factors, axis=1)
+        cdef ranks = np.empty_like(sort_idx, dtype=np.float64)
+        cdef int N = factors.shape[1]
+        cdef row_idx = np.arange(N)
+        cdef broadcast_row = np.broadcast_to(row_idx, factors.shape)
+        
+        np.put_along_axis(ranks, sort_idx, broadcast_row, axis=1)
+        ranks = ranks + 1.0  # Rank starts from 1
+        
+        cdef counts = valid_mask.sum(axis=1, keepdims=True)
+        cdef pct_ranks
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            pct_ranks = np.divide(ranks, counts, out=np.full_like(ranks, np.nan), where=(counts > 0))
+            
+        return np.where(valid_mask, pct_ranks, np.nan)
+
     cpdef create_weight(self, factors, is_pos=True):
         """创建多头或空头权重"""
         cdef weight = copy.deepcopy(factors)
