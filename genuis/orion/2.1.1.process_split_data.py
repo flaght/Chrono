@@ -49,8 +49,8 @@ def process_normal(method, task_id, source, cycle, period):
     test_data.reset_index(drop=True).to_feather(os.path.join(target_dir, "test_data.feather"))
     
     
-def process_original(method, task_id, source, cycle, period):
-    base_dirs = os.path.join(base_path, method, source, 'basic', str(task_id))
+def process_original(method, task_id):
+    base_dirs = os.path.join(base_path, method, TASK_MAPPING[task_id]['source'], 'basic', str(task_id))
     factor_data = pd.read_feather(os.path.join(base_dirs, "original_factors.feather"))
     return_data =  pd.read_feather(os.path.join(base_dirs, "return_data.feather"))
     factor_data['trade_time'] = pd.to_datetime(factor_data['trade_time'])
@@ -72,7 +72,7 @@ def process_original(method, task_id, source, cycle, period):
     test_data = total_data1[total_data1['trade_time'].isin(times[len1 +
                                                                    len2:])]
     
-    target_dir = os.path.join(base_path, method, source, 'base', str(task_id))
+    target_dir = os.path.join(base_path, method, TASK_MAPPING[task_id]['source'], 'base', str(task_id))
     os.makedirs(target_dir, exist_ok=True)
     
     train_factors = train_data[factor_data.columns]
@@ -96,7 +96,4 @@ def process_original(method, task_id, source, cycle, period):
 if __name__ == '__main__':
     variant = Tactix().start()
     process_original(method=variant.method,
-          source=variant.source,
-          task_id=variant.task_id,
-          cycle=variant.cycle,
-          period=variant.period)
+          task_id=variant.task_id)

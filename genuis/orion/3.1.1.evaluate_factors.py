@@ -7,6 +7,7 @@ load_dotenv()
 
 from lib.ftd001 import fetch_temp_data1
 from lib.cms002 import Metrics, DALIY_PER_YEAR
+from kdutils.macro2 import *
 from kdutils.tactix import Tactix
 from kdutils.macro2 import base_path
 
@@ -27,7 +28,7 @@ def merge_results(factor_names, results):
     final_wide_df.index.name = "name"
     return final_wide_df
 
-def parallel_evaluate(total_data, factor_name, ret_name, output_dirs):
+def parallel_evaluate(total_data, factor_name, ret_name, output_dirs, image_dirs):
     result = Metrics.general(returns=total_data[f'{ret_name}'],
                              factors=total_data[factor_name],
                              dummy=None,
@@ -42,19 +43,20 @@ def parallel_evaluate(total_data, factor_name, ret_name, output_dirs):
     factors_dirs = os.path.join(output_dirs, factor_name)
     os.makedirs(factors_dirs, exist_ok=True)
     result.save_results(base_output_dir=factors_dirs,
-                        title_prefix=f"Factor Evaluation:{factor_name}")
+                        title_prefix=f"Factor Evaluation:{factor_name}",
+                        image_export_dir=image_dirs)
     return result.to_dataframe()
 
 
-def run(method, period, source, task_id, ret_name):
+def run(method, task_id, ret_name):
     pdb.set_trace()
     total_factors = fetch_temp_data1(method=method,
                                     task_id=task_id,
-                                    source=source,
+                                    source=TASK_MAPPING[task_id]['source'],
                                     datasets=['train', 'val'])
     total_returns = fetch_temp_data1(method=method,
                                     task_id=task_id,
-                                    source=source,
+                                    source=TASK_MAPPING[task_id]['source'],
                                     datasets=['train', 'val'],
                                     category='return')
     total_data = total_factors.merge(
@@ -64,10 +66,11 @@ def run(method, period, source, task_id, ret_name):
     factor_columns = factor_columns[0:8]
     total_data1 = total_data.set_index(['trade_time', 'code']).unstack()
     
-    output_dirs = os.path.join(base_path, method, "evaluate", period, source,
+    output_dirs = os.path.join(base_path, method, "evaluate", TASK_MAPPING[task_id]['period'], TASK_MAPPING[task_id]['source'],
                                str(task_id))
     
-    output_dirs = os.path.join(base_path, method, source, 'evaluate', str(task_id))
+    output_dirs = os.path.join(base_path, method, TASK_MAPPING[task_id]['source'], 'evaluate', str(task_id))
+    image_dirs = os.path.join(output_dirs, "plot")
     os.makedirs(output_dirs, exist_ok=True)
     results = Parallel(n_jobs=1, verbose=1)(
         delayed(parallel_evaluate)(total_data=total_data1[[
@@ -76,6 +79,7 @@ def run(method, period, source, task_id, ret_name):
         ]],
                                    factor_name=factor_columns[i],
                                    output_dirs=output_dirs,
+                                   image_dirs=image_dirs,
                                    ret_name=ret_name)
         for i in range(0, len(factor_columns)))
     final_wide_pd = merge_results(factor_columns, results)
@@ -86,7 +90,5 @@ def run(method, period, source, task_id, ret_name):
 if __name__ == '__main__':
     variant = Tactix().start()
     run(method=variant.method,
-        period=variant.period,
-        source=variant.source,
         task_id=variant.task_id,
         ret_name=variant.ret_name)

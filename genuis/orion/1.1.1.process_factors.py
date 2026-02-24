@@ -72,20 +72,19 @@ def load_raw_factors1(start_date=None, end_date=None):
     return normal_factors_data, original_factors_data
     
 ## task_id 对应映射 source, cycle, period
-def start_factors(method, task_id, source, cycle, period):
+def start_factors(method, task_id):
     start_date, end_date = get_dates(method)
     normal_factors_data, original_factors_data = load_raw_factors1(start_date=start_date, end_date=end_date)
-    output_dirs = os.path.join(base_path, method, source, 'basic',  str(task_id))
+    output_dirs = os.path.join(base_path, method, TASK_MAPPING[task_id]['source'], 'basic',  str(task_id))
     os.makedirs(output_dirs, exist_ok=True)
-    pdb.set_trace()
     normal_factors_data.to_feather(os.path.join(output_dirs, "normal_factors.feather"))
     original_factors_data.to_feather(os.path.join(output_dirs, "original_factors.feather"))
     
 ### 收益率处理
-def start_returns(method, task_id, source, cycle, period):
+def start_returns(method, task_id):
     start_date, end_date = get_dates(method)
     return_data = load_raw_returns(start_date=start_date, end_date=end_date)
-    output_dirs = os.path.join(base_path, method, source, 'basic',  str(task_id))
+    output_dirs = os.path.join(base_path, method, TASK_MAPPING[task_id]['source'], 'basic',  str(task_id))
     os.makedirs(output_dirs, exist_ok=True)
     return_data.to_feather(os.path.join(output_dirs, "return_data.feather"))
      
@@ -93,8 +92,10 @@ def start_returns(method, task_id, source, cycle, period):
 
 if __name__ == '__main__':
     variant = Tactix().start()
-    start_returns(method=variant.method,
-          source=variant.source,
-          task_id=variant.task_id,
-          cycle=variant.cycle,
-          period=variant.period)
+    if variant.form == 'factor' or variant.form == 'all':
+        start_factors(method=variant.method, 
+                      task_id=variant.task_id)
+        
+    elif variant.form == 'return' or variant.form == 'all':
+        start_returns(method=variant.method,
+          task_id=variant.task_id)
