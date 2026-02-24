@@ -264,7 +264,6 @@ class TradingEnv:
         Returns:
             observation, reward, done, info
         """
-        pdb.set_trace()
         if not isinstance(action, np.ndarray):
             action = np.array(action, dtype=np.float32)
         else:
