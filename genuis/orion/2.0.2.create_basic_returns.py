@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from kdutils.ttimes import get_dates
-from kdutils.macro2 import base_path
+from kdutils.macro2 import TASK_MAPPING, base_path
 from kdutils.tactix import Tactix
 
 
@@ -138,7 +138,7 @@ def create_return(data, cost_rate=0.0):
     return data1
 
 
-def returns_save(return_data, period, source, method):
+def returns_save(return_data, method, task_id):
     pdb.set_trace()
     start_date, end_date = get_dates(method)
     cond1 = (return_data.index.get_level_values(level=0)
@@ -149,7 +149,7 @@ def returns_save(return_data, period, source, method):
                          datetime.timedelta(days=1)).strftime('%Y-%m-%d'))
     return_data = return_data[cond1]
     ff = return_data.sort_index().reset_index()
-    dirs = os.path.join(base_path, method, 'derivative', period, source)
+    dirs = os.path.join(base_path, method, 'derivative', task_id)
     if not os.path.exists(dirs):
         os.makedirs(dirs)
     filename = os.path.join(dirs, 'returns_data.feather')
@@ -157,8 +157,8 @@ def returns_save(return_data, period, source, method):
     ff.sort_index().reset_index(drop=True).to_feather(filename)
 
 
-def run(method, period, source):
-    dirs = os.path.join(base_path, method, 'basic', period, source)
+def run(method, task_id):
+    dirs = os.path.join(base_path, method, 'basic', task_id)
     file_name = os.path.join(dirs, "raw_basic.feather")
     raw_basic_data = pd.read_feather(file_name)
     pdb.set_trace()
@@ -168,12 +168,11 @@ def run(method, period, source):
     return_data = create_return(data=data, cost_rate=0.0)
     return_data = return_data.dropna()
     returns_save(return_data=return_data,
-                 period=period,
-                 source=source,
+                task_id=task_id,
                  method=method)
 
 
 if __name__ == '__main__':
     pdb.set_trace()
     variant = Tactix().start()
-    run(method=variant.method, period=variant.period, source=variant.source)
+    run(method=variant.method, task_id=variant.task_id)

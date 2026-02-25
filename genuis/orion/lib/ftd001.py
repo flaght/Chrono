@@ -4,12 +4,12 @@ import pandas as pd
 
 
 ### 读取数据 计算训练集，校验集，测试集，总数集的绩效
-def fetch_temp_data(method, period, source, datasets, category='data'):
+def fetch_temp_data(method, task_id, datasets, category='data'):
 
     res = []
 
     def fet(name, category):
-        filename = os.path.join(base_path, method, 'base', period, source,
+        filename = os.path.join(base_path, method, 'base', task_id,
                                 "{0}_{1}.feather".format(name, category))
         logger.info(filename)
         factors_data = pd.read_feather(filename).sort_values(
