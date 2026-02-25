@@ -29,8 +29,9 @@ def merge_results(factor_names, results):
     return final_wide_df
 
 
-def parallel_evaluate(total_data, factor_name, cycle, output_dirs):
-    result = Metrics.general(returns=total_data[f'nxt1_ret_{cycle}'],
+def parallel_evaluate(total_data, factor_name, ret_name, output_dirs,
+                      image_dirs):
+    result = Metrics.general(returns=total_data[f'{ret_name}'],
                              factors=total_data[factor_name],
                              dummy=None,
                              top_n=20,
@@ -38,52 +39,54 @@ def parallel_evaluate(total_data, factor_name, cycle, output_dirs):
                              skip=1,
                              freq=HOURLY_PER_YEAR,
                              fee=0.000,
+                             quantiles=10,
                              show_log=False,
+                             returns_type='log',
                              is_series=True)
 
     factors_dirs = os.path.join(output_dirs, factor_name)
     os.makedirs(factors_dirs, exist_ok=True)
     result.save_results(base_output_dir=factors_dirs,
-                        title_prefix=f"Factor Evaluation:{factor_name}")
+                        title_prefix=f"Factor Evaluation:{factor_name}",
+                        image_export_dir=image_dirs)
     return result.to_dataframe()
 
 
-def run(method, period, source, session, cycle='1h'):
+def run(method, task_id, ret_name):
     total_factors = fetch_temp_data(method=method,
-                                    period=period,
-                                    source=source,
+                                    task_id=task_id,
                                     datasets=['train', 'val'])
     total_returns = fetch_temp_data(method=method,
-                                    period=period,
-                                    source=source,
+                                    task_id=task_id,
                                     datasets=['train', 'val'],
                                     category='return')
+    pdb.set_trace()
     # 合并数据
     total_data = total_factors.merge(
-        total_returns[['trade_time', 'code', f'nxt1_ret_{cycle}']],
+        total_returns[['trade_time', 'code', f'{ret_name}']],
         on=['trade_time', 'code'])
     pdb.set_trace()
     factor_columns = [
         f for f in total_data.columns if f not in [
-            'trade_time', 'code', f'nxt1_ret_{cycle}', 'f_funding_rate',
+            'trade_time', 'code', f'{ret_name}', 'f_funding_rate',
             'f_funding_interval'
         ]
     ]
-    #factor_columns = factor_columns[0:8]
+    factor_columns = factor_columns[0:8]
     total_data1 = total_data.set_index(['trade_time', 'code']).unstack()
-    output_dirs = os.path.join(base_path, method, "evaluate", period, source,
-                               session)
+    output_dirs = os.path.join(base_path, method, "evaluate", task_id)
+    image_dirs = os.path.join(output_dirs, "plot")
     os.makedirs(output_dirs, exist_ok=True)
     results = Parallel(n_jobs=4, verbose=1)(
         delayed(parallel_evaluate)(total_data=total_data1[[
             factor_columns[i],
-            f'nxt1_ret_{cycle}',
+            f'{ret_name}',
         ]],
                                    factor_name=factor_columns[i],
                                    output_dirs=output_dirs,
-                                   cycle=cycle)
+                                   image_dirs=image_dirs,
+                                   ret_name=ret_name)
         for i in range(0, len(factor_columns)))
-
     final_wide_pd = merge_results(factor_columns, results)
     final_wide_pd.reset_index().to_csv(os.path.join(output_dirs,
                                                     "summary.csv"))
@@ -92,6 +95,5 @@ def run(method, period, source, session, cycle='1h'):
 if __name__ == '__main__':
     variant = Tactix().start()
     run(method=variant.method,
-        period=variant.period,
-        source=variant.source,
-        session="20260223")
+        task_id=variant.task_id,
+        ret_name=variant.ret_name)

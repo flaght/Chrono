@@ -105,8 +105,8 @@ def preprocess_dataframe(df, rename_map=None, filter_cols=False):
 # --- 主加载逻辑 ---
 
 
-def load_and_merge_data(method, source, period):
-    base_dirs = os.path.join(base_path, method, "basic", period, f"{source}")
+def load_and_merge_data(method, task_id):
+    base_dirs = os.path.join(base_path, method, "basic", task_id)
     print(f"Loading data from: {base_dirs}")
     pdb.set_trace()
     # 1. 加载数据
@@ -174,12 +174,12 @@ def load_and_merge_data(method, source, period):
     return final_df
 
 
-def start(method, source, period):
+def start(method, task_id):
     # 获取并返回数据
-    raw_basic_data = load_and_merge_data(method=method, source=source, period=period)
+    raw_basic_data = load_and_merge_data(method=method, task_id=task_id)
     ## 保存
     pdb.set_trace()
-    output_dirs = os.path.join(base_path, method, "basic", period, source)
+    output_dirs = os.path.join(base_path, method, "basic", task_id)
     os.makedirs(output_dirs, exist_ok=True)
     filename = os.path.join(output_dirs, f"raw_basic.feather")
     raw_basic_data.to_feather(filename)
@@ -188,5 +188,4 @@ def start(method, source, period):
 if __name__ == '__main__':
     variant = Tactix().start()
     final_data = start(method=variant.method,
-                       source=variant.source,
-                       period=variant.period)
+                       task_id=variant.task_id)

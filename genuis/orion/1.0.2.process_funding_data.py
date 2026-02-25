@@ -47,10 +47,10 @@ def load_raw_data(category, source, start_date, end_date):
     return final_data if len(all_dfs) > 0 else pd.DataFrame()
 
 
-def start(method, category, source, period):
+def start(method, category, task_id):
     start_date, end_date = get_dates(method)
     final_data = load_raw_data(category=category,
-                               source=source,
+                               source=TASK_MAPPING[task_id]['source'],
                                start_date=start_date,
                                end_date=end_date)
     ## 将资金费率平摊到每个小时
@@ -68,7 +68,7 @@ def start(method, category, source, period):
     expanded_data = expanded_data.reset_index(drop=True)
     expanded_data = expanded_data.sort_values(['code', 'trade_time'])
     pdb.set_trace()
-    output_dirs = os.path.join(base_path, method, "basic", period, source)
+    output_dirs = os.path.join(base_path, method, "basic", task_id)
     os.makedirs(output_dirs, exist_ok=True)
     filename = os.path.join(output_dirs, f"funding_{category}.feather")
     expanded_data.drop(['calc_time'], axis=1).to_feather(filename)
@@ -78,5 +78,4 @@ if __name__ == '__main__':
     variant = Tactix().start()
     start(method=variant.method,
           category=variant.category,
-          source=variant.source,
-          period=variant.period)
+          task_id=variant.task_id)

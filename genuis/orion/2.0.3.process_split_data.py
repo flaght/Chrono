@@ -11,10 +11,10 @@ from kdutils.macro2 import base_path
 
 
 ## 切割因子数据+原始数据，不做标准化
-def split_factors(method, period, source):
+def split_factors(method, task_id):
     ## 加载因子数据
     pdb.set_trace()
-    dirs = os.path.join(base_path, method, 'derivative', period, source)
+    dirs = os.path.join(base_path, method, 'derivative', task_id)
     file_path = Path(dirs)
     factors_files = [x for x in file_path.glob('*factors*') if x.is_file()]
     res = []
@@ -27,7 +27,7 @@ def split_factors(method, period, source):
     returns_data = pd.read_feather(os.path.join(dirs, "returns_data.feather"))
 
     ### 加载基础数据
-    dirs = os.path.join(base_path, method, 'basic', period, source)
+    dirs = os.path.join(base_path, method, 'basic', task_id)
     file_name = os.path.join(dirs, "raw_basic.feather")
     raw_basic_data = pd.read_feather(file_name)
     raw_basic_data[
@@ -71,7 +71,7 @@ def split_factors(method, period, source):
         if f not in returns_columns + factors_columns + ['trade_time', 'code']
     ]
     
-    target_dir = os.path.join(base_path, method, 'base', period, source)
+    target_dir = os.path.join(base_path, method, 'base',task_id)
     os.makedirs(target_dir, exist_ok=True)
 
     train_features_data = train_data[['trade_time', 'code'] + factors_columns +
@@ -103,5 +103,4 @@ def split_factors(method, period, source):
 if __name__ == '__main__':
     variant = Tactix().start()
     split_factors(method=variant.method,
-                  period=variant.period,
-                  source=variant.source)
+                    task_id=variant.task_id)

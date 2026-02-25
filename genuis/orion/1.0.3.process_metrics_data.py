@@ -64,10 +64,10 @@ def load_raw_data(category, source, start_date, end_date):
     return final_data if len(all_dfs) > 0 else pd.DataFrame()
 
 
-def start(method, category, source, period):
+def start(method, category,task_id):
     start_date, end_date = get_dates(method)
     final_data = load_raw_data(category=category,
-                               source=source,
+                               source=TASK_MAPPING[task_id]['source'],
                                start_date=start_date,
                                end_date=end_date)
 
@@ -103,7 +103,7 @@ def start(method, category, source, period):
     cols_to_drop = temp_prod_cols + [f"{w}_sum_for_div" for w in weight_cols]
     resampled_data.drop(columns=cols_to_drop, inplace=True)
 
-    output_dirs = os.path.join(base_path, method, "basic", period, source)
+    output_dirs = os.path.join(base_path, method, "basic", task_id)
     os.makedirs(output_dirs, exist_ok=True)
     filename = os.path.join(output_dirs, f"metrics_{category}.feather")
     resampled_data.to_feather(filename)
@@ -114,5 +114,4 @@ if __name__ == '__main__':
     start(
         method=variant.method,
         category='um',  #variant.category,
-        source=variant.source,
-        period=variant.period)
+        task_id=variant.task_id)

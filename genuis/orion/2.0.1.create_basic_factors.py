@@ -16,7 +16,7 @@ from kdutils.macro2 import base_path
 from kdutils.tactix import Tactix
 
 
-def callback_save(factors_data, name, period, source, method):
+def callback_save(factors_data, name, task_id, method):
     start_date, end_date = get_dates(method)
     cond1 = (factors_data.index.get_level_values(level=0)
              >= (datetime.datetime.strptime(start_date, '%Y-%m-%d') +
@@ -27,7 +27,7 @@ def callback_save(factors_data, name, period, source, method):
     factors_data = factors_data[cond1]
     ff = factors_data.sort_index().reset_index()
     ff1 = ff
-    dirs = os.path.join(base_path, method, 'derivative', period, source)
+    dirs = os.path.join(base_path, method, 'derivative', task_id)
     if not os.path.exists(dirs):
         os.makedirs(dirs)
     filename = os.path.join(dirs,
@@ -36,9 +36,9 @@ def callback_save(factors_data, name, period, source, method):
     ff1.sort_index().reset_index(drop=True).to_feather(filename)
 
 
-def calculate_factors(data, method, period, source, callback):
+def calculate_factors(data, method, task_id, callback):
 
-    def run(data, i00, callback, method, period, source):
+    def run(data, i00, callback, method, task_id):
         res = []
         for f in i00.__all__:
             print(f)
@@ -53,20 +53,18 @@ def calculate_factors(data, method, period, source, callback):
         callback(factors_data=data,
                  name=i00.__name__,
                  method=method,
-                 period=period,
-                 source=source)
+                 task_id=task_id)
 
     for i00 in [c001]:
         run(data=data,
             i00=i00,
             callback=callback,
             method=method,
-            period=period,
-            source=source)
+            task_id=task_id)
 
 
-def create_factors(method, period, source):
-    dirs = os.path.join(base_path, method, 'basic', period, source)
+def create_factors(method, task_id):
+    dirs = os.path.join(base_path, method, 'basic', task_id)
     file_name = os.path.join(dirs, "raw_basic.feather")
     raw_basic_data = pd.read_feather(file_name)
     raw_basic_data[
@@ -77,13 +75,11 @@ def create_factors(method, period, source):
     raw_basic_data = raw_basic_data.set_index(['trade_time', 'code']).unstack()
     calculate_factors(data=raw_basic_data,
                       method=method,
-                      period=period,
-                      source=source,
+                      task_id=task_id,
                       callback=callback_save)
 
 
 if __name__ == '__main__':
     variant = Tactix().start()
     create_factors(method=variant.method,
-                   period=variant.period,
-                   source=variant.source)
+                   task_id=variant.task_id)

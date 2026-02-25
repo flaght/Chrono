@@ -66,10 +66,10 @@ def preprocess_basic_factors(method, period, source):
         os.path.join(target_dir, "test_data.feather"))
 
 
-def preprocess_rl_features(method, period, source):
+def preprocess_rl_features(method, task_id):
     ## 读取因子
     pdb.set_trace()
-    factor_dirs = os.path.join(base_path, method, 'normal', period, source)
+    factor_dirs = os.path.join(base_path, method, 'normal', task_id)
     train_factors = pd.read_feather(
         os.path.join(factor_dirs, "train_data.feather"))
     train_factors['trade_time'] = pd.to_datetime(train_factors['trade_time'])
@@ -81,7 +81,7 @@ def preprocess_rl_features(method, period, source):
     test_factors['trade_time'] = pd.to_datetime(test_factors['trade_time'])
 
     ## 读取收益率
-    return_dirs = os.path.join(base_path, method, 'base', period, source)
+    return_dirs = os.path.join(base_path, method, 'base', task_id)
     train_return = pd.read_feather(
         os.path.join(return_dirs, "train_return.feather"))
     train_return['trade_time'] = pd.to_datetime(train_return['trade_time'])
@@ -118,7 +118,7 @@ def preprocess_rl_features(method, period, source):
     val_data = total_data1.loc[val_time[0]:val_time[1]]
     test_data = total_data1.loc[test_time[0]:test_time[1]]
 
-    target_dir = os.path.join(base_path, method, 'rl', period, source)
+    target_dir = os.path.join(base_path, method, 'rl', task_id)
     os.makedirs(target_dir, exist_ok=True)
 
     train_data.reset_index().to_feather(
@@ -135,6 +135,4 @@ if __name__ == '__main__':
     #                         period=variant.period,
     #                         source=variant.source)
 
-    preprocess_rl_features(method=variant.method,
-                           period=variant.period,
-                           source=variant.source)
+    preprocess_rl_features(method=variant.method, task_id=variant.task_id)

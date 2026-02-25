@@ -51,14 +51,14 @@ def load_raw_data(category, source, period, start_date, end_date):
 
 
 ## 处理成标准的feather
-def start(method, category, source, period):
+def start(method, category, task_id):
     start_date, end_date = get_dates(method)
     final_data = load_raw_data(category=category,
-                               source=source,
+                               source=TASK_MAPPING[task_id]['source'],
                                start_date=start_date,
                                end_date=end_date,
-                               period=period)
-    output_dirs = os.path.join(base_path, method, "basic", period, source)
+                               period=TASK_MAPPING[task_id]['period'])
+    output_dirs = os.path.join(base_path, method, "basic", task_id)
     os.makedirs(output_dirs, exist_ok=True)
     filename = os.path.join(output_dirs, f"kline_{category}.feather")
     final_data.drop(['open_time', 'ignore'], axis=1).to_feather(filename)
@@ -68,5 +68,4 @@ if __name__ == '__main__':
     variant = Tactix().start()
     start(method=variant.method,
           category=variant.category,
-          source=variant.source,
-          period=variant.period)
+          task_id=variant.task_id)
