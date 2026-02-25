@@ -65,7 +65,7 @@ class MetricsTuple(
         namedtuple('MetricsTuple',
                    ('long_evaluate', 'short_evaluate', 'both_evaluate',
                     'topn_evaluate', 'hold', 'freq', 'direction', 'bias',
-                    'category', 'top_n', 'quantile_evaluations'))):
+                    'category', 'top_n', 'quantile_evaluations', 'returns_type'))):
     __slots__ = ()
 
     def __repr__(self):
@@ -111,11 +111,18 @@ class MetricsTuple(
         # 1. 净值曲线 (NAV) - 四组策略同台竞技
         # ------------------------------------------------------------------
         ax1 = axes[0, 0]
-        # 计算 cumulative return NAV (1+r).cumprod()
-        nav_long = (1 + self.long_evaluate.returns_series.fillna(0)).cumprod()
-        nav_short = (1 + self.short_evaluate.returns_series.fillna(0)).cumprod()
-        nav_both = (1 + self.both_evaluate.returns_series.fillna(0)).cumprod()
-        nav_topn = (1 + self.topn_evaluate.returns_series.fillna(0)).cumprod()
+        # 根据收益类型决定净值计算公式
+        def calc_nav(series):
+            s = series.fillna(0)
+            if getattr(self, 'returns_type', 'log') == 'log':
+                return np.exp(s.cumsum())
+            else:
+                return (1 + s).cumprod()
+
+        nav_long = calc_nav(self.long_evaluate.returns_series)
+        nav_short = calc_nav(self.short_evaluate.returns_series)
+        nav_both = calc_nav(self.both_evaluate.returns_series)
+        nav_topn = calc_nav(self.topn_evaluate.returns_series)
 
         ax1.plot(nav_long.values, label='Long NAV', color='red', alpha=0.8)
         ax1.plot(nav_short.values, label='Short NAV', color='blue', alpha=0.8)
@@ -189,7 +196,7 @@ class MetricsTuple(
             # 画每条分位数的净值曲线 (NAV)
             for i, q_eval in enumerate(self.quantile_evaluations):
                 if q_eval.returns_series is not None:
-                    q_nav = (1 + q_eval.returns_series.fillna(0)).cumprod()
+                    q_nav = calc_nav(q_eval.returns_series)
                     ax4.plot(q_nav.values, label=q_eval.category, color=colors[i], alpha=0.85, linewidth=1.5)
             
             if self.quantile_evaluations and self.quantile_evaluations[0].returns_series is not None:
@@ -329,7 +336,10 @@ class MetricsTuple(
                 df = pd.DataFrame()
                 if evaluate.returns_series is not None:
                      df['returns'] = evaluate.returns_series
-                     df['nav'] = (1 + evaluate.returns_series.fillna(0)).cumprod()
+                     if getattr(self, 'returns_type', 'log') == 'log':
+                         df['nav'] = np.exp(evaluate.returns_series.fillna(0).cumsum())
+                     else:
+                         df['nav'] = (1 + evaluate.returns_series.fillna(0)).cumprod()
                 if getattr(evaluate, 'ic_series', None) is not None:
                      df['ic'] = evaluate.ic_series
                 if getattr(evaluate, 'turnover_series', None) is not None:
@@ -401,7 +411,8 @@ class Metrics(object):
                 show_log=True,
                 is_series=False,
                 topn_weight_method='factor',
-                quantiles=5):
+                quantiles=5,
+                returns_type='log'):
         """工厂方法：一行调用完成全量评估。"""
         metrics = cls(returns=returns,
                       factors=factors,
@@ -416,7 +427,8 @@ class Metrics(object):
                       show_log=show_log,
                       is_series=is_series,
                       topn_weight_method=topn_weight_method,
-                      quantiles=quantiles)
+                      quantiles=quantiles,
+                      returns_type=returns_type)
         return metrics.fit_metrics()
 
     def __init__(self,
@@ -433,7 +445,8 @@ class Metrics(object):
                  show_log=True,
                  is_series=False,
                  topn_weight_method='factor',
-                 quantiles=5):
+                 quantiles=5,
+                 returns_type='log'):
         self.valid = False
         self.category = category
         self.skip = skip
@@ -446,6 +459,7 @@ class Metrics(object):
         self.direction = direction
         self.topn_weight_method = topn_weight_method
         self.quantiles = quantiles
+        self.returns_type = returns_type
 
         # 保存 pandas 引用 (用于输出)
         self._returns_index = returns.index
@@ -528,13 +542,34 @@ class Metrics(object):
             return weight_df.values
         return weight
 
-    def _apply_fee(self, rets_sum, weight):
-        """扣除交易费用"""
-        if self.fee > 0:
-            tv = np.nansum(np.abs(weight[1:] - weight[:-1]), axis=1) * 0.5
-            tv_full = np.concatenate([[0.0], tv])
-            rets_sum = rets_sum - self.fee * tv_full
-        return rets_sum
+    def _apply_fee(self, returns, weight):
+        """
+        扣除交易费用的等效广播技术。
+        为了不修改底层的 Cython 代码结构并保证极速运行，将每个 period 组合层面产生的
+        总交易成本（fee * turnover_t），根据对应的绝对权重均匀分摊成各个 active asset 的价格下修惩罚。
+        """
+        if self.fee <= 0:
+            return returns
+            
+        weight0 = np.nan_to_num(weight, nan=0.0)
+        # 计算每个 period 的 turnover 
+        tv = np.nansum(np.abs(weight0[1:] - weight0[:-1]), axis=1) * 0.5
+        tv_full = np.concatenate([[0.0], tv]) # Shape: (t,)
+        
+        # 计算每个 period 总绝对持仓权重 sum(|w|)
+        W_abs = np.nansum(np.abs(weight0), axis=1) # Shape: (t,)
+        
+        # 计算单位绝对权重需要分摊的手续费系数
+        fee_ratio = np.zeros_like(W_abs)
+        mask = W_abs > 1e-10
+        fee_ratio[mask] = (self.fee * tv_full[mask]) / W_abs[mask]
+        
+        # 构建惩罚：多头收益率降低 (r - fee)，空头收益上升导致损失增大 (r + fee)
+        # 巧妙利用 np.sign(w) 保证方向性惩罚正确
+        w_sign = np.sign(weight0)
+        iret = returns - (w_sign * fee_ratio[:, np.newaxis])
+        
+        return iret
 
     @valid_check
     def fit_metrics(self):
@@ -555,7 +590,9 @@ class Metrics(object):
             direction_val = self.direction
 
         # Evaluate each side
-        long_ind = self.booster.evaluate(long_weight, self.ereturns,
+        # 计算扣除手续费后的收益率序列
+        iret_long = self._apply_fee(self.ereturns, long_weight)
+        long_ind = self.booster.evaluate(long_weight, iret_long,
                                          self.hold, self.freq)
         long_ic, long_ic_mean, long_ic_std = self.booster.correlation(
             long_weight, self.ereturns, 'long')
@@ -563,7 +600,8 @@ class Metrics(object):
             long_ind, long_ic, long_ic_mean, long_ic_std,
             long_weight, OLNY_LONG)
 
-        short_ind = self.booster.evaluate(short_weight, self.ereturns,
+        iret_short = self._apply_fee(self.ereturns, short_weight)
+        short_ind = self.booster.evaluate(short_weight, iret_short,
                                           self.hold, self.freq)
         short_ic, short_ic_mean, short_ic_std = self.booster.correlation(
             short_weight, self.ereturns, 'short')
@@ -571,7 +609,8 @@ class Metrics(object):
             short_ind, short_ic, short_ic_mean, short_ic_std,
             short_weight, OLNY_SHORT)
 
-        both_ind = self.booster.evaluate(both_weight, self.ereturns,
+        iret_both = self._apply_fee(self.ereturns, both_weight)
+        both_ind = self.booster.evaluate(both_weight, iret_both,
                                          self.hold, self.freq)
         both_ic, both_ic_mean, both_ic_std = self.booster.correlation(
             both_weight, self.ereturns, 'both')
@@ -590,7 +629,8 @@ class Metrics(object):
             topn_weight = np.divide(topn_weight, sums,
                                     where=sums > 0, out=topn_weight)
 
-        topn_ind = self.booster.evaluate(topn_weight, self.ereturns,
+        iret_topn = self._apply_fee(self.ereturns, topn_weight)
+        topn_ind = self.booster.evaluate(topn_weight, iret_topn,
                                          self.hold, self.freq)
         topn_ic, topn_ic_mean, topn_ic_std = self.booster.correlation(
             topn_weight, self.ereturns, 'long')
@@ -621,7 +661,8 @@ class Metrics(object):
                     row_sums_smooth = np.nansum(qw, axis=1, keepdims=True)
                     qw = np.divide(qw, row_sums_smooth, where=row_sums_smooth > 0, out=qw)
                 
-                q_ind = self.booster.evaluate(qw, self.ereturns, self.hold, self.freq)
+                iret_qw = self._apply_fee(self.ereturns, qw)
+                q_ind = self.booster.evaluate(qw, iret_qw, self.hold, self.freq)
                 # IC isn't strictly necessary for local quantiles, but we calculate it for tuple completeness
                 q_ic, q_ic_mean, q_ic_std = self.booster.correlation(qw, self.ereturns, 'long')
                 q_eval = self._make_evaluate_tuple(q_ind, q_ic, q_ic_mean, q_ic_std, qw, f'Q{q}')
@@ -654,4 +695,5 @@ class Metrics(object):
             category=self.category,
             direction=self.direction,
             top_n=self.top_n,
-            quantile_evaluations=quantile_evals)
+            quantile_evaluations=quantile_evals,
+            returns_type=self.returns_type)
