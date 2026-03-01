@@ -1,4 +1,4 @@
-import os, json
+import os, json, copy
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 
@@ -49,11 +49,12 @@ def create_env(df: pd.DataFrame,
     env = TradingEnv(
         df=df,
         features=features,
-        n_assets=config.get('n_assets', 0),
-        episode_len=config.get('episode_len', 500),
-        seed=config.get('seed', None),
-        reward_scale=config.get('reward_scale', 10000.0),
-        signal_config=signal_config
+        n_assets=config['n_assets'],
+        episode_len=config['episode_len'],
+        seed=config['seed'],
+        reward_scale=config['reward_scale'],
+        signal_config=signal_config,
+        strict_asset_alignment=config['strict_asset_alignment']
     )
     return env
 
@@ -67,8 +68,10 @@ def train_model(
     output_dir: str,
     total_timesteps: int = 100000,
     eval_freq: int = 10000,
+    eval_n_episodes: int = 5,
     save_freq: int = 50000,
-    verbose: int = 1
+    verbose: int = 1,
+    policy_class: Any = 'MlpPolicy'
 ) -> Tuple[SAC, Dict[str, Any]]:
     os.makedirs(output_dir, exist_ok=True)
     model_dir = os.path.join(output_dir, 'models')
@@ -92,11 +95,11 @@ def train_model(
     
     # 创建 SAC 模型
     model = SAC(
-        policy='MlpPolicy',
+        policy=policy_class,
         env=train_env,
         tensorboard_log=tensorboard_dir,
         verbose=verbose,
-        seed=env_config.get('seed', None),
+        seed=env_config['seed'],
         **sac_config
     )
     # 回调
@@ -107,6 +110,7 @@ def train_model(
         best_model_save_path=os.path.join(model_dir, 'best_model'),
         log_path=os.path.join(log_dir, 'eval'),
         eval_freq=eval_freq,
+        n_eval_episodes=eval_n_episodes,
         deterministic=True,
         render=False,
         verbose=verbose
@@ -124,11 +128,19 @@ def train_model(
     metrics_callback = TrainingMetricsCallback(verbose=verbose, log_dir=log_dir)
     callbacks.append(metrics_callback)
     
+     # 保存配置
+    safe_sac_config = copy.deepcopy(sac_config)
+    if 'policy_kwargs' in safe_sac_config:
+        pk = safe_sac_config['policy_kwargs']
+        if 'features_extractor_class' in pk and hasattr(pk['features_extractor_class'], '__name__'):
+            pk['features_extractor_class'] = pk['features_extractor_class'].__name__
+            
+    safe_sac_config = {k: str(v) if not isinstance(v, (int, float, bool, str, type(None), dict, list)) else v 
+                       for k, v in safe_sac_config.items()}
     # 保存配置
     config_to_save = {
         'env_config': env_config,
-        'sac_config': {k: str(v) if not isinstance(v, (int, float, bool, str, type(None))) else v 
-                       for k, v in sac_config.items()},
+        'sac_config': safe_sac_config,
         'signal_config': {
             'min_weight': signal_config.min_weight,
             'max_weight': signal_config.max_weight,
@@ -141,6 +153,7 @@ def train_model(
         },
         'features': features,
         'total_timesteps': total_timesteps,
+        'eval_n_episodes': eval_n_episodes,
         'training_start': datetime.now().isoformat(),
     }
     
