@@ -13,9 +13,6 @@ PERIOD_MAPPING = {
     "1h": "1hour"
 }
 
-### 10260201  un  binance
-### 11260201  dx  ashare
-
 ###
 TASK_MAPPING = {
     "1010101301": {
@@ -26,6 +23,11 @@ TASK_MAPPING = {
     "1000201201": {
         "source": "binance",
         "period": "1h",
+        "cycle": "1h" ## 持仓1 horizon
+    },
+    "1020101101":{
+        "source": "cffex",
+        "period": "1m",
         "cycle": "1h" ## 持仓1 horizon
     }
 }

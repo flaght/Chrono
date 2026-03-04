@@ -11,20 +11,22 @@ class CrossSectionalExtractor(BaseFeaturesExtractor):
     对每只股票独立进行特征压缩，实现权重共享，拒绝维度爆炸！
     """
     def __init__(self, observation_space: spaces.Box, features_dim: int = 256, 
-                 n_assets: int = 5254, n_stock_features: int = 80):
+                 n_assets: int = 5254, n_stock_features: int = 80,
+                 stock_encoder_mid_dim: int = 32, stock_encoder_out_dim: int = 16):
         # 必须调用父类初始化，features_dim 是最终输出给 SAC 的特征长度
         super(CrossSectionalExtractor, self).__init__(observation_space, features_dim)
+        
         
         self.n_assets = n_assets
         self.n_stock_features = n_stock_features
         
         # 1. 单只股票的特征提取器 (共享大脑层)
         # 输入单只股票的 n_stock_features 个因子，输出压缩后的 hidden_dim 个高级特征
-        self.hidden_dim = 16  # 你哪怕设成 8 都足够了，16 已经很丰富了
+        self.hidden_dim = stock_encoder_out_dim 
         self.stock_encoder = nn.Sequential(
-            nn.Linear(self.n_stock_features, 64),
+            nn.Linear(self.n_stock_features, stock_encoder_mid_dim),
             nn.LeakyReLU(),
-            nn.Linear(64, self.hidden_dim),
+            nn.Linear(stock_encoder_mid_dim, self.hidden_dim),
             nn.LeakyReLU()
         )
         
@@ -45,7 +47,6 @@ class CrossSectionalExtractor(BaseFeaturesExtractor):
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         # observations shape: (BatchSize, 1933475)
-        
         # 1. 拆分股票特征和宏观组合特征
         stock_obs_len = self.n_assets * self.n_stock_features
         stock_features = observations[:, :stock_obs_len]       # (Batch, 5254*80)
