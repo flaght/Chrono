@@ -37,6 +37,7 @@ def parallel_evaluate(total_data, factor_name, ret_name, output_dirs, image_dirs
                              skip=1,
                              freq=DALIY_PER_YEAR,
                              fee=0.000,
+                             quantiles=10,
                              show_log=False,
                              is_series=True)
 
@@ -63,7 +64,7 @@ def run(method, task_id, ret_name):
         total_returns[['trade_time', 'code', f'{ret_name}']],
         on=['trade_time', 'code'])
     factor_columns = [f for f in total_data.columns if f not in ['trade_time','code',f'{ret_name}']]
-    factor_columns = factor_columns[0:8]
+    factor_columns = factor_columns[:]
     total_data1 = total_data.set_index(['trade_time', 'code']).unstack()
     
     output_dirs = os.path.join(base_path, method, "evaluate", TASK_MAPPING[task_id]['period'], TASK_MAPPING[task_id]['source'],
@@ -72,7 +73,7 @@ def run(method, task_id, ret_name):
     output_dirs = os.path.join(base_path, method, TASK_MAPPING[task_id]['source'], 'evaluate', str(task_id))
     image_dirs = os.path.join(output_dirs, "plot")
     os.makedirs(output_dirs, exist_ok=True)
-    results = Parallel(n_jobs=1, verbose=1)(
+    results = Parallel(n_jobs=4, verbose=1)(
         delayed(parallel_evaluate)(total_data=total_data1[[
             factor_columns[i],
             f'{ret_name}',

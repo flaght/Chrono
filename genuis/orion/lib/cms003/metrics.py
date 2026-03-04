@@ -21,7 +21,6 @@ MONTHLY_PER_YEAR = 12
 QUARTERLY_PER_YEAR = 4
 YEARLY_PER_YEAR = 1
 HOURLY_PER_YEAR = 365 * 24  # 8760
-MINUTE_PER_YEAR = 365 * 24 * 60
 
 OLNY_LONG = 'long'
 OLNY_SHORT = 'short'
@@ -413,7 +412,8 @@ class Metrics(object):
                 is_series=False,
                 topn_weight_method='factor',
                 quantiles=5,
-                returns_type='log'):
+                returns_type='log',
+                annual_days=None):
         """工厂方法：一行调用完成全量评估。"""
         metrics = cls(returns=returns,
                       factors=factors,
@@ -429,7 +429,8 @@ class Metrics(object):
                       is_series=is_series,
                       topn_weight_method=topn_weight_method,
                       quantiles=quantiles,
-                      returns_type=returns_type)
+                      returns_type=returns_type,
+                      annual_days=annual_days)
         return metrics.fit_metrics()
 
     def __init__(self,
@@ -447,7 +448,8 @@ class Metrics(object):
                  is_series=False,
                  topn_weight_method='factor',
                  quantiles=5,
-                 returns_type='log'):
+                 returns_type='log',
+                 annual_days=None):
         self.valid = False
         self.category = category
         self.skip = skip
@@ -461,10 +463,24 @@ class Metrics(object):
         self.topn_weight_method = topn_weight_method
         self.quantiles = quantiles
         self.returns_type = returns_type
+        self.annual_days = annual_days
 
         # 保存 pandas 引用 (用于输出)
         self._returns_index = returns.index
         self._returns_columns = returns.columns
+
+        # 生成适用于 Cython 的交易日归集组别 (将高频 timestamp 映射到不同天的 Int Index)
+        if self.annual_days is not None:
+            if hasattr(self._returns_index, 'date'):
+                dates = self._returns_index.date
+            else:
+                dates = pd.to_datetime(self._returns_index).date
+            groups, uniques = pd.factorize(dates)
+            self._date_groups = groups.astype(np.int32)
+            self._num_groups = len(uniques)
+        else:
+            self._date_groups = None
+            self._num_groups = 0
 
         # 创建 Cython Booster
         self.booster = Booster(hold, skip, top_n, category)
@@ -591,10 +607,12 @@ class Metrics(object):
             direction_val = self.direction
 
         # Evaluate each side
-        # 计算扣除手续费后的收益率序列
+        # 计算扣除手续费后的收益率序列 (重要修正)
+        eval_freq = self.annual_days if self.annual_days is not None else self.freq
+
         iret_long = self._apply_fee(self.ereturns, long_weight)
         long_ind = self.booster.evaluate(long_weight, iret_long,
-                                         self.hold, self.freq)
+                                         self.hold, eval_freq, self._date_groups, self._num_groups)
         long_ic, long_ic_mean, long_ic_std = self.booster.correlation(
             long_weight, self.ereturns, 'long')
         long_evaluate = self._make_evaluate_tuple(
@@ -603,7 +621,7 @@ class Metrics(object):
 
         iret_short = self._apply_fee(self.ereturns, short_weight)
         short_ind = self.booster.evaluate(short_weight, iret_short,
-                                          self.hold, self.freq)
+                                          self.hold, eval_freq, self._date_groups, self._num_groups)
         short_ic, short_ic_mean, short_ic_std = self.booster.correlation(
             short_weight, self.ereturns, 'short')
         short_evaluate = self._make_evaluate_tuple(
@@ -612,7 +630,7 @@ class Metrics(object):
 
         iret_both = self._apply_fee(self.ereturns, both_weight)
         both_ind = self.booster.evaluate(both_weight, iret_both,
-                                         self.hold, self.freq)
+                                         self.hold, eval_freq, self._date_groups, self._num_groups)
         both_ic, both_ic_mean, both_ic_std = self.booster.correlation(
             both_weight, self.ereturns, 'both')
         both_evaluate = self._make_evaluate_tuple(
@@ -632,7 +650,7 @@ class Metrics(object):
 
         iret_topn = self._apply_fee(self.ereturns, topn_weight)
         topn_ind = self.booster.evaluate(topn_weight, iret_topn,
-                                         self.hold, self.freq)
+                                         self.hold, eval_freq, self._date_groups, self._num_groups)
         topn_ic, topn_ic_mean, topn_ic_std = self.booster.correlation(
             topn_weight, self.ereturns, 'long')
         topn_evaluate = self._make_evaluate_tuple(
@@ -663,7 +681,7 @@ class Metrics(object):
                     qw = np.divide(qw, row_sums_smooth, where=row_sums_smooth > 0, out=qw)
                 
                 iret_qw = self._apply_fee(self.ereturns, qw)
-                q_ind = self.booster.evaluate(qw, iret_qw, self.hold, self.freq)
+                q_ind = self.booster.evaluate(qw, iret_qw, self.hold, eval_freq, self._date_groups, self._num_groups)
                 # IC isn't strictly necessary for local quantiles, but we calculate it for tuple completeness
                 q_ic, q_ic_mean, q_ic_std = self.booster.correlation(qw, self.ereturns, 'long')
                 q_eval = self._make_evaluate_tuple(q_ind, q_ic, q_ic_mean, q_ic_std, qw, f'Q{q}')
