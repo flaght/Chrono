@@ -48,7 +48,7 @@ def load_data_train_val(method, source, task_id, features, ret_name):
 def load_data_test(method, source, task_id, features, ret_name):
     target_dir = os.path.join(base_path, method, source, "rl", str(task_id))
     test_data = pd.read_feather(os.path.join(target_dir, "test_data2.feather"))
-
+    pdb.set_trace()
     test_data.rename(columns={ret_name: "nxt1_ret"}, inplace=True)
     test_data = test_data[["trade_time", "code", "nxt1_ret"] + features]
     test_data = test_data.sort_values(["trade_time", "code"]).reset_index(drop=True)
@@ -208,6 +208,11 @@ def train(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
     
     
 def predict(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
+    
+    new_ret_name = 'abret_market'
+    top_k = 1000
+    
+    
     file_dirs = os.path.join(base_path, method, TASK_MAPPING[task_id]["source"], "temp", "trl", task_id)
     env_params, trade_params, model_params, train_params, selected_features = load_rl_params(
         file_dirs=file_dirs,
@@ -238,7 +243,7 @@ def predict(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
         method=method,
         source=TASK_MAPPING[task_id]["source"],
         task_id=task_id,
-        ret_name=trade_params["ret_name"],
+        ret_name=new_ret_name, ## 预测 #trade_params["ret_name"],
         features=selected_features,
     )
     pdb.set_trace()
@@ -251,7 +256,8 @@ def predict(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
         model_path=model_path,
         config_path=config_path,
         test_df=test_data,
-        output_path=os.path.join(output_dir, "metrics", "results.csv"),
+        top_k=top_k,
+        output_path=os.path.join(output_dir, "metrics", "results_{0}_{1}.csv".format(str(new_ret_name), str(top_k))),
         deterministic=True,
         return_details=True,
     )

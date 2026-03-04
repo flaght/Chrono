@@ -122,8 +122,13 @@ class TradingSignalGenerator:
     def predict_signals(
         self,
         df: pd.DataFrame,
+        top_k:Optional[int] = None,
         return_details: bool = False,
     ) -> pd.DataFrame:
+        
+        if top_k is not None and top_k < 0:
+            raise ValueError(f"top_k_override must be >= 0, got {top_k}")
+        
         work = self._prepare_data(df)
         grouped = {t: g for t, g in work.groupby("trade_time", sort=True)}
         unique_times = sorted(grouped.keys())
@@ -158,7 +163,8 @@ class TradingSignalGenerator:
                 or (step_idx % self.signal_config.rebalance_window == 0)
             )
             if should_rebalance:
-                subset_weights = scores_to_weights(scores, self.signal_config)
+                weights_top_k = top_k if top_k is not None else 0
+                subset_weights = scores_to_weights(scores, self.signal_config, weights_top_k)
                 new_weights = np.zeros_like(prev_weights)
                 new_weights[code_indices] = subset_weights
             else:
@@ -189,6 +195,7 @@ class TradingSignalGenerator:
                 "hhi": hhi,
                 "reward_raw": float(reward_raw),
                 "rebalanced": bool(should_rebalance),
+                "top_k_used": int(top_k) if top_k is not None else 0,
             }
             if return_details:
                 top_weights = np.sort(subset_weights)[::-1][:5]
@@ -215,6 +222,7 @@ def predict_test_set(
     model_path: str,
     config_path: str,
     test_df: pd.DataFrame,
+    top_k:Optional[int] = None,
     output_path: Optional[str] = None,
     deterministic: bool = True,
     return_details: bool = True,
@@ -225,7 +233,7 @@ def predict_test_set(
         deterministic=deterministic,
     )
     pdb.set_trace()
-    signals_df = generator.predict_signals(test_df, return_details=return_details)
+    signals_df = generator.predict_signals(df=test_df, top_k=top_k, return_details=return_details)
 
     if output_path is not None:
         out_dir = os.path.dirname(output_path)
