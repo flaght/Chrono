@@ -39,6 +39,7 @@ def load_raw_data(category, source, start_date, end_date):
             print(f"读取文件 {csv_file} 失败: {e}")
 
     if all_dfs:
+        pdb.set_trace()
         final_data = pd.concat(all_dfs, ignore_index=True)
         final_data['trade_time'] = pd.to_datetime(final_data['trade_time'],
                                                   errors='coerce',
@@ -47,12 +48,14 @@ def load_raw_data(category, source, start_date, end_date):
     return final_data if len(all_dfs) > 0 else pd.DataFrame()
 
 
-def start(method, category, task_id):
+## 将资金费率平摊到每个小时
+def start1(method, category, task_id):
     start_date, end_date = get_dates(method)
     final_data = load_raw_data(category=category,
                                source=TASK_MAPPING[task_id]['source'],
                                start_date=start_date,
                                end_date=end_date)
+    pdb.set_trace()
     ## 将资金费率平摊到每个小时
     final_data['trade_time'] = pd.to_datetime(final_data['trade_time'],
                                               format='ISO8601').dt.floor('h')
@@ -73,9 +76,41 @@ def start(method, category, task_id):
     filename = os.path.join(output_dirs, f"funding_{category}.feather")
     expanded_data.drop(['calc_time'], axis=1).to_feather(filename)
 
-
+def start2(method, category, task_id):
+    start_date, end_date = get_dates(method)
+    final_data = load_raw_data(category=category,
+                               source=TASK_MAPPING[task_id]['source'],
+                               start_date=start_date,
+                               end_date=end_date)
+    pdb.set_trace()
+    # 1. 对齐时间到小时
+    final_data['trade_time'] = pd.to_datetime(final_data['trade_time'], format='ISO8601').dt.floor('h')
+    
+    # 2. 清理空时间和去重 (极度重要，防止任何隐藏的合并错乱)
+    final_data = final_data.dropna(subset=['trade_time'])
+    final_data = final_data.drop_duplicates(subset=['trade_time', 'code'])
+    
+    # 3. 排序 (代替原本复杂的重组)
+    final_data = final_data.sort_values(['code', 'trade_time'])
+    
+    # --- 只要这 3 步，数据就已经干净了，直接保存！ ---
+    # 去掉没用的 calc_time
+    if 'calc_time' in final_data.columns:
+        final_data = final_data.drop(['calc_time'], axis=1)
+        
+    # 4. 保存为 feather
+    output_dirs = os.path.join(base_path, method, "basic", task_id)
+    os.makedirs(output_dirs, exist_ok=True)
+    filename = os.path.join(output_dirs, f"funding_{category}.feather")
+    
+    final_data.reset_index(drop=True).to_feather(filename)
+    print(f"资金费率保存成功，共 {len(final_data)} 行。")
+    
+    
+    
+    
 if __name__ == '__main__':
     variant = Tactix().start()
-    start(method=variant.method,
+    start2(method=variant.method,
           category=variant.category,
           task_id=variant.task_id)

@@ -28,12 +28,12 @@ def fetch_temp_data(method, task_id, datasets, category='data'):
     return factors_data
 
 
-def fetch_temp_data1(method, source, task_id, datasets, category='data'):
+def fetch_temp_data1(method, task_id, datasets, category='data'):
 
     res = []
 
     def fet(name, category):
-        filename = os.path.join(base_path, method, source, 'base', str(task_id),
+        filename = os.path.join(base_path, method, 'base', str(task_id),
                                 "{0}_{1}.feather".format(name, category))
         logger.info(filename)
         factors_data = pd.read_feather(filename).sort_values(
