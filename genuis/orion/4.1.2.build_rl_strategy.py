@@ -154,6 +154,8 @@ def train(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
         "negative_ic_penalty": env_params["negative_ic_penalty"],
         "use_turnover_proxy": env_params["use_turnover_proxy"],
         "turnover_proxy_coef": env_params["turnover_proxy_coef"],
+        "use_fee_in_reward": env_params["use_fee_in_reward"],
+        "fee_coef":env_params["fee_coef"],
         "seed": 42,
     }
     
@@ -210,7 +212,7 @@ def train(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
 def predict(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
     
     new_ret_name = 'abret_market'
-    top_k = 1000
+    top_k = 100
     
     
     file_dirs = os.path.join(base_path, method, TASK_MAPPING[task_id]["source"], "temp", "trl", task_id)

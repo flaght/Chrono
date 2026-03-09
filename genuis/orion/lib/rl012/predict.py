@@ -141,6 +141,8 @@ class TradingSignalGenerator:
         total_turnover = 0.0
         total_cost = 0.0
         total_portfolio_return = 0.0
+        total_portfolio_return = 0.0
+        net_total_portfolio_return = 0.0
         results = []
         pdb.set_trace()
         for step_idx, t in enumerate(unique_times):
@@ -181,8 +183,10 @@ class TradingSignalGenerator:
             total_cost += cost
             total_portfolio_return += portfolio_return
             last_turnover = float(turnover)
+            
+            net_portfolio_return = portfolio_return - cost
+            net_total_portfolio_return += net_portfolio_return
 
-            reward_raw = portfolio_return - cost
             n_holdings = int(np.sum(subset_weights > 1e-8))
             hhi = float(np.sum(subset_weights ** 2))
 
@@ -193,7 +197,8 @@ class TradingSignalGenerator:
                 "turnover": float(turnover),
                 "n_holdings": n_holdings,
                 "hhi": hhi,
-                "reward_raw": float(reward_raw),
+                "net_portfolio_return": float(net_portfolio_return),
+                "net_total_portfolio_return": float(net_total_portfolio_return),
                 "rebalanced": bool(should_rebalance),
                 "top_k_used": int(top_k) if top_k is not None else 0,
             }

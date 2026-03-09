@@ -63,6 +63,8 @@ def create_env(
         negative_ic_penalty=config['negative_ic_penalty'],
         use_turnover_proxy=config['use_turnover_proxy'],
         turnover_proxy_coef=config['turnover_proxy_coef'],
+        use_fee_in_reward=config['use_fee_in_reward'],
+        fee_coef=config['fee_coef']
     )
     return env
 
