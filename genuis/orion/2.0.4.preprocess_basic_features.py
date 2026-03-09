@@ -9,7 +9,8 @@ from lib.pre001.processing import factor_processing
 from lib.pre001.winsorize import winsorize_normal
 from lib.pre001.standardize import standardize
 from kdutils.tactix import Tactix
-from kdutils.macro2 import base_path
+from kdutils.macro2 import TASK_MAPPING, base_path
+from kdutils.logger import logger
 
 
 def preporcess(data, colmuns):
@@ -27,7 +28,7 @@ def preporcess(data, colmuns):
     # 过滤数据
     data_clean = data[data.index.get_level_values('trade_time').isin(
         valid_times)]
-
+    logger.info(f"process data {data_clean.shape}")
     new_factors = factor_processing(
         data_clean[colmuns].values,
         pre_process=[winsorize_normal, standardize],
@@ -39,9 +40,11 @@ def preporcess(data, colmuns):
 
 
 ## 加载已经处理切割数据 合并后进行标准化处理，再切割
-def preprocess_basic_factors(method, period, source):
-    base_dir1 = os.path.join(base_path, method, 'base', period, source)
+def preprocess_basic_factors(method, task_id):
+    
+    base_dir1 = os.path.join(base_path, method, 'base', str(task_id))
     ## 加载基础特征数据
+    logger.info(f"load data {base_dir1}")
     train_data = pd.read_feather(os.path.join(base_dir1, "train_data.feather"))
     val_data = pd.read_feather(os.path.join(base_dir1, "val_data.feather"))
     test_data = pd.read_feather(os.path.join(base_dir1, "test_data.feather"))
@@ -55,9 +58,10 @@ def preprocess_basic_factors(method, period, source):
     val_data = preporcess(data=val_data, colmuns=colmuns)
     test_data = preporcess(data=test_data, colmuns=colmuns)
 
-    target_dir = os.path.join(base_path, method, 'normal', period, source)
+    target_dir = os.path.join(base_path, method, 'normal', task_id)
     os.makedirs(target_dir, exist_ok=True)
 
+    logger.info(f"save data {target_dir}")
     train_data.reset_index().to_feather(
         os.path.join(target_dir, "train_data.feather"))
     val_data.reset_index().to_feather(
@@ -131,8 +135,6 @@ def preprocess_rl_features(method, task_id):
 
 if __name__ == '__main__':
     variant = Tactix().start()
-    #preprocess_basic_factors(method=variant.method,
-    #                         period=variant.period,
-    #                         source=variant.source)
+    preprocess_basic_factors(method=variant.method, task_id=variant.task_id)
 
-    preprocess_rl_features(method=variant.method, task_id=variant.task_id)
+    #preprocess_rl_features(method=variant.method, task_id=variant.task_id)

@@ -103,8 +103,6 @@ def preprocess_dataframe(df, rename_map=None, filter_cols=False):
 
 
 # --- 主加载逻辑 ---
-
-
 def load_and_merge_data(method, task_id):
     base_dirs = os.path.join(base_path, method, "basic", task_id)
     print(f"Loading data from: {base_dirs}")
@@ -124,6 +122,7 @@ def load_and_merge_data(method, task_id):
 
     # 2. 处理 Spot Kline (Spot 不需要去前缀，但需要对齐时间)
     # 注意：Spot 代码本身不需要归一化，所以这里单独写
+    pdb.set_trace()
     spot_kline = spot_kline.rename(columns=spot_rename_map)
     if 'close_time' in spot_kline.columns:
         spot_kline = spot_kline.drop(columns=['close_time'])
@@ -169,7 +168,9 @@ def load_and_merge_data(method, task_id):
                         um_funding,
                         on=['trade_time', 'code'],
                         how='left')
-
+    final_df['f_funding_rate'] = final_df['f_funding_rate'].fillna(0)
+    final_df = final_df.drop(['f_funding_interval'],axis=1)
+    pdb.set_trace()
     print(f"Merge complete. Shape: {final_df.shape}")
     return final_df
 

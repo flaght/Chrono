@@ -219,36 +219,62 @@ cdef class Booster(object):
     cpdef bias(self, right_count, left_count):
         return np.mean(right_count) / np.mean(left_count) if np.mean(left_count) != 0.0 else 0.0
 
-    cpdef evaluate(self, weight, returns, int hold, int freq):
+    cpdef evaluate(self, weight, returns, int hold, int freq, object date_groups=None, int num_groups=0):
         """核心评估：计算组合绩效全部指标"""
         # 所有的 cdef 声明必须前置在方法的最顶部
         cdef rets_sum, total_periods, years, total_log_ret, rets_mean, rets_std, sharp
         cdef weight0, turnover_series, turnover, pnl, maxdd, ret2mdd
         cdef calmar, valid_rets_count, win_rate, fitness, count_series
+        cdef valid_mask, daily_rets, daily_valid, valid_daily_rets
         
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             rets_sum = np.nansum(returns * weight, axis=1)
-            total_periods = np.sum(~np.isnan(rets_sum))
-            years = total_periods / float(freq) if freq > 0 else 1.0
             
-            total_log_ret = np.nansum(rets_sum)
-            rets_mean = np.nanmean(rets_sum) * freq  # 更健壮：等价于 total/years，但对 NaN 缺口更准确
-            rets_std = np.nanstd(rets_sum) * np.sqrt(freq)
-            sharp = rets_mean / rets_std if rets_std > 1e-10 else 0.0
+            if date_groups is not None and num_groups > 0:
+                # 按天归集降频
+                daily_rets = np.bincount(date_groups, weights=np.nan_to_num(rets_sum, nan=0.0))
+                valid_mask = ~np.isnan(rets_sum)
+                daily_valid = np.bincount(date_groups, weights=valid_mask)
+                
+                # 仅考虑有交易/信号的有效天数
+                valid_daily_rets = daily_rets[daily_valid > 0]
+                
+                total_periods = len(valid_daily_rets)
+                years = total_periods / float(freq) if freq > 0 else 1.0 # 此时 freq 代表 annual_days (如250)
+                
+                total_log_ret = np.nansum(valid_daily_rets)
+                rets_mean = total_log_ret / years if years > 0 else 0.0
+                rets_std = np.nanstd(valid_daily_rets) * np.sqrt(freq)
+                sharp = rets_mean / rets_std if rets_std > 1e-10 else 0.0
+
+                # maxdd / win_rate 也用日频，与 Sharpe 口径统一
+                pnl = np.nancumsum(valid_daily_rets)
+                maxdd = np.nanmax(np.maximum.accumulate(pnl) - pnl)
+                valid_rets_count = len(valid_daily_rets)
+                win_rate = np.sum(valid_daily_rets > 0) / valid_rets_count if valid_rets_count > 0 else 0.0
+            else:
+                total_periods = np.sum(~np.isnan(rets_sum))
+                years = total_periods / float(freq) if freq > 0 else 1.0
+                
+                total_log_ret = np.nansum(rets_sum)
+                rets_mean = np.nanmean(rets_sum) * freq  # 更健壮：对 NaN 缺口更准确
+                rets_std = np.nanstd(rets_sum) * np.sqrt(freq)
+                sharp = rets_mean / rets_std if rets_std > 1e-10 else 0.0
+
+                # 小时频 maxdd / win_rate
+                pnl = np.nancumsum(rets_sum)
+                maxdd = np.nanmax(np.maximum.accumulate(pnl) - pnl)
+                valid_rets_count = np.sum(~np.isnan(rets_sum))
+                win_rate = np.sum(rets_sum > 0) / valid_rets_count if valid_rets_count > 0 else 0.0
             
+            # turnover 保持小时粒度（反映真实换手频率，与调仓逻辑对应）
             weight0 = np.nan_to_num(weight, nan=0.0)
             turnover_series = np.sum(np.abs(weight0[1:] - weight0[:-1]), axis=1) * 0.5
             turnover = np.mean(turnover_series)
             
-            pnl = np.nancumsum(rets_sum)
-            maxdd = np.nanmax(np.maximum.accumulate(pnl) - pnl)
-            
             ret2mdd = total_log_ret / maxdd if maxdd > 1e-10 else 0.0
             calmar = rets_mean / maxdd if maxdd > 1e-10 else 0.0
-            
-            valid_rets_count = np.sum(~np.isnan(rets_sum))
-            win_rate = np.sum(rets_sum > 0) / valid_rets_count if valid_rets_count > 0 else 0.0
             
             fitness = sharp * np.sqrt(np.abs(rets_mean) / turnover) if turnover > 1e-10 else 0.0
             count_series = np.count_nonzero(~np.isnan(weight), axis=1)

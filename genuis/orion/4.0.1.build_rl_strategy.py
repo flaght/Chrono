@@ -9,7 +9,6 @@ load_dotenv()
 from kdutils.tactix import Tactix
 from kdutils.macro2 import base_path
 from kdutils.logger import logger
-
 from lib.rl003.train import train_model
 from lib.rl003.signal import Config
 

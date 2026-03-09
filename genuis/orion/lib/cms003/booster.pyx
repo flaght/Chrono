@@ -252,7 +252,7 @@ cdef class Booster(object):
                 years = total_periods / float(freq) if freq > 0 else 1.0
                 
                 total_log_ret = np.nansum(rets_sum)
-                rets_mean = total_log_ret / years if years > 0 else 0.0
+                rets_mean = np.nanmean(rets_sum) * freq  # 更健壮：对 NaN 缺口更准确
                 rets_std = np.nanstd(rets_sum) * np.sqrt(freq)
                 sharp = rets_mean / rets_std if rets_std > 1e-10 else 0.0
             
@@ -263,7 +263,7 @@ cdef class Booster(object):
             pnl = np.nancumsum(rets_sum)
             maxdd = np.nanmax(np.maximum.accumulate(pnl) - pnl)
             
-            ret2mdd = rets_mean / maxdd if maxdd > 1e-10 else 0.0
+            ret2mdd = total_log_ret / maxdd if maxdd > 1e-10 else 0.0
             calmar = rets_mean / maxdd if maxdd > 1e-10 else 0.0
             
             valid_rets_count = np.sum(~np.isnan(rets_sum))
