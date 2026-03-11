@@ -31,7 +31,8 @@ def load_rl_params(file_dirs: str, trade_id: str, model_id: str,
         train_param = config['train'][train_id]
         trade_param = config['trade'][trade_id]
         model_param = config['model'][model_id]
-        feature_param = config['feature'][feature_id].split()
+        
+        feature_param = config['feature'][feature_id].split('|')
         return env_param, trade_param, model_param, train_param, feature_param
             
 
