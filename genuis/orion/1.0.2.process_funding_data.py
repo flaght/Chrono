@@ -74,6 +74,7 @@ def start1(method, category, task_id):
     output_dirs = os.path.join(base_path, method, "basic", task_id)
     os.makedirs(output_dirs, exist_ok=True)
     filename = os.path.join(output_dirs, f"funding_{category}.feather")
+    print(filename)
     expanded_data.drop(['calc_time'], axis=1).to_feather(filename)
 
 def start2(method, category, task_id):
