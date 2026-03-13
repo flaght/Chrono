@@ -53,61 +53,39 @@ def create_yields(data, horizon, offset=0):
         window=horizon, min_periods=1)['nxt1_ret'].sum().groupby(level=0)
     #df = df.shift(0).unstack().T.shift(-(horizon + offset - 1)).stack(
     #    dropna=False)
-    df = df.shift(0).unstack().T.shift(-(horizon + offset - 1)).stack(future_stack=True)
+    df = df.shift(0).unstack().T.shift(-(horizon + offset - 1)).stack(
+        future_stack=True)
     df.name = 'nxt1_ret'
     return df
 
 
 # 核心：合成套利总收益 (basis + funding - cost)
 def create_chg(data, cost_rate):
-    """
-    计算单步套利总收益 (log-return)
-
-    严格流程:
-        y_basis = log(S_{t+2}/S_{t+1}) - log(F_{t+2}/F_{t+1})
-        R_basis = exp(y_basis) - 1
-        R_total = R_basis + f_{t+1} - cost
-        y_total = log(1 + R_total)
-
-    Parameters
-    ----------
-    data : DataFrame
-        原始数据，含 ['trade_time', 'code', 's_open', 'f_open', 'f_funding_rate']
-    cost_rate : float
-        单步成本率 (手续费 + 滑点等，占名义比例)
-
-    Returns
-    -------
-    Series : chg_pct (long format, with trade_time + code index)
-    """
-    basis_log_ret = create_basis_return(data)
-    # 取 funding rate (wide format)
     wide = data.set_index(['trade_time', 'code'])
-    funding = wide['f_funding_rate'].unstack()
+    f_open = wide['f_open'].unstack()
+    f_log_ret = np.log(f_open / f_open.shift(1))
 
-    # funding_rate > 0：多头付给空头 → 做空 → 收钱 → +正值
-    # funding_rate < 0：空头付给多头 → 做空 → 付钱 → +负值（自然减少收益）
-    # 让 T 行用到 f_{T+1}（对应 [T+1, T+2)）
-    funding_income = funding.shift(-1)
+    target_f_log_ret = f_log_ret.shift(-2)
 
-    # Step 2: log → simple
-    r_basis = np.exp(basis_log_ret) - 1
+    funding = wide['f_funding_rate'].unstack().fillna(0.0)
 
-    # Step 3: 合成 (simple 口径)
-    r_total = r_basis + funding_income - cost_rate
+    funding_rate = funding.shift(-1)
 
-    # Step 4: simple → log
+    r_future = np.exp(target_f_log_ret) - 1
+
+    r_total = r_future - funding_rate - cost_rate
+
     y_total = np.log(1 + r_total)
 
-    # 转 long format
-    y_total = y_total.stack()
+    y_total = y_total.stack(future_stack=True)
+
     y_total.name = 'chg_pct'
 
     return y_total.reset_index()
 
 
 def create_return(data, cost_rate=0.0):
-    horizon_sets = [1, 2, 3, 5, 10, 15]
+    horizon_sets = [1, 2, 3, 5, 8, 10, 15]
     ## 计算 单步套利收益率 等同于股票期货当日涨跌幅
     chg_data = create_chg(data, cost_rate=cost_rate)
     # Step 2: 多 horizon 滚动
@@ -162,14 +140,13 @@ def run(method, task_id):
     file_name = os.path.join(dirs, "raw_basic.feather")
     raw_basic_data = pd.read_feather(file_name)
     pdb.set_trace()
-    cols = ['trade_time', 'code', 's_open', 'f_open', 'f_funding_rate']
+    cols = ['trade_time', 'code', 'open', 'funding_rate']
     data = raw_basic_data[cols].copy()
-
+    data = data.rename(columns={'open': 'f_open','funding_rate':'f_funding_rate'})
+    data['f_funding_rate'] = data['f_funding_rate'].fillna(0.0)
     return_data = create_return(data=data, cost_rate=0.0)
     return_data = return_data.dropna()
-    returns_save(return_data=return_data,
-                task_id=task_id,
-                 method=method)
+    returns_save(return_data=return_data, task_id=task_id, method=method)
 
 
 if __name__ == '__main__':

@@ -61,6 +61,7 @@ def start(method, category, task_id):
     output_dirs = os.path.join(base_path, method, "basic", task_id)
     os.makedirs(output_dirs, exist_ok=True)
     filename = os.path.join(output_dirs, f"kline_{category}.feather")
+    print(filename)
     final_data.drop(['open_time', 'ignore'], axis=1).to_feather(filename)
 
 
