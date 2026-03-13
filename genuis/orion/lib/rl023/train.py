@@ -53,30 +53,17 @@ def create_env(
     signal_config: Config,
 ) -> TradingEnv:
     """创建交易环境"""
-    sampling_mode = str(config.get('sampling_mode', 'sequential')).lower()
-    include_portfolio_state_default = sampling_mode == 'sequential'
-    env = TradingEnv(
-        df=df,
-        features=features,
-        subset_size=config['subset_size'],
-        episode_len=config['episode_len'],
-        seed=config['seed'],
-        reward_scale=config['reward_scale'],
-        signal_config=signal_config,
-        ic_scale=config['ic_scale'],
-        negative_ic_penalty=config['negative_ic_penalty'],
-        use_turnover_proxy=config['use_turnover_proxy'],
-        turnover_proxy_coef=config['turnover_proxy_coef'],
-        use_fee_in_reward=config['use_fee_in_reward'],
-        fee_coef=config['fee_coef'],
-        sampling_mode=sampling_mode,
-        action_mode=str(config.get('action_mode', 'weights')).lower(),
-        include_portfolio_state=bool(
-            config.get('include_portfolio_state', include_portfolio_state_default)),
-        enable_step_logging=config.get('enable_step_logging', True),
-        log_every_n_steps=config.get('log_every_n_steps', 200),
-        warn_turnover_threshold=config.get('warn_turnover_threshold', 0.80),
-    )
+    env = TradingEnv(df=df,
+                     features=features,
+                     subset_size=config['subset_size'],
+                     episode_len=config['episode_len'],
+                     seed=config['seed'],
+                     reward_scale=config['reward_scale'],
+                     signal_config=signal_config,
+                     ic_scale=config['ic_scale'],
+                     negative_ic_penalty=config['negative_ic_penalty'],
+                     reward_mode=config['reward_mode'],
+                     reward_top_k=config['reward_top_k'])
     return env
 
 
