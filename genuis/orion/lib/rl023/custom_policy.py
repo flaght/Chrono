@@ -86,16 +86,38 @@ class PermutationEquivariantActor(Actor):
         self,
         stock_features: th.Tensor,
         portfolio_features: Optional[th.Tensor] = None,
+<<<<<<< HEAD
+=======
+        output_activation: str = "sigmoid",
+>>>>>>> a9ff085fddb0749be5aa2d61c9926ad8d16d4408
     ) -> th.Tensor:
         """
         Inference: score arbitrary number of assets.
         Input: stock_features shape (N_assets, n_stock_features)
+<<<<<<< HEAD
         Output: scores in [0, 1], shape (N_assets,)
+=======
+        Output: scores shape (N_assets,)
+          - output_activation='sigmoid': [0, 1]
+          - output_activation='tanh': [-1, 1]
+          - output_activation='none': raw mu
+>>>>>>> a9ff085fddb0749be5aa2d61c9926ad8d16d4408
         """
         prepared = self._prepare_input(stock_features, portfolio_features)
         latent = self.stock_net(prepared)
         mu = self.mu_net(latent).squeeze(-1)
+<<<<<<< HEAD
         return th.sigmoid(mu)
+=======
+        activation = str(output_activation).lower()
+        if activation == "sigmoid":
+            return th.sigmoid(mu)
+        if activation == "tanh":
+            return th.tanh(mu)
+        if activation == "none":
+            return mu
+        raise ValueError(f"unsupported output_activation: {output_activation}")
+>>>>>>> a9ff085fddb0749be5aa2d61c9926ad8d16d4408
 
     def get_action_dist_params(self, obs: th.Tensor) -> Tuple[th.Tensor, th.Tensor, dict]:
         """Training: parse flattened obs → per-stock mu, log_std."""

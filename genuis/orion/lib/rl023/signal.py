@@ -64,71 +64,113 @@ def rank_ic(scores: np.ndarray, returns: np.ndarray) -> float:
     return float(np.sum(rs * rr) / denom)
 
 
+# def scores_to_weights(
+#     scores: np.ndarray,
+#     config: Config,
+#     top_k: int = 0,
+# ) -> np.ndarray:
+#     """
+#     Convert raw scores to long-only portfolio weights.
+#     """
+#     raw_scores = np.asarray(scores, dtype=np.float32).flatten()
+#     if raw_scores.size == 0:
+#         return raw_scores
+
+#     rank_scores = np.clip(raw_scores, config.min_weight, 1.0)
+
+#     effective_top_k = top_k if top_k >= 0 else config.top_k
+#     if effective_top_k > 0 and effective_top_k < rank_scores.size:
+#         candidate_indices = np.argsort(rank_scores)[-effective_top_k:]
+#     else:
+#         candidate_indices = np.arange(rank_scores.size, dtype=np.int64)
+
+#     if (
+#         config.normalize
+#         and config.max_weight > 0
+#         and candidate_indices.size * config.max_weight < 1.0 - 1e-12
+#     ):
+#         raise ValueError(
+#             f"Infeasible allocation: top_k({candidate_indices.size}) * "
+#             f"max_weight({config.max_weight}) < 1.0"
+#         )
+
+#     weights = np.zeros_like(rank_scores)
+#     candidate_scores = rank_scores[candidate_indices]
+
+#     # Softmax keeps ranking information
+#     logits = candidate_scores - np.max(candidate_scores)
+#     exp_scores = np.exp(logits / config.softmax_temperature)
+#     soft = exp_scores / np.sum(exp_scores)
+#     weights[candidate_indices] = soft.astype(np.float32)
+
+#     if config.max_weight > 0:
+#         cap = float(config.max_weight)
+#         free = np.ones_like(weights, dtype=bool)
+#         projected = np.zeros_like(weights)
+#         remaining_mass = 1.0
+
+#         while remaining_mass > 1e-12 and np.any(free):
+#             current = weights[free]
+#             current_sum = current.sum()
+#             if current_sum <= 1e-12:
+#                 break
+#             scaled = current / current_sum * remaining_mass
+#             over = scaled > cap + 1e-12
+#             free_indices = np.where(free)[0]
+#             if not np.any(over):
+#                 projected[free_indices] = scaled
+#                 remaining_mass = 0.0
+#                 break
+#             over_indices = free_indices[over]
+#             projected[over_indices] = cap
+#             remaining_mass -= cap * over_indices.size
+#             free[over_indices] = False
+#         weights = np.clip(projected, 0.0, cap)
+
+#     if not config.normalize:
+#         weights = np.clip(weights, config.min_weight, config.max_weight)
+
+#     return weights.astype(np.float32)
+
 def scores_to_weights(
     scores: np.ndarray,
     config: Config,
     top_k: int = 0,
 ) -> np.ndarray:
     """
-    Convert raw scores to long-only portfolio weights.
+    Convert raw scores to long-only portfolio weights using Equal Weight Top-K.
+    Bypasses Softmax and Clip to avoid destroying extreme tail predictions.
     """
     raw_scores = np.asarray(scores, dtype=np.float32).flatten()
     if raw_scores.size == 0:
         return raw_scores
 
-    rank_scores = np.clip(raw_scores, config.min_weight, 1.0)
-
     effective_top_k = top_k if top_k > 0 else config.top_k
-    if effective_top_k > 0 and effective_top_k < rank_scores.size:
-        candidate_indices = np.argsort(rank_scores)[-effective_top_k:]
+    
+    # ==== 终极正确逻辑：无脑等权分配，拒绝 Softmax 放大噪音 ====
+    weights = np.zeros_like(raw_scores)
+    
+    if effective_top_k > 0 and effective_top_k < raw_scores.size:
+        # 取最原始的 raw_scores 排名前 top_k 的索引
+        candidate_indices = np.argsort(raw_scores)[-effective_top_k:]
     else:
-        candidate_indices = np.arange(rank_scores.size, dtype=np.int64)
+        # 如果没设 top_k，取全部大于 0 的或者全体等权
+        candidate_indices = np.where(raw_scores > 0)[0]
+        if candidate_indices.size == 0:
+            candidate_indices = np.arange(raw_scores.size, dtype=np.int64)
 
-    if (
-        config.normalize
-        and config.max_weight > 0
-        and candidate_indices.size * config.max_weight < 1.0 - 1e-12
-    ):
-        raise ValueError(
-            f"Infeasible allocation: top_k({candidate_indices.size}) * "
-            f"max_weight({config.max_weight}) < 1.0"
-        )
-
-    weights = np.zeros_like(rank_scores)
-    candidate_scores = rank_scores[candidate_indices]
-
-    # Softmax keeps ranking information
-    logits = candidate_scores - np.max(candidate_scores)
-    exp_scores = np.exp(logits / config.softmax_temperature)
-    soft = exp_scores / np.sum(exp_scores)
-    weights[candidate_indices] = soft.astype(np.float32)
-
+    # 等权买入（例如 top_k=50，每只分配 2% 的仓位）
+    alloc_weight = 1.0 / len(candidate_indices)
+    
+    # 尊重 max_weight 封顶限制
     if config.max_weight > 0:
-        cap = float(config.max_weight)
-        free = np.ones_like(weights, dtype=bool)
-        projected = np.zeros_like(weights)
-        remaining_mass = 1.0
+        alloc_weight = min(alloc_weight, config.max_weight)
+        
+    weights[candidate_indices] = alloc_weight
 
-        while remaining_mass > 1e-12 and np.any(free):
-            current = weights[free]
-            current_sum = current.sum()
-            if current_sum <= 1e-12:
-                break
-            scaled = current / current_sum * remaining_mass
-            over = scaled > cap + 1e-12
-            free_indices = np.where(free)[0]
-            if not np.any(over):
-                projected[free_indices] = scaled
-                remaining_mass = 0.0
-                break
-            over_indices = free_indices[over]
-            projected[over_indices] = cap
-            remaining_mass -= cap * over_indices.size
-            free[over_indices] = False
-        weights = np.clip(projected, 0.0, cap)
-
+    # 尊重 min_weight 最低限制
     if not config.normalize:
-        weights = np.clip(weights, config.min_weight, config.max_weight)
+        weights = np.where(weights > 0, np.clip(weights, config.min_weight, config.max_weight), 0)
 
     return weights.astype(np.float32)
 

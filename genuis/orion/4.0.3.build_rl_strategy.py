@@ -1,4 +1,4 @@
-import os, copy, json
+import os, copy, json, pdb
 import pandas as pd
 import numpy as np
 from typing import Dict, List
@@ -6,6 +6,7 @@ from typing import Dict, List
 from dotenv import load_dotenv
 
 load_dotenv()
+
 from kdutils.tactix import Tactix
 from kdutils.macro2 import base_path
 from kdutils.logger import logger
@@ -14,10 +15,10 @@ from kdutils.macro2 import *
 from lib.uvx import *
 from lib.utils.params import Params
 
-from lib.rl012.train import train_model
-from lib.rl012.predict import predict_test_set
-from lib.rl012.signal import Config
-from lib.rl012.features import CrossSectionalExtractor
+from lib.rl023.train import train_model
+from lib.rl023.predict import predict_test_set
+from lib.rl023.signal import Config
+from lib.rl023.custom_feature import CrossSectionalExtractor
 
 extractor_mapping = {
     "CrossSectionalExtractor": CrossSectionalExtractor,
@@ -36,10 +37,10 @@ def load_data_train_val(method, task_id, features, ret_name):
         os.path.join(target_dir, "derive_train_data.feather"))
     val_data = pd.read_feather(
         os.path.join(target_dir, "derive_val_data.feather"))
-    pdb.set_trace()
+
     train_data.rename(columns={ret_name: "nxt1_ret"}, inplace=True)
     val_data.rename(columns={ret_name: "nxt1_ret"}, inplace=True)
-
+    pdb.set_trace()
     train_data = train_data[["trade_time", "code", "nxt1_ret"] + features]
     val_data = val_data[["trade_time", "code", "nxt1_ret"] + features]
 
@@ -52,8 +53,9 @@ def load_data_train_val(method, task_id, features, ret_name):
 
 def load_data_test(method, task_id, features, ret_name):
     target_dir = os.path.join(base_path, method, "rl", str(task_id))
-    test_data = pd.read_feather(os.path.join(target_dir, "derive_test_data.feather"))
-    pdb.set_trace()
+    test_data = pd.read_feather(
+        os.path.join(target_dir, "derive_test_data.feather"))
+
     test_data.rename(columns={ret_name: "nxt1_ret"}, inplace=True)
     test_data = test_data[["trade_time", "code", "nxt1_ret"] + features]
     test_data = test_data.sort_values(["trade_time",
@@ -111,7 +113,7 @@ def build_sac_config(model_params, n_features, subset_size, use_custom_policy):
 
 def train(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
     file_dirs = os.path.join(base_path, method, "temp", "trl", task_id)
-
+    pdb.set_trace()
     env_params, trade_params, model_params, train_params, selected_features = load_rl_params(
         file_dirs=file_dirs,
         trade_id=trade_id,
@@ -128,7 +130,7 @@ def train(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
     total_params.update({"selected_features": selected_features})
     name = Params.create_tag(total_params)
 
-    output_dir = os.path.join(base_path, method, "temp", "rl", str(task_id),
+    output_dir = os.path.join(base_path, method, "temp", "trl", str(task_id),
                               str(name))
 
     os.makedirs(output_dir, exist_ok=True)
@@ -156,11 +158,9 @@ def train(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
         "reward_scale": env_params["reward_scale"],
         "ic_scale": env_params["ic_scale"],
         "negative_ic_penalty": env_params["negative_ic_penalty"],
-        "use_turnover_proxy": env_params["use_turnover_proxy"],
-        "turnover_proxy_coef": env_params["turnover_proxy_coef"],
-        "use_fee_in_reward": env_params["use_fee_in_reward"],
-        "fee_coef":env_params["fee_coef"],
-        "seed": 42,
+        "reward_mode": env_params["reward_mode"],
+        "reward_top_k": env_params["reward_top_k"],
+        "seed": 42
     }
 
     signal_config = Config(
@@ -169,7 +169,6 @@ def train(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
         normalize=trade_params["normalize"],
         top_k=trade_params["top_k"],
         cost_rate=trade_params["cost_rate"],
-        stamp_duty=trade_params["stamp_duty"],
         turnover_penalty=trade_params["turnover_penalty"],
         rebalance_window=trade_params["rebalance_window"],
         softmax_temperature=trade_params["softmax_temperature"],
@@ -184,6 +183,7 @@ def train(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
         use_custom_policy=use_custom_policy,
     )
 
+    pdb.set_trace()
     logger.info(f"训练集: {len(train_data)} 行")
     logger.info(f"校验集: {len(val_data)} 行")
     logger.info(f"features: {len(features)}")
@@ -214,20 +214,12 @@ def train(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
 
 
 def predict(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
-<<<<<<< HEAD
-    
-    new_ret_name = 'abret_market'
-    top_k = 100
-    
-    
-    file_dirs = os.path.join(base_path, method, TASK_MAPPING[task_id]["source"], "temp", "trl", task_id)
-=======
 
     new_ret_name = 'nxt1_ret_1h'
-    top_k = 1000
+    top_k = 20
+
     pdb.set_trace()
     file_dirs = os.path.join(base_path, method, "temp", "trl", task_id)
->>>>>>> a9ff085fddb0749be5aa2d61c9926ad8d16d4408
     env_params, trade_params, model_params, train_params, selected_features = load_rl_params(
         file_dirs=file_dirs,
         trade_id=trade_id,
@@ -244,14 +236,9 @@ def predict(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
     total_params.update({"selected_features": selected_features})
     name = Params.create_tag(total_params)
 
-    output_dir = os.path.join(
-        base_path,
-        method,
-        "temp",
-        "rl",
-        str(task_id),
-        str(name),
-    )
+    output_dir = os.path.join(base_path, method, "temp", "trl", str(task_id),
+                              str(name))
+
     test_data = load_data_test(
         method=method,
         task_id=task_id,
@@ -265,32 +252,33 @@ def predict(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
         best_model_zip) else best_model
     config_path = os.path.join(output_dir, "config.json")
 
-    signals_df = predict_test_set(
-        model_path=model_path,
-        config_path=config_path,
-        test_df=test_data,
-        top_k=top_k,
-        output_path=os.path.join(
-            output_dir, "metrics",
-            "results_{0}_{1}.csv".format(str(new_ret_name), str(top_k))),
-        deterministic=True,
-        return_details=True,
-    )
+    signals_df = predict_test_set(model_path=model_path,
+                                  config_path=config_path,
+                                  test_df=test_data,
+                                  top_k=top_k,
+                                  output_path=os.path.join(
+                                      output_dir, "metrics",
+                                      "results_{0}_{1}.csv".format(
+                                          str(new_ret_name), str(top_k))),
+                                  deterministic=True,
+                                  return_details=False)
 
     print(f"预测完成，共 {len(signals_df)} 个时间步")
-    print(f"平均持仓数量: {signals_df['n_holdings'].mean():.1f}")
-    print(f"平均换手率: {signals_df['turnover'].mean():.6f}")
-    print(f"平均 HHI: {signals_df['hhi'].mean():.4f}")
+    if 'n_holdings' in signals_df.columns:
+        print(f"平均持仓数量: {signals_df['n_holdings'].mean():.1f}")
+    if 'turnover' in signals_df.columns:
+        print(f"平均换手率: {signals_df['turnover'].mean():.6f}")
+    if 'rank_ic' in signals_df.columns:
+        print(f"平均 Rank IC: {signals_df['rank_ic'].mean():.6f}")
+    print(f"手续费费率: {trade_params['cost_rate']}")
 
 
 if __name__ == "__main__":
     variant = Tactix().start()
-    predict(
-        method=variant.method,
-        task_id=variant.task_id,
-        trade_id=variant.trade_id,
-        env_id=variant.env_id,
-        train_id=variant.train_id,
-        model_id=variant.model_id,
-        feature_id=variant.feature_id,
-    )
+    predict(method=variant.method,
+          task_id=variant.task_id,
+          trade_id=variant.trade_id,
+          env_id=variant.env_id,
+          train_id=variant.train_id,
+          model_id=variant.model_id,
+          feature_id=variant.feature_id)

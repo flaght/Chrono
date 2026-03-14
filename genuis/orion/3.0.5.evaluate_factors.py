@@ -91,8 +91,9 @@ def parallel_evaluate2(column, total_data1, returns_data, image_dirs):
     result['id'] = factor_id
     return result
 
+
 def parallel_factors1(column, total_data1):
-    factor_name = column['forumla']
+    factor_name = column['name']
     direction = column['direction']
     dt = calc_factor(factor_name,
                      total_data=total_data1,
@@ -102,7 +103,7 @@ def parallel_factors1(column, total_data1):
     dt = dt.set_index('code', append=True)
     dt[factor_name] = dt[factor_name] * direction
     return dt
-    
+
 
 @add_process_env_sig
 def run_evaluate2(target_column, total_data1, returns_data, image_dirs):
@@ -118,10 +119,11 @@ def run_evaluate2(target_column, total_data1, returns_data, image_dirs):
     #                             image_dirs=image_dirs)
     return results
 
+
 @add_process_env_sig
 def run_factors1(target_column, total_data1):
     results = run_process(target_column=target_column,
-                          callback=parallel_evaluate2,
+                          callback=parallel_factors1,
                           total_data1=total_data1)
     return results
 
@@ -240,27 +242,32 @@ def screening(method, task_id, ret_name):
 
 
 def create(method, task_id, session, ret_name):
-    pdb.set_trace()
     dirs = os.path.join(base_path, method, 'evaluate', str(task_id), "results",
                         session)
     expression = pd.read_csv(os.path.join(dirs, "draft.csv"))
     ## 生成因子值 训练集 校验集 测试集
-    factor_columns = expression.to_dict(orient='records')[0:3]
-    pdb.set_trace()
+    factor_columns = expression.to_dict(orient='records')
+    # factor_columns = [{
+    #     "name":
+    #     "MRes(20, MRes(4, MSKEW(4, 'ak104_1_5_1'), 'ak015_1_15_0'), 'ak001_1_5_1')",
+    #     "direction": 1
+    # }]
     total_data = fetch_temp_data1(method=method,
-                                     task_id=task_id,
-                                     datasets=['val'])
+                                  task_id=task_id,
+                                  datasets=['train', 'val', 'test'])
     total_data1 = total_data.sort_values(
         by=['trade_time', 'code']).set_index('trade_time')
-    
-    k_split = 1
+    total_data1 = total_data1.sort_index()
+    k_split = 2
     process_list = split_k(k_split, factor_columns)
-    
+
     results = create_parellel(process_list=process_list,
-                              callback=run_evaluate2,
+                              callback=run_factors1,
                               total_data1=total_data1)
-    pdb.set_trace()
-    print('-->')
+    results = list(itertools.chain.from_iterable(results))
+    total_data = pd.concat(results, axis=1)
+    file_path = os.path.join(dirs, "data.feather")
+    total_data.reset_index().to_feather(file_path)
 
 
 if __name__ == '__main__':
