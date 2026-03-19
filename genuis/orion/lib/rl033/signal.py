@@ -192,7 +192,6 @@ def calculate_portfolio_return(weights: np.ndarray, returns: np.ndarray) -> floa
     return float(np.dot(weights, returns))
 
 
-
 def scores_to_market_neutral_weights(
     scores: np.ndarray,
     top_k: int,
@@ -221,3 +220,4 @@ def scores_to_market_neutral_weights(
     weights[long_idx] = 1.0 / k
     weights[short_idx] = -1.0 / k
     return weights
+

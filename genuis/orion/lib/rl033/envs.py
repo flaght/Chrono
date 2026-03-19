@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from gym import spaces
 
-from lib.rl023.signal import (
+from lib.rl033.signal import (
     Config,
     rank_ic,
 )
@@ -167,7 +167,6 @@ class TradingEnv:
     def step(
             self, action: np.ndarray
     ) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
-        pdb.set_trace()
         if not isinstance(action, np.ndarray):
             action = np.array(action, dtype=np.float32)
         action = action.astype(np.float32).flatten()
@@ -190,7 +189,7 @@ class TradingEnv:
 
         # ==== 新增：多模式 Reward 计算路由 ====
         info_metrics = {}
-        if self.reward_mode == "topk_profit":
+        if self.reward_mode == "topk_profit" and self.reward_top_k > 0:
             # 策略 B: 专注于 Top-K 绝对收益
             reward_base, topk_info = self._calculate_topk_profit_reward(action, top_k=self.reward_top_k)
             reward = reward_base * self.ic_scale  # 借用 ic_scale 作为调整系数

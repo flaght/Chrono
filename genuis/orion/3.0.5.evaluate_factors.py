@@ -49,6 +49,7 @@ def create_params(params):
 
 def parallel_evaluate1(total_data, factor_name, ret_name, image_dirs):
     new_factor_name = "LAST('{}')".format(factor_name)
+    print(new_factor_name)
     result = Metrics.quick(returns=total_data[f'{ret_name}'],
                            factors=total_data[factor_name],
                            factor_name=new_factor_name,
@@ -59,7 +60,7 @@ def parallel_evaluate1(total_data, factor_name, ret_name, image_dirs):
                            save_file=os.path.join(
                                image_dirs,
                                f"{create_params(new_factor_name)}.png"),
-                           quantiles=10,
+                           quantiles=5,
                            is_series=True)
 
     result['name'] = new_factor_name
@@ -85,7 +86,7 @@ def parallel_evaluate2(column, total_data1, returns_data, image_dirs):
                            max_points=200,
                            save_file=os.path.join(image_dirs,
                                                   f"{factor_id}.png"),
-                           quantiles=10,
+                           quantiles=5,
                            is_series=True)
     result['name'] = factor_name
     result['id'] = factor_id
@@ -95,6 +96,7 @@ def parallel_evaluate2(column, total_data1, returns_data, image_dirs):
 def parallel_factors1(column, total_data1):
     factor_name = column['name']
     direction = column['direction']
+    print(f"{factor_name}--{direction}")
     dt = calc_factor(factor_name,
                      total_data=total_data1,
                      indexs=[],
@@ -133,7 +135,8 @@ def load_derivate_factor(method, task_id, ret_name, sessions=[]):
     file_path = os.path.join(base_path, method, 'miner', task_id, ret_name)
     file_path = Path(file_path)
     res = []
-    for feather_file in file_path.glob('*.feather'):
+    pdb.set_trace()
+    for feather_file in file_path.rglob('*.feather'):
         data = pd.read_feather(feather_file)
         res.append(data)
     data1 = pd.concat(res, axis=0)
@@ -156,6 +159,7 @@ def derivate(method, task_id, ret_name):
     express_factors = load_derivate_factor(method=method,
                                            task_id=task_id,
                                            ret_name=ret_name)
+    pdb.set_trace()
     express_factors = express_factors.sort_values(by=['forumla'])
     factor_columns = express_factors[['forumla',
                                       'features']].to_dict(orient='records')
@@ -233,10 +237,13 @@ def screening(method, task_id, ret_name):
                                  index_col=0)
     derivative_csv['category'] = 'derivative'
     results = pd.concat([basic_csv, derivative_csv], axis=0)
+    
+    results = pd.concat([basic_csv], axis=0)
     results['abs_ic'] = np.fabs(results['ic'])
     results = results.sort_values(by=['abs_ic'], ascending=False).dropna()
-    results = results[(results['abs_ic'] > 0.1) & (results['abs_ic'] < 0.5) &
-                      (results['turnover'] < 0.7)]
+    
+    results = results[(results['abs_ic'] > 0.02) & (results['abs_ic'] < 0.5) &
+                      (results['turnover'] < 0.4)]
     results['factor_id'] = results['name'].apply(lambda x: create_params(x))
     return results
 
