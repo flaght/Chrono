@@ -526,7 +526,7 @@ class Metrics(object):
             left  = pd.DataFrame(left,  index=idx, columns=cols)\
                       .rolling(hold, min_periods=1).sum().div(hold).values
 
-        long_weight, _, both_weight, _ = booster.direction(
+        _, _, both_weight, _ = booster.direction(
             right, left, ereturns)
 
         # IC / ICIR（only both）
@@ -535,7 +535,7 @@ class Metrics(object):
         icir = ic_mean / ic_std if ic_std > 1e-10 else 0.0
 
         # 换手率（long 侧，反映单边真实换手）
-        w0 = np.nan_to_num(long_weight, nan=0.0)
+        w0 = np.nan_to_num(both_weight, nan=0.0)
         turnover = float(
             np.mean(np.sum(np.abs(w0[1:] - w0[:-1]), axis=1) * 0.5))
 

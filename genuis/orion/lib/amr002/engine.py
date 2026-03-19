@@ -89,6 +89,7 @@ class AlphaEngine:
             eval_res = Metrics.quick(
                 returns=self.ret_df,
                 factors=factor_df,
+                factor_name='transformer',
                 hold=1,
                 skip=0,
                 category=1, # EXCESS
