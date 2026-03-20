@@ -53,12 +53,13 @@ def load_data(method, task_id, ret_name):
     factors_cols = [
         col for col in total_data.columns if col not in [
             'trade_time', 'code', 'time_weight', 'equal_weight',
-            'f_funding_rate', 'f_funding_interval', 'nxt1_ret_1h',
-            'nxt1_ret_2h', 'nxt1_ret_3h', 'nxt1_ret_5h', 'nxt1_ret_10h',
-            'nxt1_ret_15h'
+            'f_funding_rate', 'f_funding_interval', 'nxt1_ret_1h', 
+            'nxt1_ret_2h', 'nxt1_ret_3h', 'nxt1_ret_5h', 'nxt1_ret_8h', 
+            'nxt1_ret_10h', 'nxt1_ret_15h', 'time_weight', 
+            'equal_weight', 'symbol', 'create_time'
         ]
     ]
-
+    pdb.set_trace()
     # total_data = total_factors.merge(total_return, on=['trade_time', 'code'])
     total_data = total_data[['trade_time', 'code', ret_name] + factors_cols]
     total_data.rename(columns={ret_name: 'nxt1_ret'}, inplace=True)

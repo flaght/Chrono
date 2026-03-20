@@ -275,7 +275,7 @@ def predict(method, task_id, env_id, trade_id, model_id, train_id, feature_id):
 
 if __name__ == "__main__":
     variant = Tactix().start()
-    predict(method=variant.method,
+    train(method=variant.method,
           task_id=variant.task_id,
           trade_id=variant.trade_id,
           env_id=variant.env_id,

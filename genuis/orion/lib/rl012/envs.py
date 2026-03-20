@@ -18,7 +18,9 @@ class TradingEnv:
         ic_scale: float = 1.0,
         negative_ic_penalty: float = 0.0,
         use_turnover_proxy: bool = False,
-        turnover_proxy_coef: float = 0.0):
+        turnover_proxy_coef: float = 0.0,
+        use_fee_in_reward: bool = True,
+        fee_coef: float = 1.0):
         
         self.df = df.copy().reset_index(drop=True)
         self.features = list(features)
@@ -33,6 +35,9 @@ class TradingEnv:
         self.negative_ic_penalty = float(negative_ic_penalty)
         self.use_turnover_proxy = bool(use_turnover_proxy)
         self.turnover_proxy_coef = float(turnover_proxy_coef)
+        self.use_fee_in_reward = bool(use_fee_in_reward)
+        self.fee_coef = float(fee_coef)
+        
         
         if signal_config is None:
             raise ValueError("signal_config must be provided")
@@ -187,16 +192,18 @@ class TradingEnv:
         
         turnover = calculate_turnover(old_weights, new_weights)
         cost = calculate_transaction_cost(old_weights, new_weights, self.signal_config)
-        
-        
-        turnover = calculate_turnover(old_weights, new_weights)
-        cost = calculate_transaction_cost(old_weights, new_weights, self.signal_config)
+
 
         self.last_turnover = turnover
         self.total_turnover += turnover
         self.total_cost += cost
         self.total_rank_ic += ic_value
 
+        ## 如果三个系数都 > 0，对同一笔换手惩罚了三次
+        ## 只保留一种惩罚机制
+        if self.use_fee_in_reward and self.fee_coef > 0:
+            reward -= self.fee_coef * cost
+            
         if self.use_turnover_proxy and self.turnover_proxy_coef > 0:
             reward -= self.turnover_proxy_coef * turnover
         if self.signal_config.turnover_penalty > 0:

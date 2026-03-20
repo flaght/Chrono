@@ -68,15 +68,18 @@ def parallel_evaluate1(total_data, factor_name, ret_name, image_dirs):
     return result
 
 
-def parallel_evaluate2(column, total_data1, returns_data, image_dirs):
+def parallel_evaluate2(column, total_data1, returns_data, image_dirs, factors_dirs):
     factor_name = column['forumla']
     factor_id = column['features']
     print(factor_name)
-    dt = calc_factor(factor_name,
+    dt1 = calc_factor(factor_name,
                      total_data=total_data1,
+                     name = factor_name,
                      indexs=[],
                      key='code')
-    dt = dt.set_index('code', append=True)['transformed'].unstack()
+    filename = os.path.join(factors_dirs, "{}.feather".format(factor_id))
+    dt = dt1.set_index('code', append=True)[factor_name].unstack()
+    
     result = Metrics.quick(returns=returns_data,
                            factors=dt,
                            factor_name=factor_name,
@@ -90,6 +93,8 @@ def parallel_evaluate2(column, total_data1, returns_data, image_dirs):
                            is_series=True)
     result['name'] = factor_name
     result['id'] = factor_id
+    
+    dt1.reset_index().to_feather(filename)
     return result
 
 
@@ -108,12 +113,13 @@ def parallel_factors1(column, total_data1):
 
 
 @add_process_env_sig
-def run_evaluate2(target_column, total_data1, returns_data, image_dirs):
+def run_evaluate2(target_column, total_data1, returns_data, image_dirs, factors_dirs):
     results = run_process(target_column=target_column,
                           callback=parallel_evaluate2,
                           total_data1=total_data1,
                           returns_data=returns_data,
-                          image_dirs=image_dirs)
+                          image_dirs=image_dirs,
+                          factors_dirs=factors_dirs)
     # result = parallel_evaluate2(total_data1=total_data1,
     #                             returns_data=returns_data,
     #                             factor_name=target_column['forumla'],
@@ -138,6 +144,7 @@ def load_derivate_factor(method, task_id, ret_name, sessions=[]):
     pdb.set_trace()
     for feather_file in file_path.rglob('*.feather'):
         data = pd.read_feather(feather_file)
+        print(feather_file)
         res.append(data)
     data1 = pd.concat(res, axis=0)
     return data1
@@ -169,16 +176,18 @@ def derivate(method, task_id, ret_name):
     output_dirs = os.path.join(base_path, method, 'evaluate', str(task_id),
                                "derivative")
     image_dirs = os.path.join(output_dirs, "plot")
+    factors_dirs = os.path.join(output_dirs, "factors")
     os.makedirs(image_dirs, exist_ok=True)
     returns_data = total_data1.set_index('code',
                                          append=True)[ret_name].unstack()
-    k_split = 2
+    k_split = 4
     process_list = split_k(k_split, factor_columns)
     results = create_parellel(process_list=process_list,
                               callback=run_evaluate2,
                               total_data1=total_data1,
                               returns_data=returns_data,
-                              image_dirs=image_dirs)
+                              image_dirs=image_dirs,
+                              factors_dirs=factors_dirs)
     results = list(itertools.chain.from_iterable(results))
     results = pd.DataFrame(results)
     results.to_csv(os.path.join(output_dirs, "summary.csv"))
@@ -227,6 +236,7 @@ def basic(method, task_id, ret_name):
 
 
 def screening(method, task_id, ret_name):
+    pdb.set_trace()
     output_dirs = os.path.join(base_path, method, 'evaluate', str(task_id))
     basic_csv = pd.read_csv(os.path.join(output_dirs, "basic", "summary.csv"),
                             index_col=0)
@@ -238,13 +248,13 @@ def screening(method, task_id, ret_name):
     derivative_csv['category'] = 'derivative'
     results = pd.concat([basic_csv, derivative_csv], axis=0)
     
-    results = pd.concat([basic_csv], axis=0)
     results['abs_ic'] = np.fabs(results['ic'])
     results = results.sort_values(by=['abs_ic'], ascending=False).dropna()
     
     results = results[(results['abs_ic'] > 0.02) & (results['abs_ic'] < 0.5) &
-                      (results['turnover'] < 0.4)]
+                      (results['turnover'] < 0.5)]
     results['factor_id'] = results['name'].apply(lambda x: create_params(x))
+    pdb.set_trace()
     return results
 
 
