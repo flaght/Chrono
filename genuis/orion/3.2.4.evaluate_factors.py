@@ -236,6 +236,7 @@ def basic(method, task_id, ret_name):
 
 
 def screening(method, task_id, ret_name):
+    pdb.set_trace()
     output_dirs = os.path.join(base_path, method, 'evaluate', str(task_id))
     basic_csv = pd.read_csv(os.path.join(output_dirs, "basic", "summary.csv"),
                             index_col=0)
@@ -247,13 +248,13 @@ def screening(method, task_id, ret_name):
     derivative_csv['category'] = 'derivative'
     results = pd.concat([basic_csv, derivative_csv], axis=0)
     
-    results = pd.concat([basic_csv], axis=0)
     results['abs_ic'] = np.fabs(results['ic'])
     results = results.sort_values(by=['abs_ic'], ascending=False).dropna()
     
     results = results[(results['abs_ic'] > 0.02) & (results['abs_ic'] < 0.5) &
-                      (results['turnover'] < 0.4)]
+                      (results['turnover'] < 0.5)]
     results['factor_id'] = results['name'].apply(lambda x: create_params(x))
+    pdb.set_trace()
     return results
 
 
