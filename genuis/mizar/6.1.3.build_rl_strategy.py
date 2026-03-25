@@ -74,6 +74,27 @@ def load_data2(method, instruments, task_id, period, features, regime, ret_name)
     return test_data
 
 
+def load_data0(method, instruments, task_id, period, features, regime, ret_name, category):
+    base_dirs = os.path.join(base_path, method, instruments, 'temp',
+                             'model', str(task_id), str(period),
+                               'rl', 'data')
+    if category == 'train':
+        data = pd.read_feather(os.path.join(base_dirs, "train_data.feather"))
+    elif category == 'val':
+        data = pd.read_feather(os.path.join(base_dirs, "val_data.feather"))
+    elif category == 'test':
+        data = pd.read_feather(os.path.join(base_dirs, "test_data.feather"))
+
+    data.rename(columns={ret_name: "nxt1_ret"}, inplace=True)
+    data = data[['trade_time', 'code', 'nxt1_ret'] + features + regime]
+    data = data.sort_values('trade_time').reset_index(drop=True)
+    data = _sanitize_frame(data, ['nxt1_ret'] + features + regime)
+    if data['code'].nunique() != 1:
+        raise ValueError(f"test_data 不是单标的，检测到 {data['code'].nunique()} 个 code")
+    return data
+
+
+
 def train(method, instruments, task_id, period, env_id, trade_id, model_id, train_id, feature_id, regime_id):
     file_dirs = os.path.join(base_path, method, instruments, 'temp',
                                'model', str(task_id), str(period),
@@ -97,6 +118,9 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id, trai
     output_dir = os.path.join(base_path, method, instruments, 'temp',
                                'model', str(task_id), str(period),
                                'rl', 'result',str(name))
+    tensorboard_dir = os.path.join(base_path, method, instruments, 'temp',
+                               'model', str(task_id), str(period),
+                               'rl', "tensorboard", str(name))
     
     os.makedirs(output_dir, exist_ok=True)
     logger.configure(log_file=os.path.join(output_dir,f"model.log"))
@@ -108,17 +132,12 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id, trai
     
     
     env_config = {
-        'holding_period': int(env_params.get('holding_period', 15)),
-        'reward_scale': float(env_params.get('reward_scale', 10000.0)),
-        'reward_action_power': float(env_params.get('reward_action_power', 1.0)),
-        'reward_mode': str(env_params.get('reward_mode', 'single_horizon')),
-        'reward_normalize': bool(env_params.get('reward_normalize', False)),
-        'exposure_penalty': float(env_params.get('exposure_penalty', 0.0)),
-        'target_mode': str(env_params.get('target_mode', '')).strip().lower(),
-        'target_mix_alpha': float(env_params.get('target_mix_alpha', 0.5)),
-        'baseline_window': int(env_params.get('baseline_window',240)),
-        'target_demean': bool(env_params.get('target_demean', False)),
-        'target_demean_window': int(env_params.get('target_demean_window', 240)),
+        'holding_period': int(env_params['holding_period']),
+        'reward_scale': float(env_params['reward_scale']),
+        'exposure_penalty': float(env_params['exposure_penalty']),
+        'max_episode_steps': float(env_params['max_episode_steps']),
+        'train_scheme': env_params['train_scheme'],
+        'softmax_temperature':env_params['softmax_temperature'],
         'seed': 42
     }
     
@@ -148,6 +167,13 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id, trai
         'discrete_threshold': float(trade_params.get('discrete_threshold', 0.5)),
     }
     
+    #eval_n_episodes = int(train_params['eval_n_episodes'])
+    early_stop_patience_evals = int(train_params['early_stop_patience_evals'])
+    early_stop_min_evals = int(train_params['early_stop_min_evals'])
+    early_stop_min_delta = float(train_params['early_stop_min_delta'])
+    early_stop_start_timesteps =  int(float(train_params['early_stop_start_timesteps']))#int(model_params['learning_starts']) + int(train_params['eval_freq'])
+    
+    
     logger.info(f"  训练集: {len(train_data)} 行")
     logger.info(f"  校验集: {len(val_data)} 行")
     
@@ -170,14 +196,20 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id, trai
             sac_config=sac_config,
             signal_config=signal_config,
             output_dir=output_dir,
+            tensorboard_dir=tensorboard_dir,
             total_timesteps=train_params['total_timesteps'],
             eval_freq=train_params['eval_freq'],
             save_freq=train_params['save_freq'],
+            early_stop_patience_evals=early_stop_patience_evals,
+            early_stop_min_evals=early_stop_min_evals,
+            early_stop_min_delta=early_stop_min_delta,
+            early_stop_start_timesteps=early_stop_start_timesteps,
             verbose=1
         )
 
 
-def predict(method, instruments, task_id, period, env_id, trade_id, model_id, train_id, feature_id, regime_id):
+def predict(method, instruments, task_id, period, env_id, trade_id, 
+            model_id, train_id, feature_id, regime_id):
     file_dirs = os.path.join(base_path, method, instruments, 'temp',
                                'model', str(task_id), str(period),
                                'rl')
@@ -197,11 +229,12 @@ def predict(method, instruments, task_id, period, env_id, trade_id, model_id, tr
     total_params.update({'daily_regime': daily_regime})
     name = Params.create_tag(total_params)
 
-    test_data = load_data2(
-        method=method, instruments=instruments, period=period,
-        task_id=task_id, ret_name=trade_params['ret_name'],
-        features=selected_features, regime=min_regime
-    )
+    # test_data = load_data2(
+    #     method=method, instruments=instruments, period=period,
+    #     task_id=task_id, ret_name=trade_params['ret_name'],
+    #     features=selected_features, regime=min_regime
+    # )
+    
 
     output_dir = os.path.join(base_path, method, instruments, 'temp',
                                'model', str(task_id), str(period),
@@ -209,26 +242,72 @@ def predict(method, instruments, task_id, period, env_id, trade_id, model_id, tr
     best_model_path = os.path.join(output_dir, "models", "best_model", "best_model")
     config_path = os.path.join(output_dir, "config.json")
 
-    predict_test_set(
-        model_path=best_model_path,
-        config_path=config_path,
-        test_df=test_data,
-        output_path=os.path.join(output_dir, "metrics", "test_results.csv"),
-        deterministic=True
+    
+    
+    for category in ['train','val','test']:
+        data = load_data0(
+            method=method, instruments=instruments, period=period,
+            task_id=task_id, ret_name=trade_params['ret_name'],
+            features=selected_features, regime=min_regime, 
+            category=category
+        )
+    
+        filename = os.path.join(output_dir, "metrics", "{0}_results.csv".format(category))
+        # image_path = os.path.join(output_dir, "metrics", "{0}_results.png".format(category))
+        predict_test_set(
+            model_path=best_model_path,
+            config_path=config_path,
+            test_df=data,
+            output_path=filename,
+            deterministic=True
+        )
+        # df1 = pd.read_csv(filename)
+        # create_evaluate(df=df1, factor_name='net_er_out', return_name='future_ret_h', title_prefix=category, image_path=image_path)
+
+def evaluate(method, instruments, task_id, period, env_id, trade_id, 
+            model_id, train_id, feature_id, regime_id):
+    file_dirs = os.path.join(base_path, method, instruments, 'temp',
+                               'model', str(task_id), str(period),
+                               'rl')
+
+    env_params, trade_params, model_params, train_params, selected_features, min_regime, daily_regime = load_rl_params(
+        file_dirs=file_dirs,
+        trade_id=trade_id, model_id=model_id, feature_id=feature_id,
+        env_id=env_id, train_id=train_id, regime_id=regime_id
     )
 
-
+    total_params = copy.deepcopy(trade_params)
+    total_params.update(env_params)
+    total_params.update(model_params)
+    total_params.update(train_params)
+    total_params.update({'selected_features': selected_features})
+    total_params.update({'min_regime': min_regime})
+    total_params.update({'daily_regime': daily_regime})
+    name = Params.create_tag(total_params)
+    
+    output_dir = os.path.join(base_path, method, instruments, 'temp',
+                               'model', str(task_id), str(period),
+                               'rl', 'result', str(name))
+    for category in ['test']:
+        filename = os.path.join(output_dir, "metrics", "{0}_results.csv".format(category))
+        image_path = os.path.join(output_dir, "metrics", "{0}_results.png".format(category))
+        print(filename)
+        df1 = pd.read_csv(filename)
+        pdb.set_trace()
+        create_evaluate(df=df1, factor_name='net_er_out', return_name='future_ret_h',
+                        title_prefix=category, image_path=image_path)
+    
 if __name__ == '__main__':
-    # variant = Tactix().start()
-    # predict(method=variant.method, 
-    #       instruments=variant.instruments, 
-    #       task_id=variant.task_id, 
-    #       period=variant.period, 
-    #       env_id=variant.env_id, 
-    #       trade_id=variant.trade_id, 
-    #       model_id=variant.model_id, 
-    #       train_id=variant.train_id,
-    #       feature_id=variant.feature_id,
-    #       regime_id=variant.regime_id)
-    df1 = pd.read_csv("./records/cicso1/ims/temp/model/200037/15/rl/result/1089768936171306/metrics/test_results.csv")
-    create_evaluate(df=df1, factor_name='net_er_out', return_name='future_ret_h')
+    variant = Tactix().start()
+    evaluate(method=variant.method, 
+          instruments=variant.instruments, 
+          task_id=variant.task_id, 
+          period=variant.period, 
+          env_id=variant.env_id, 
+          trade_id=variant.trade_id, 
+          model_id=variant.model_id, 
+          train_id=variant.train_id,
+          feature_id=variant.feature_id,
+          regime_id=variant.regime_id)
+    #df1 = pd.read_csv("./records/cicso1/ims/temp/model/200037/15/rl/result/1077258471563928/metrics/train_results.csv")
+    #create_evaluate(df=df1, factor_name='net_er_out', return_name='future_ret_h')
