@@ -122,8 +122,8 @@ def run(method, instruments, task_id, period, param_id,
                 str(task_id), str(period),'research','check',
                 str(param_id))
     df_all = build(base_dir=path, file_name=file_name, dataset_type=dataset_type)
-    df_all = df_all[df_all.expression.isin(SELECTED_MAPPING['10001'])] if selected_id in SELECTED_MAPPING else df_all
     pdb.set_trace()
+    df_all = df_all[df_all.expression.isin(SELECTED_MAPPING['10001'])] if selected_id in SELECTED_MAPPING else df_all
     print('-->')
 
 

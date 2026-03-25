@@ -56,20 +56,23 @@ def pred_metrics(data:pd.DataFrame, factor_name: str, return_name: str):
 def quantile(data:pd.DataFrame, factor_name: str, return_name: str):
     data = data.copy()
     data['trade_date'] = pd.to_datetime(data['trade_time']).dt.date
+    data = data[data[factor_name] != 0].copy()
+    data["signed_ret"] = np.sign(data[factor_name]) * data[return_name] # 方向收益：模型真正交易到的收益
+    
     spread_sequence = (
         data.groupby("trade_date").apply(lambda g: g.loc[g[factor_name] >= g[factor_name].quantile(0.9), return_name].mean()
                      - g.loc[g[factor_name] <= g[factor_name].quantile(0.1), return_name].mean()))
     q_hi = float(data[factor_name].quantile(0.9))
     q_lo = float(data[factor_name].quantile(0.1))
-    high_mean = float(data.loc[data[factor_name] >= q_hi, "future_ret_h"].mean())
-    low_mean = float(data.loc[data[factor_name] <= q_lo, "future_ret_h"].mean())
+    high_mean = float(data.loc[data[factor_name] >= q_hi, "signed_ret"].mean())
+    low_mean = float(data.loc[data[factor_name] <= q_lo, "signed_ret"].mean())
     spread = high_mean - low_mean
     return spread_sequence, {'total_spread':spread, 'spread_mean':spread_sequence.mean()}
     
 def profitability(data: pd.DataFrame, factor_name:str,
                     return_name:str, cost_rate:float,
-                    max_pos: int, annual_days:int = 250):
-    holding_period = 15
+                    max_pos: int, holding_period:int = 15,
+                    annual_days:int = 250):
     hp = max(int(holding_period), 1)
     data = data.copy().set_index('trade_time')
     action_arr = data[factor_name].to_numpy(dtype=np.float64)
@@ -122,7 +125,7 @@ def profitability(data: pd.DataFrame, factor_name:str,
     
     
 
-   
+    pdb.set_trace()
     ## 换算日频
     metrics_data = pd.DataFrame(
         {
@@ -136,7 +139,6 @@ def profitability(data: pd.DataFrame, factor_name:str,
     metrics_data.index = pd.to_datetime(metrics_data.index)
     metrics_data = metrics_data.sort_index()
     
-    pdb.set_trace()
     
     daily = metrics_data.resample("1D").agg(
         {
@@ -145,6 +147,8 @@ def profitability(data: pd.DataFrame, factor_name:str,
             "net_nav": "sum",
         }
     )
+    daily['gross_nav'] = daily['gross_nav'] /15
+    daily['net_nav'] = daily['net_nav'] /15
     daily.index.name = "trade_date"
     
     daily = daily.dropna(subset=["turnover", "gross_nav", "net_nav"])
@@ -167,7 +171,7 @@ def profitability(data: pd.DataFrame, factor_name:str,
         if (len(daily) > 0 and float(daily["net_nav"].std(ddof=0)) > 1e-12)
         else 0.0
     )
-    pdb.set_trace()
+
     turnover = daily['turnover'].mean()
     win_rate = float((metrics_data["net_nav"] > 0).mean())
     profit_sum = float(metrics_data.loc[metrics_data["net_nav"] > 0, "net_nav"].sum())
@@ -190,12 +194,11 @@ def profitability(data: pd.DataFrame, factor_name:str,
     
 
 def plot_result(title_prefix, factor_name, return_name, factor_data, profit_results, profit_daily, profit_month_return, profit_week_return,
-                spread_sequence, spread_results, ic_sequence, pred_results):
+                spread_sequence, spread_results, ic_sequence, pred_results, image_path):
         plt.style.use("seaborn-v0_8-whitegrid")
-        fig, axes = plt.subplots(4, 2, figsize=(32, 24))
+        fig, axes = plt.subplots(4, 2, figsize=(16, 24))
         fig.suptitle(title_prefix, fontsize=16)
         
-        pdb.set_trace()
         # Gorss/Net 整体收益
         ax1 = axes[0,0]
         ax1.plot(profit_daily['gross_nav'].index, profit_daily['gross_nav'].cumsum().values, label="Gross NAV", color="orange", linewidth=1.8)
@@ -253,22 +256,23 @@ def plot_result(title_prefix, factor_name, return_name, factor_data, profit_resu
         metrics_text = (
             f"--- Metrics ---\n"
             f"{'Ann Return':<12}: {(profit_results.get('ann_ret', float('nan'))):<10.2f}"
-            f"{'Ann Sharpe':<12}: {(profit_results.get('sharpe', float('nan'))):<10.2f}"
+            f"{'Ann Sharpe':<12}: {(profit_results.get('sharpe', float('nan'))):<10.2f}\n"
             f"{'Calmar Ratio':<12}: {(profit_results.get('calmar', float('nan'))):<10.2f}"
             f"{'Win Rate':<12}: {(profit_results.get('win_rate', float('nan'))):<10.2f}\n"
             f"{'Profit/Loss':<12}: {(profit_results.get('profit_ratio', float('nan'))):<10.2f}"
-            f"{'Max DD':<12}: {(profit_results.get('maxdd', float('nan'))):<10.2f}"
+            f"{'Rank IC':<12}: {(pred_results.get('total_rank_ic', float('nan'))):<10.2f}\n"
+            # f"{'Max DD':<12}: {(profit_results.get('maxdd', float('nan'))):<10.2f}\n"
             f"{'Turnover':<12}: {(profit_results.get('turnover', float('nan'))):<10.2f}"
-            f"{'Total P IC':<12}: {(pred_results.get('total_person_ic', float('nan'))):<10.2f}\n"
-            f"{'Total R IC':<12}: {(pred_results.get('total_rank_ic', float('nan'))):<10.2f}"
-            f"{'Mean P IC':<12}: {(pred_results.get('person_ic_mean', float('nan'))):<10.2f}"
-            f"{'Mean R IC':<12}: {(pred_results.get('rank_ic_mean', float('nan'))):<10.2f}"
-            f"{'P ICIR':<12}: {(pred_results.get('person_icir', float('nan'))):<10.2f}\n"
-            f"{'R ICIR':<12}: {(pred_results.get('rank_icir', float('nan'))):<10.2f}"
-            f"{'AutoCorr':<12}: {(factor_data['net_er_out'].autocorr(lag=1)):<10.2f}\n"
+            f"{'Persion IC':<12}: {(pred_results.get('total_person_ic', float('nan'))):<10.2f}\n"
+            # f"{'Rank IC':<12}: {(pred_results.get('total_rank_ic', float('nan'))):<10.2f}"
+            # f"{'Mean P IC':<12}: {(pred_results.get('person_ic_mean', float('nan'))):<10.2f}\n"
+            # f"{'Mean R IC':<12}: {(pred_results.get('rank_ic_mean', float('nan'))):<10.2f}"
+            # f"{'P ICIR':<12}: {(pred_results.get('person_icir', float('nan'))):<10.2f}\n"
+            # f"{'R ICIR':<12}: {(pred_results.get('rank_icir', float('nan'))):<10.2f}"
+            # f"{'AutoCorr':<12}: {(factor_data['net_er_out'].autocorr(lag=1)):<10.2f}\n"
         )
         # 上方文本信息区：两列并排，避免与散点图重叠
-        metrics_ax = ax2.inset_axes([0.03, 0.68, 0.45, 0.28])
+        metrics_ax = ax2.inset_axes([0.03, 0.75, 0.45, 0.28])
         # prediction_ax = ax2.inset_axes([0.52, 0.68, 0.45, 0.28])
         metrics_ax.axis("off")
         # prediction_ax.axis("off")
@@ -293,7 +297,7 @@ def plot_result(title_prefix, factor_name, return_name, factor_data, profit_resu
         scatter_ax = ax2.inset_axes([0.03, 0.05, 0.94, 0.60]) # [left, bottom, width, height]
         scat_df = factor_data[[factor_name, return_name]].dropna()
         if len(scat_df) > 0:
-            max_points = 50000
+            max_points = 10000
             if len(scat_df) > max_points:
                 scat_df = scat_df.sample(max_points, random_state=42)
         scatter_x = scat_df[factor_name].values
@@ -492,18 +496,22 @@ def plot_result(title_prefix, factor_name, return_name, factor_data, profit_resu
             
         plt.tight_layout(rect=[0.0, 0.0, 1.0, 0.97])
         
-        image_path = os.path.join('./', "evaluation_plot.png")
-        fig.savefig(image_path, dpi=300)
+        fig.savefig(image_path, dpi=150, bbox_inches='tight')
         plt.close(fig)
 
     
 def create_evaluate(df: pd.DataFrame, factor_name:str,
-                    return_name:str, cost_rate:float=0.00002):
+                    return_name:str, 
+                    pnl_name:str,
+                    title_prefix: str,
+                    cost_rate:float=0.000003, 
+                    image_path:str=None):
+    pdb.set_trace()
     profit_results, profit_daily, profit_month_return, profit_week_return = profitability(data=df[['trade_time',factor_name,'current_ret']], factor_name=factor_name, return_name='current_ret', cost_rate=cost_rate, max_pos=0)
     spread_sequence, spread_results = quantile(data=df[['trade_time',factor_name,return_name]], factor_name=factor_name, return_name=return_name)
     ic_sequence, pred_results = pred_metrics(data=df[['trade_time',factor_name,return_name]], factor_name=factor_name, return_name=return_name)
     
-    plot_result(title_prefix="test1", 
+    plot_result(title_prefix=title_prefix, 
                 factor_name=factor_name,
                 return_name=return_name,
                 factor_data=df[['trade_time', factor_name, return_name]], profit_results=profit_results, 
@@ -513,5 +521,6 @@ def create_evaluate(df: pd.DataFrame, factor_name:str,
                 spread_sequence=spread_sequence, 
                 spread_results=spread_results, 
                 ic_sequence=ic_sequence, 
-                pred_results=pred_results)
+                pred_results=pred_results,
+                image_path=image_path)
     

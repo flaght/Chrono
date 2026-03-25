@@ -42,8 +42,10 @@ class SignalGenerator:
     def create_env(self, df: pd.DataFrame) -> TradingEnv:
         df = _sanitize_dataframe(df, self.features)
         
+        env_cfg = dict(self.env_config)
+        env_cfg["mode"] = "test"   
         config = {
-            "env_config": self.env_config,
+            "env_config": env_cfg,
             "signal_config": self.signal_config,
         }
         return TradingEnv(df=df, features=self.features, config=config)
@@ -84,7 +86,6 @@ class SignalGenerator:
             obs = obs_next
             if done:
                 break
-        pdb.set_trace()  
         return pd.DataFrame(results)
     
 def predict_test_set(

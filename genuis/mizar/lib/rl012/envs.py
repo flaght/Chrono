@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import gym, random
+import gym, random, pdb
 from gym import spaces
 from typing import List, Dict, Any
 
@@ -25,6 +25,7 @@ class TradingEnv(gym.Env):
         
         self.holding_period = int(self.env_config["holding_period"])
         self.reward_scale = float(self.env_config["reward_scale"])
+        self.mode = str(self.env_config["mode"]).strip().lower()
         
         
         self.last_open_step = len(self.df) - self.holding_period - 1
@@ -46,6 +47,104 @@ class TradingEnv(gym.Env):
         self.current_step = 0
         self.future_ret_h = self._build_future_horizon_returns()
         
+        
+        self.max_episode_steps = int(self.env_config["max_episode_steps"])
+        if self.max_episode_steps < 0:
+            self.max_episode_steps = 0
+            
+        
+        self.random_start_min_step = 0
+        max_valid_start = self.last_open_step
+        if self.max_episode_steps > 0:
+            max_valid_start = max(0, self.last_open_step - self.max_episode_steps + 1)
+        self.random_start_max_step = max_valid_start
+        
+        self.softmax_temperature = float(self.env_config["softmax_temperature"])
+        
+        self.train_scheme = str(self.env_config["train_scheme"]).strip().lower()
+        
+        self.train_window_starts: List[int] = []
+        self.train_window_order: List[int] = []
+        self.train_window_cursor = 0
+        
+        self.episode_end_step_exclusive = self.last_open_step + 1
+        self.seed(seed=42)
+        
+        
+        self.reset_count = 0  
+        self.debug_reset_log = True
+        self.debug_reset_log_every = 5
+        
+        
+        if self.mode == "train":
+            if self.train_scheme == "full":
+                self.train_window_starts = self._build_window_starts_full_stride()
+            elif self.train_scheme == "half":
+                self.train_window_starts = self._build_window_starts_half_stride()
+            elif self.train_scheme == "holding":
+                self.train_window_starts = self._build_window_starts_holding_stride()
+            if self.train_window_starts:
+                self._reset_train_window_order()
+                
+            if self.debug_reset_log:
+                print(
+                    "[ENV_INIT][train] scheme={0} max_episode_steps={1} windows={2} start_range=[{3},{4}]".format(
+                    self.train_scheme,
+                    self.max_episode_steps,
+                    len(self.train_window_starts),
+                    self.random_start_min_step,
+                    self.random_start_max_step)
+                )
+        
+        elif self.debug_reset_log:
+            print(
+                    "[ENV_INIT][{0}] full_eval=True start=0 end_exclusive={1} tradable_len={2}".format(
+                    self.mode,
+                    self.last_open_step + 1,
+                    self.last_open_step + 1)
+            )
+        
+    
+    def _build_window_starts_by_stride(self, stride: int) -> List[int]:
+        stride = max(1, int(stride))
+        starts = list(range(self.random_start_min_step, self.random_start_max_step + 1, stride))
+        if not starts:
+            starts = [self.random_start_min_step]
+        if starts[-1] != self.random_start_max_step:
+            starts.append(self.random_start_max_step)
+        return starts
+    
+    def _build_window_starts_full_stride(self) -> List[int]:
+        # 方案1：stride = max_episode_steps（不重叠）
+        return self._build_window_starts_by_stride(self.max_episode_steps)
+
+    def _build_window_starts_half_stride(self) -> List[int]:
+        # 方案2：stride = max_episode_steps // 2（半重叠）
+        return self._build_window_starts_by_stride(max(1, self.max_episode_steps // 2))
+
+    def _build_window_starts_holding_stride(self) -> List[int]:
+        # 方案3：stride = holding_period（按持有周期）
+        return self._build_window_starts_by_stride(max(1, self.holding_period))
+    
+    def _reset_train_window_order(self):
+        n = len(self.train_window_starts)
+        self.train_window_order = list(range(n))
+        if n > 1:
+            self.np_random.shuffle(self.train_window_order)
+        self.train_window_cursor = 0
+        
+        
+    def _next_train_window_start(self) -> int:
+        if not self.train_window_starts:
+            raise ValueError("train_window_starts 为空，无法获取下一个训练窗口起点。")
+        if self.train_window_cursor >= len(self.train_window_order):
+            self._reset_train_window_order()
+        if not self.train_window_order:
+            raise ValueError("train_window_order 为空，无法获取下一个训练窗口起点。")
+        idx = self.train_window_order[self.train_window_cursor]
+        self.train_window_cursor += 1
+        return int(self.train_window_starts[idx])
+        
     
     def seed(self, seed=None):
         self.np_random, seed = gym.utils.seeding.np_random(seed)
@@ -54,9 +153,32 @@ class TradingEnv(gym.Env):
         return [seed]
     
     def reset(self, seed=None, options=None):
+        # if seed is not None:
+        #     self.seed(seed)
+        # self.current_step = 0
+        # # self.current_step = int(self.np_random.randint(self.random_start_min_step, self.random_start_max_step + 1))
+        # self.history = []
+        # return self._get_obs()
         if seed is not None:
             self.seed(seed)
-        self.current_step = 0
+        
+        if self.mode == "train":
+            self.current_step = self._next_train_window_start()
+        else:
+            self.current_step = 0
+        
+        
+        if self.max_episode_steps > 0 and self.mode == "train":
+            self.episode_end_step_exclusive = min(
+                self.last_open_step + 1,
+                self.current_step + self.max_episode_steps
+            )
+        else:
+            #self.episode_end_step_exclusive = len(self.df) - 1
+            self.episode_end_step_exclusive = self.last_open_step + 1 # 这个更合理， 因为数据尾部 有无效奖励
+        
+        self.reset_count += 1
+        self._log_reset_window()
         self.history = []
         return self._get_obs()
     
@@ -93,20 +215,28 @@ class TradingEnv(gym.Env):
 
         # 核心：将 raw_action (3维 logits，本身被 SAC 限制在 [-1, 1] 之间) 放大
         # 放大的目的是打破 Tanh [-1, 1] 造成的数学封锁，让 Softmax 可以达到 >90% 的真正高置信度 (否则最大只能达到 78%)
-        temperature_scaled_action = raw_action * 5.0
+        temperature_scaled_action = raw_action * self.softmax_temperature
         exp_action = np.exp(temperature_scaled_action - np.max(temperature_scaled_action)) # 减最大值防止溢出
         softmax_probs = exp_action / np.sum(exp_action)
     
-        chosen_action = int(np.argmax(softmax_probs))
-        if chosen_action == 0:
+        # chosen_action = int(np.argmax(softmax_probs))
+        # if chosen_action == 0:
+        #     er_value = 0.0
+        #     confidence = float(softmax_probs[0])
+        # elif chosen_action == 1:
+        #     confidence = float(softmax_probs[1])
+        #     er_value = confidence
+        # else:
+        #     confidence = float(softmax_probs[2])
+        #     er_value = -confidence
+        
+        if float(softmax_probs[0]) > float(softmax_probs[1]) and float(softmax_probs[0]) > float(softmax_probs[2]):
             er_value = 0.0
             confidence = float(softmax_probs[0])
-        elif chosen_action == 1:
-            confidence = float(softmax_probs[1])
-            er_value = confidence
         else:
-            confidence = float(softmax_probs[2])
-            er_value = -confidence
+            er_long_short = float(softmax_probs[1]) - float(softmax_probs[2])
+            er_value = er_long_short
+            confidence = float(abs(er_value))
         
         raw_action_str = f"[{raw_action[0]:.4f},{raw_action[1]:.4f},{raw_action[2]:.4f}]"
         soft_action_str = f"[{softmax_probs[0]:.4f},{softmax_probs[1]:.4f},{softmax_probs[2]:.4f}]"
@@ -177,9 +307,48 @@ class TradingEnv(gym.Env):
             'trade_cost': 0.0 
         })
         
-        self.current_step += 1
-        done = self.current_step >= len(self.df) - 1
+        self.current_step = min(self.current_step + 1, len(self.df) - 1)
+        done = self.current_step >= self.episode_end_step_exclusive
         
         return self._get_obs(), scaled_reward, done, {}
         
         
+
+    def _log_reset_window(self):
+        if not self.debug_reset_log:
+            return
+        if self.reset_count % self.debug_reset_log_every != 0:
+            return
+
+        start_idx = int(self.current_step)
+        end_exclusive = int(self.episode_end_step_exclusive)
+        window_len = int(max(0, end_exclusive - start_idx))
+        start_time = self.df.iloc[start_idx].get("trade_time", start_idx)
+        end_label_idx = min(max(0, end_exclusive - 1), len(self.df) - 1)
+        end_time = self.df.iloc[end_label_idx].get("trade_time", end_label_idx)
+
+        if self.mode == "train":
+            print(
+                "[ENV_RESET][train] reset={0} start={1} end_exclusive={2} len={3} "
+                "cursor={4}/{5} time=[{6} ->{7}]".format(
+                self.reset_count,
+                start_idx,
+                end_exclusive,
+                window_len,
+                self.train_window_cursor,
+                len(self.train_window_order),
+                start_time,
+                end_time)
+            )
+        else:
+            print(
+                "[ENV_RESET][{0}] reset={1} full_eval=True start={2} end_exclusive={3} len={4} "
+                "time=[{5} -> {6}]".format(
+                self.mode,
+                self.reset_count,
+                start_idx,
+                end_exclusive,
+                window_len,
+                start_time,
+                end_time)
+            )
