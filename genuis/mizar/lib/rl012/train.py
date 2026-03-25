@@ -1,4 +1,4 @@
-import os, json, gym
+import os, json, gym, pdb, copy
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -45,6 +45,8 @@ class TrainingMetricsCallback(BaseCallback):
                 }
             )
         return True
+    
+    
 class EarlyStopOnNoImprovement(BaseCallback):
     """
     在评估回调长期无提升时提前停止训练，避免无效训练。
@@ -55,6 +57,7 @@ class EarlyStopOnNoImprovement(BaseCallback):
         max_no_improvement_evals: int = 6,
         min_evals: int = 6,
         min_delta: float = 0.0,
+        start_timesteps: int = 0,
         verbose: int = 1,
     ):
         super().__init__(verbose)
@@ -62,9 +65,12 @@ class EarlyStopOnNoImprovement(BaseCallback):
         self.max_no_improvement_evals = int(max_no_improvement_evals)
         self.min_evals = int(min_evals)
         self.min_delta = float(min_delta)
+        self.start_timesteps = int(start_timesteps)
         self._last_eval_count = 0
         self._best_seen = -np.inf
         self._no_improve_count = 0
+        self._monitoring_started = False
+        self._monitor_eval_count = 0
     def _get_eval_count(self) -> int:
         for attr in ("evaluations_timesteps", "evaluations_results"):
             val = getattr(self.eval_callback, attr, None)
@@ -79,17 +85,35 @@ class EarlyStopOnNoImprovement(BaseCallback):
         eval_count = self._get_eval_count()
         if eval_count <= self._last_eval_count:
             return True
+        delta_eval = int(eval_count - self._last_eval_count)
         best_reward = float(getattr(self.eval_callback, "best_mean_reward", -np.inf))
         if not np.isfinite(best_reward):
             best_reward = -np.inf
+        if not self._monitoring_started:
+            if self.num_timesteps < self.start_timesteps:
+                self._last_eval_count = eval_count
+                return True
+            self._monitoring_started = True
+            self._best_seen = best_reward
+            self._no_improve_count = 0
+            self._monitor_eval_count = 1
+            self._last_eval_count = eval_count
+            if self.verbose > 0:
+                print(
+                    "[EARLY STOP] 开始监控: "
+                    f"start_timesteps={self.start_timesteps}, "
+                    f"timestep={self.num_timesteps}, best_mean_reward={best_reward:.6f}"
+                )
+            return True
+        self._monitor_eval_count += delta_eval
         if best_reward > (self._best_seen + self.min_delta):
             self._best_seen = best_reward
             self._no_improve_count = 0
         else:
-            self._no_improve_count += int(eval_count - self._last_eval_count)
+            self._no_improve_count += delta_eval
         self._last_eval_count = eval_count
         if (
-            eval_count >= self.min_evals
+            self._monitor_eval_count >= self.min_evals
             and self._no_improve_count >= self.max_no_improvement_evals
         ):
             if self.verbose > 0:
@@ -142,6 +166,7 @@ def _sanitize_dataframe(df: pd.DataFrame, features: List[str]) -> pd.DataFrame:
 
 def create_env(
     df: pd.DataFrame,
+    mode:str,
     features: List[str],
     env_config:Dict[str, Any],
     signal_config: Optional[Any] = None
@@ -149,6 +174,8 @@ def create_env(
     if "nxt1_ret" not in df.columns:
         raise ValueError("训练/验证数据必须包含 'nxt1_ret' 列")
     df = _sanitize_dataframe(df, features)
+    env_config = dict(env_config)
+    env_config['mode'] = mode
     config = {
         "env_config": env_config,
         "signal_config": signal_config
@@ -163,6 +190,8 @@ def train_model(train_df: pd.DataFrame,
     sac_config: Dict[str, Any],
     signal_config: Optional[Any] = None,
     output_dir: str = "",
+    tensorboard_dir: str= "",
+    model_dir: str = "",
     total_timesteps: int = 100000,
     eval_freq: int = 10000,
     eval_n_episodes: int = 1,
@@ -170,19 +199,21 @@ def train_model(train_df: pd.DataFrame,
     early_stop_patience_evals: int = 6,
     early_stop_min_evals: int = 6,
     early_stop_min_delta: float = 0.0,
+    early_stop_start_timesteps: int = 0,
     enable_early_stop: bool = True,
     verbose: int = 1)-> Tuple[SAC, Dict[str, Any]]:
     if not output_dir:
         raise ValueError("output_dir 不能为空")
-    
+    pdb.set_trace()
     model_dir = os.path.join(output_dir, "models")
     log_dir = os.path.join(output_dir, "logs")
-    tensorboard_dir = os.path.join(output_dir, "tensorboard")
+    tensorboard_dir = os.path.join(output_dir, "tensorboard") if len(tensorboard_dir) == 0 else tensorboard_dir
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(tensorboard_dir, exist_ok=True)
     
     train_env = create_env(
+        mode='train',
         df=train_df,
         features=features,
         env_config=env_config,
@@ -194,6 +225,7 @@ def train_model(train_df: pd.DataFrame,
     
     
     val_env = create_env(
+        mode='val',
         df=val_df,
         features=features,
         env_config=env_config,
@@ -234,6 +266,7 @@ def train_model(train_df: pd.DataFrame,
             max_no_improvement_evals=early_stop_patience_evals,
             min_evals=early_stop_min_evals,
             min_delta=early_stop_min_delta,
+            start_timesteps=early_stop_start_timesteps,
             verbose=verbose,
         )
         callbacks.append(early_stop_callback)
@@ -260,7 +293,9 @@ def train_model(train_df: pd.DataFrame,
         print(
             "早停已启用: "
             f"patience_evals={early_stop_patience_evals}, "
-            f"min_evals={early_stop_min_evals}, min_delta={early_stop_min_delta}"
+            f"min_evals={early_stop_min_evals}, "
+            f"min_delta={early_stop_min_delta}, "
+            f"start_timesteps={early_stop_start_timesteps}"
         )
     
     model.learn(
@@ -286,6 +321,7 @@ def train_model(train_df: pd.DataFrame,
             "patience_evals": int(early_stop_patience_evals),
             "min_evals": int(early_stop_min_evals),
             "min_delta": float(early_stop_min_delta),
+            "start_timesteps": int(early_stop_start_timesteps),
         },
         "train_size": len(train_df),
         "val_size": len(val_df),
