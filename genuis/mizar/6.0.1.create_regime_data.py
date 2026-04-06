@@ -22,7 +22,10 @@ def create_regmie_data(method, instruments, task_id, period):
     total_factors['trade_time'] = pd.to_datetime(total_factors['trade_time'])
     pdb.set_trace()
     total_factors = total_factors.set_index(['trade_time','code'])
+    if 'pct_change' not in total_factors.columns:
+        total_factors['pct_change'] = np.log1p(total_factors.groupby('code')['vwap'].pct_change())
     total_data = total_factors.unstack()
+    ## 同步到
     pct = total_data['pct_change'].fillna(0)
     high = total_data['high']
     low = total_data['low']
