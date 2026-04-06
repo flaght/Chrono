@@ -1,10 +1,10 @@
 import pandas as pd
 import numpy as np
-import pdb,os
 from collections import deque
+from typing import Optional
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-
+import pdb
 
 def safe_corr(x: pd.Series, y: pd.Series, method: str = "pearson") -> float:
     mask = x.notna() & y.notna() & np.isfinite(x) & np.isfinite(y)
@@ -72,49 +72,144 @@ def quantile(data:pd.DataFrame, factor_name: str, return_name: str):
 def profitability(data: pd.DataFrame, factor_name:str,
                     return_name:str, cost_rate:float,
                     max_pos: int, holding_period:int = 15,
-                    annual_days:int = 250):
+                    annual_days:int = 250, 
+                    pnl_method:str ='raw'):
+    
     hp = max(int(holding_period), 1)
     data = data.copy().set_index('trade_time')
     action_arr = data[factor_name].to_numpy(dtype=np.float64)
     ret_arr = data[return_name].to_numpy(dtype=np.float64)
     n = len(ret_arr)
-    # 固定持有期 + 可叠加 + 净持仓限幅口径：
-    # 每条信号从 t 持有到 t+hp-1，t+hp 自动到期。
-    # max_position > 0 时按净持仓限幅；max_position == 0 时不限制。
-    pos_arr = np.zeros(n, dtype=np.float64)
-    active = deque()
-    active_net = 0.0
-    entry_count = 0
-    limit_enabled = bool(max_pos > 0.0)
-    i = 0
-    while i < n:
-        while active and active[0][0] <= i:
-            _, expired_size = active.popleft()
-            active_net -= float(expired_size)
+    pnl_method = str(pnl_method).strip().lower()
+    if pnl_method not in {"raw", "normalized", "points_norm"}:
+        raise ValueError("pnl_method must be one of {'raw', 'normalized', 'points_norm'}")
+    # use_phase_avg 与 pnl_method 解耦，避免“口径选择”改变“持仓聚合机制”。
+    # 当前固定规则：holding_period>1 时启用 phase_avg。
+    use_phase_avg = hp > 1
+    
+    
+    def _run_sim(entry_mask: Optional[np.ndarray]):
+        # 固定持有期 + 可叠加 + 净持仓限幅口径：
+        # 每条信号从 t 持有到 t+hp-1，t+hp 自动到期。
+        # max_position > 0 时按净持仓限幅；max_position == 0 时不限制。
+        pos_arr = np.zeros(n, dtype=np.float64)
+        active = deque()
+        active_net = 0.0
+        limit_enabled = bool(max_pos > 0.0)
+        i = 0
+        while i < n:
+            while active and active[0][0] <= i:
+                _, expired_size = active.popleft()
+                active_net -= float(expired_size)
 
-        sig = float(action_arr[i]) if np.isfinite(action_arr[i]) else 0.0
-        if sig != 0.0:
-            if limit_enabled:
-                target_net = float(np.clip(active_net + sig, -max_pos, max_pos))
-                add_size = target_net - active_net
-            else:
-                add_size = sig
+            allow_entry = True if entry_mask is None else bool(entry_mask[i])
+            sig = float(action_arr[i]) if np.isfinite(action_arr[i]) else 0.0
+            if allow_entry and sig != 0.0:
+                if limit_enabled:
+                    target_net = float(np.clip(active_net + sig, -max_pos, max_pos))
+                    add_size = target_net - active_net
+                else:
+                    add_size = sig
             
-            if add_size != 0.0:
-                active.append((i + hp, float(add_size)))
-                active_net += float(add_size)
-                entry_count += 1
-        pos_arr[i] = active_net
-        i += 1
+                if add_size != 0.0:
+                    active.append((i + hp, float(add_size)))
+                    active_net += float(add_size)
+            pos_arr[i] = active_net
+            i += 1
+        
+        turnover_arr = np.abs(pos_arr - np.r_[0.0, pos_arr[:-1]])
+        gross_ret_arr = pos_arr * ret_arr
+        # fee_cost_arr = float(cost_rate) * turnover_arr
+        # net_ret_arr = gross_ret_arr - fee_cost_arr
+    
+        if pnl_method == 'normalized':
+            # normalized + phase_avg 下不再额外除 hp，避免双重缩放
+            norm_scale = 1.0 if use_phase_avg else float(hp)
+            p_gross = gross_ret_arr / norm_scale
+            p_fee = float(cost_rate) * (turnover_arr / norm_scale)
+        else:
+            p_gross = gross_ret_arr
+            p_fee = float(cost_rate) * turnover_arr
+        
+        p_net = p_gross - p_fee
+        return pos_arr, turnover_arr, p_gross, p_net
+
+    def _run_points_norm():
+        # 点数归一化口径（名义资金）：
+        # 逐笔在到期时确认盈亏，并用 N_pairs(=holding_period) 做归一化。
+        # 这里 return_name 直接使用外部已计算好的“入场时对应持有期收益”。
+        pos_arr = np.zeros(n, dtype=np.float64)
+        realized_arr = np.zeros(n, dtype=np.float64)
+        active = deque()  # (exit_idx, size, trade_ret)
+        active_net = 0.0
+        limit_enabled = bool(max_pos > 0.0)
+
+        i = 0
+        while i < n:
+            while active and active[0][0] <= i:
+                _, expired_size, trade_ret = active.popleft()
+                active_net -= float(expired_size)
+                if np.isfinite(trade_ret):
+                    realized_arr[i] += float(expired_size) * float(trade_ret)
+
+            sig = float(action_arr[i]) if np.isfinite(action_arr[i]) else 0.0
+            if sig != 0.0:
+                if limit_enabled:
+                    target_net = float(np.clip(active_net + sig, -max_pos, max_pos))
+                    add_size = target_net - active_net
+                else:
+                    add_size = sig
+
+                if add_size != 0.0:
+                    trade_ret = float(ret_arr[i]) if np.isfinite(ret_arr[i]) else 0.0
+                    active.append((i + hp, float(add_size), trade_ret))
+                    active_net += float(add_size)
+
+            pos_arr[i] = active_net
+            i += 1
+
+        turnover_arr = np.abs(pos_arr - np.r_[0.0, pos_arr[:-1]])
+        n_pairs = float(max(hp, 1))
+        p_gross = realized_arr / n_pairs
+        p_fee = float(cost_rate) * (turnover_arr / n_pairs)
+        p_net = p_gross - p_fee
+        return pos_arr, turnover_arr, p_gross, p_net
+            
+    use_phase_avg_effective = bool(use_phase_avg and pnl_method != "points_norm")
+    print("pnl_method:{0},use_phase_avg:{1}".format(pnl_method, use_phase_avg_effective))
+    if pnl_method == "points_norm":
+        pos_arr, turnover_arr, gross_ret_arr, net_ret_arr = _run_points_norm()
+    elif use_phase_avg_effective:
+        # phase_avg:
+        # 将 t % hp 的 hp 个相位子策略分别模拟，再对收益/仓位取均值。
+        # 相比“直接除以 hp”，这是更稳的重叠持仓近似。
+        # 但它本质仍是资金切片近似，不等同逐笔成交回测。
+        phase_pos = []
+        phase_turnover = []
+        phase_gross = []
+        phase_net = []
+        idx_arr = np.arange(n, dtype=np.int64)
+        for phase in range(hp):
+            mask = (idx_arr % hp) == phase
+            p_pos, p_turnover, p_gross, p_net = _run_sim(entry_mask=mask)
+            phase_pos.append(p_pos)
+            phase_turnover.append(p_turnover)
+            phase_gross.append(p_gross)
+            phase_net.append(p_net)
+        pos_arr = np.mean(np.vstack(phase_pos), axis=0)
+        turnover_arr = np.mean(np.vstack(phase_turnover), axis=0)
+        gross_ret_arr = np.mean(np.vstack(phase_gross), axis=0)
+        net_ret_arr = np.mean(np.vstack(phase_net), axis=0)
+    else:
+        pos_arr, turnover_arr, gross_ret_arr, net_ret_arr = _run_sim(entry_mask=None)
+    
+    
     
     data.index = pd.to_datetime(data.index)
     pos = pd.Series(pos_arr, index=data.index, dtype=np.float64)
-    ret = pd.Series(ret_arr, index=data.index, dtype=np.float64)
-    turnover = (pos - pos.shift(1).fillna(0.0)).abs()
-    
-    gross_ret = pos * ret
-    fee_cost = float(cost_rate) * turnover
-    net_nav = gross_ret - fee_cost
+    turnover = pd.Series(turnover_arr, index=data.index, dtype=np.float64)
+    gross_ret = pd.Series(gross_ret_arr, index=data.index, dtype=np.float64)
+    net_nav = pd.Series(net_ret_arr, index=data.index, dtype=np.float64)
     nav = np.exp(net_nav.cumsum())
     net_simple = np.expm1(net_nav)
     win_rate_seq = net_simple.resample("1D").apply(lambda s: (s > 0).mean() if len(s) > 0 else np.nan)
@@ -122,10 +217,6 @@ def profitability(data: pd.DataFrame, factor_name:str,
         lambda s: (s[s > 0].sum() / abs(s[s < 0].sum())if abs(s[s < 0].sum()) > 1e-12 else np.nan))
     
     
-    
-    
-
-    pdb.set_trace()
     ## 换算日频
     metrics_data = pd.DataFrame(
         {
@@ -147,8 +238,8 @@ def profitability(data: pd.DataFrame, factor_name:str,
             "net_nav": "sum",
         }
     )
-    daily['gross_nav'] = daily['gross_nav'] /15
-    daily['net_nav'] = daily['net_nav'] /15
+    # daily['gross_nav'] = daily['gross_nav'] /holding_period
+    # daily['net_nav'] = daily['net_nav'] /holding_period
     daily.index.name = "trade_date"
     
     daily = daily.dropna(subset=["turnover", "gross_nav", "net_nav"])
@@ -499,17 +590,37 @@ def plot_result(title_prefix, factor_name, return_name, factor_data, profit_resu
         fig.savefig(image_path, dpi=150, bbox_inches='tight')
         plt.close(fig)
 
-    
+
 def create_evaluate(df: pd.DataFrame, factor_name:str,
-                    return_name:str, 
-                    pnl_name:str,
-                    title_prefix: str,
-                    cost_rate:float=0.000003, 
+                    return_name:str = "future_ret_h",
+                    pnl_return_name:str = "current_ret",
+                    holding_period:int = 15,
+                    pnl_method:str = "raw",
+                    title_prefix: str = "",
+                    cost_rate:float=0.000023,
                     image_path:str=None):
-    pdb.set_trace()
-    profit_results, profit_daily, profit_month_return, profit_week_return = profitability(data=df[['trade_time',factor_name,'current_ret']], factor_name=factor_name, return_name='current_ret', cost_rate=cost_rate, max_pos=0)
-    spread_sequence, spread_results = quantile(data=df[['trade_time',factor_name,return_name]], factor_name=factor_name, return_name=return_name)
-    ic_sequence, pred_results = pred_metrics(data=df[['trade_time',factor_name,return_name]], factor_name=factor_name, return_name=return_name)
+    pnl_method = str(pnl_method).strip().lower()
+    pnl_ret_col = return_name if pnl_method == "points_norm" else pnl_return_name
+
+    profit_results, profit_daily, profit_month_return, profit_week_return = profitability(
+        data=df[['trade_time', factor_name, pnl_ret_col]],
+        factor_name=factor_name,
+        return_name=pnl_ret_col,
+        cost_rate=cost_rate,
+        max_pos=0,
+        holding_period=holding_period,
+        pnl_method=pnl_method,
+    )
+    spread_sequence, spread_results = quantile(
+        data=df[['trade_time', factor_name, return_name]],
+        factor_name=factor_name,
+        return_name=return_name,
+    )
+    ic_sequence, pred_results = pred_metrics(
+        data=df[['trade_time', factor_name, return_name]],
+        factor_name=factor_name,
+        return_name=return_name,
+    )
     
     plot_result(title_prefix=title_prefix, 
                 factor_name=factor_name,

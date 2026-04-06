@@ -130,7 +130,7 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id, trai
                                       task_id=task_id, ret_name=trade_params['ret_name'],
                                       features=selected_features, regime=min_regime)
     
-    
+    pdb.set_trace()
     env_config = {
         'holding_period': int(env_params['holding_period']),
         'reward_scale': float(env_params['reward_scale']),
@@ -288,14 +288,14 @@ def evaluate(method, instruments, task_id, period, env_id, trade_id,
     output_dir = os.path.join(base_path, method, instruments, 'temp',
                                'model', str(task_id), str(period),
                                'rl', 'result', str(name))
-    for category in ['test']:
+    pnl_method = 'points_norm'
+    for category in ['train','val','test']:
         filename = os.path.join(output_dir, "metrics", "{0}_results.csv".format(category))
-        image_path = os.path.join(output_dir, "metrics", "{0}_results.png".format(category))
+        image_path = os.path.join(output_dir, "metrics", "{0}_results_{1}.png".format(category, pnl_method))
         print(filename)
         df1 = pd.read_csv(filename)
-        pdb.set_trace()
         create_evaluate(df=df1, factor_name='net_er_out', return_name='future_ret_h',
-                        title_prefix=category, image_path=image_path)
+                        title_prefix=category, image_path=image_path,pnl_method=pnl_method)
     
 if __name__ == '__main__':
     variant = Tactix().start()
