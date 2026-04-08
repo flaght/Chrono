@@ -134,7 +134,9 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id, trai
     env_config = {
         'holding_period': int(env_params['holding_period']),
         'reward_scale': float(env_params['reward_scale']),
-        'exposure_penalty': float(env_params['exposure_penalty']),
+        'action_change_penalty': float(env_params['action_change_penalty']),
+        'action_change_deadzone': float(env_params['action_change_deadzone']),
+        'min_open_signal_abs': float(env_params['min_open_signal_abs']),
         'max_episode_steps': float(env_params['max_episode_steps']),
         'train_scheme': env_params['train_scheme'],
         'softmax_temperature':env_params['softmax_temperature'],
@@ -163,8 +165,7 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id, trai
     signal_config = {
         # RL011：action 默认直接作为连续 ER 使用
         # 若要离散化可在参数里提供 discrete_mode/discrete_threshold
-        'discrete_mode': bool(trade_params.get('discrete_mode', False)),
-        'discrete_threshold': float(trade_params.get('discrete_threshold', 0.5)),
+        'min_open_signal_abs': float(env_params['min_open_signal_abs'])
     }
     
     #eval_n_episodes = int(train_params['eval_n_episodes'])
@@ -244,7 +245,7 @@ def predict(method, instruments, task_id, period, env_id, trade_id,
 
     
     
-    for category in ['train','val','test']:
+    for category in ['val','test']:
         data = load_data0(
             method=method, instruments=instruments, period=period,
             task_id=task_id, ret_name=trade_params['ret_name'],
@@ -289,17 +290,51 @@ def evaluate(method, instruments, task_id, period, env_id, trade_id,
                                'model', str(task_id), str(period),
                                'rl', 'result', str(name))
     pnl_method = 'points_norm'
-    for category in ['train','val','test']:
+    for category in ['val','test']:
         filename = os.path.join(output_dir, "metrics", "{0}_results.csv".format(category))
         image_path = os.path.join(output_dir, "metrics", "{0}_results_{1}.png".format(category, pnl_method))
         print(filename)
+        print(image_path)
         df1 = pd.read_csv(filename)
+        # abs_er = pd.read_csv(filename)["er_value"].abs() 
+        # base_open = (abs_er > 0).mean()  # baseline 开仓率（等价 er!=0）
+
+        # for thr in [0.003, 0.005, 0.01, 0.02]:
+        #     open_thr = ((abs_er >= thr) & (abs_er > 0)).mean()
+        #     print(thr, open_thr, "drop_vs_base=", base_open - open_thr)
+        
+        
+        pdb.set_trace()
         create_evaluate(df=df1, factor_name='net_er_out', return_name='future_ret_h',
-                        title_prefix=category, image_path=image_path,pnl_method=pnl_method)
+                        title_prefix=category, image_path=image_path,pnl_method=pnl_method,
+                        cost_rate=COST_MAPPING[INSTRUMENTS_CODES[instruments]])
     
 if __name__ == '__main__':
     variant = Tactix().start()
-    evaluate(method=variant.method, 
+    if variant.form == "train":
+        train(method=variant.method, 
+          instruments=variant.instruments, 
+          task_id=variant.task_id, 
+          period=variant.period, 
+          env_id=variant.env_id, 
+          trade_id=variant.trade_id, 
+          model_id=variant.model_id, 
+          train_id=variant.train_id,
+          feature_id=variant.feature_id,
+          regime_id=variant.regime_id)
+    elif variant.form == "predict":
+        predict(method=variant.method, 
+          instruments=variant.instruments, 
+          task_id=variant.task_id, 
+          period=variant.period, 
+          env_id=variant.env_id, 
+          trade_id=variant.trade_id, 
+          model_id=variant.model_id, 
+          train_id=variant.train_id,
+          feature_id=variant.feature_id,
+          regime_id=variant.regime_id)
+    elif variant.form == "eval":
+        evaluate(method=variant.method, 
           instruments=variant.instruments, 
           task_id=variant.task_id, 
           period=variant.period, 

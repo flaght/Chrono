@@ -86,6 +86,7 @@ class SignalGenerator:
             obs = obs_next
             if done:
                 break
+        pdb.set_trace()
         return pd.DataFrame(results)
     
 def predict_test_set(

@@ -25,6 +25,12 @@ class TradingEnv(gym.Env):
         
         self.holding_period = int(self.env_config["holding_period"])
         self.reward_scale = float(self.env_config["reward_scale"])
+        self.action_change_penalty = float(self.env_config.get("action_change_penalty", 0.0))
+        self.action_change_deadzone = float(self.env_config.get("action_change_deadzone", 0.0))
+        if self.action_change_deadzone < 0.0:
+            self.action_change_deadzone = 0.0
+        
+        self.min_open_signal_abs = max(0.0, float(self.signal_config.get("min_open_signal_abs", 0.0)))
         self.mode = str(self.env_config["mode"]).strip().lower()
         
         
@@ -46,6 +52,9 @@ class TradingEnv(gym.Env):
         
         self.current_step = 0
         self.future_ret_h = self._build_future_horizon_returns()
+        
+        self.prev_net_er_out = 0.0
+        self.history = []
         
         
         self.max_episode_steps = int(self.env_config["max_episode_steps"])
@@ -180,6 +189,7 @@ class TradingEnv(gym.Env):
         self.reset_count += 1
         self._log_reset_window()
         self.history = []
+        self.prev_net_er_out = 0.0
         return self._get_obs()
     
     
@@ -230,6 +240,7 @@ class TradingEnv(gym.Env):
         #     confidence = float(softmax_probs[2])
         #     er_value = -confidence
         
+        ## er_value 为 多空之差，单方越强。
         if float(softmax_probs[0]) > float(softmax_probs[1]) and float(softmax_probs[0]) > float(softmax_probs[2]):
             er_value = 0.0
             confidence = float(softmax_probs[0])
@@ -242,7 +253,8 @@ class TradingEnv(gym.Env):
         soft_action_str = f"[{softmax_probs[0]:.4f},{softmax_probs[1]:.4f},{softmax_probs[2]:.4f}]"
         
         can_open = self.current_step <= self.last_open_step
-        opened = can_open and er_value != 0
+        opened = can_open and (abs(float(er_value)) >= self.min_open_signal_abs) and (er_value != 0) ## 多空必须差很多，才能开仓
+        # opened = can_open and er_value != 0
         
         net_er_out = er_value if opened else 0.0
         active_count = 1 if opened else 0
@@ -255,30 +267,26 @@ class TradingEnv(gym.Env):
         
         target_ret_raw = future_ret_h if np.isfinite(future_ret_h) else 0.0
         target_ret = target_ret_raw
-        # baseline_ret = (
-        #     float(self.future_ret_h_baseline[self.current_step])
-        #     if (self.future_ret_h_baseline is not None and can_open)
-        #     else 0.0
-        # )
-        # target_ret_excess = target_ret_raw - baseline_ret
-        
-        # if self.target_mode == "raw":
-        #     target_ret = target_ret_raw
-        # elif self.target_mode == "excess":
-        #     target_ret = target_ret_excess
-        # else:
-        #     target_ret = (
-        #         self.target_mix_alpha * target_ret_raw
-        #         + (1.0 - self.target_mix_alpha) * target_ret_excess
-        #     ) 
+
         
         step_reward = net_er_out * target_ret
         
-        # if self.exposure_penalty > 0:
-        #     step_reward -= self.exposure_penalty * (reward_net_er ** 2)
         if not np.isfinite(step_reward):
             step_reward = 0.0
+        
+        ## 诱导模型只对方向开仓抑制，从而降低换手率
+        if self.action_change_penalty > 0:
+            prev_sign = 1 if self.prev_net_er_out > 0 else (-1 if self.prev_net_er_out < 0 else 0)
+            curr_sign = 1 if net_er_out > 0 else (-1 if net_er_out < 0 else 0)
+            is_flip = (prev_sign != 0) and (curr_sign != 0) and (prev_sign != curr_sign)
+            delta = float(abs(net_er_out - self.prev_net_er_out))
+            delta_excess = max(0.0, delta - self.action_change_deadzone)
+            if is_flip and delta_excess > 0.0:
+                step_reward -= self.action_change_penalty * delta_excess
+        
+            
         scaled_reward = step_reward * self.reward_scale
+        self.prev_net_er_out = float(net_er_out)
         
         
         trade_time = self.df.iloc[self.current_step].get('trade_time', self.current_step)
