@@ -176,7 +176,7 @@ def profitability(data: pd.DataFrame, factor_name:str,
         return pos_arr, turnover_arr, p_gross, p_net
             
     use_phase_avg_effective = bool(use_phase_avg and pnl_method != "points_norm")
-    print("pnl_method:{0},use_phase_avg:{1}".format(pnl_method, use_phase_avg_effective))
+    #print("pnl_method:{0},use_phase_avg:{1}".format(pnl_method, use_phase_avg_effective))
     if pnl_method == "points_norm":
         pos_arr, turnover_arr, gross_ret_arr, net_ret_arr = _run_points_norm()
     elif use_phase_avg_effective:
