@@ -1,4 +1,4 @@
-### 生成单品种绩效图
+### 过滤掉已经选中的因子生成绩效图
 import pandas as pd
 import numpy as np
 import pdb, argparse
