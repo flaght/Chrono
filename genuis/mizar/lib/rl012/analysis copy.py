@@ -81,14 +81,14 @@ def profitability(data: pd.DataFrame, factor_name:str,
     ret_arr = data[return_name].to_numpy(dtype=np.float64)
     n = len(ret_arr)
     pnl_method = str(pnl_method).strip().lower()
-    if pnl_method not in {"raw", "normalized", "points_norm"}:
-        raise ValueError("pnl_method must be one of {'raw', 'normalized', 'points_norm'}")
+    if pnl_method not in {"raw", "normalized"}:
+        raise ValueError("pnl_method must be one of {'raw', 'normalized'}")
     # use_phase_avg 与 pnl_method 解耦，避免“口径选择”改变“持仓聚合机制”。
     # 当前固定规则：holding_period>1 时启用 phase_avg。
     use_phase_avg = hp > 1
     
     
-    def _run_sim(entry_mask: Optional[np.ndarray]):
+    def _run_sim(entry_mask: Optional[np.ndarray]):   
         # 固定持有期 + 可叠加 + 净持仓限幅口径：
         # 每条信号从 t 持有到 t+hp-1，t+hp 自动到期。
         # max_position > 0 时按净持仓限幅；max_position == 0 时不限制。
@@ -119,7 +119,7 @@ def profitability(data: pd.DataFrame, factor_name:str,
         
         turnover_arr = np.abs(pos_arr - np.r_[0.0, pos_arr[:-1]])
         gross_ret_arr = pos_arr * ret_arr
-        # fee_cost_arr = float(cost_rate) * turnover_arr
+        fee_cost_arr = float(cost_rate) * turnover_arr
         # net_ret_arr = gross_ret_arr - fee_cost_arr
     
         if pnl_method == 'normalized':
@@ -133,54 +133,9 @@ def profitability(data: pd.DataFrame, factor_name:str,
         
         p_net = p_gross - p_fee
         return pos_arr, turnover_arr, p_gross, p_net
-
-    def _run_points_norm():
-        # 点数归一化口径（名义资金）：
-        # 逐笔在到期时确认盈亏，并用 N_pairs(=holding_period) 做归一化。
-        # 这里 return_name 直接使用外部已计算好的“入场时对应持有期收益”。
-        pos_arr = np.zeros(n, dtype=np.float64)
-        realized_arr = np.zeros(n, dtype=np.float64)
-        active = deque()  # (exit_idx, size, trade_ret)
-        active_net = 0.0
-        limit_enabled = bool(max_pos > 0.0)
-
-        i = 0
-        while i < n:
-            while active and active[0][0] <= i:
-                _, expired_size, trade_ret = active.popleft()
-                active_net -= float(expired_size)
-                if np.isfinite(trade_ret):
-                    realized_arr[i] += float(expired_size) * float(trade_ret)
-
-            sig = float(action_arr[i]) if np.isfinite(action_arr[i]) else 0.0
-            if sig != 0.0:
-                if limit_enabled:
-                    target_net = float(np.clip(active_net + sig, -max_pos, max_pos))
-                    add_size = target_net - active_net
-                else:
-                    add_size = sig
-
-                if add_size != 0.0:
-                    trade_ret = float(ret_arr[i]) if np.isfinite(ret_arr[i]) else 0.0
-                    active.append((i + hp, float(add_size), trade_ret))
-                    active_net += float(add_size)
-
-            pos_arr[i] = active_net
-            i += 1
-
-        turnover_arr = np.abs(pos_arr - np.r_[0.0, pos_arr[:-1]]) * 0.5
-        pdb.set_trace()
-        n_pairs = float(max(hp, 1))
-        p_gross = realized_arr / n_pairs
-        p_fee = float(cost_rate) * (turnover_arr / n_pairs)
-        p_net = p_gross - p_fee
-        return pos_arr, turnover_arr, p_gross, p_net
             
-    use_phase_avg_effective = bool(use_phase_avg and pnl_method != "points_norm")
-    #print("pnl_method:{0},use_phase_avg:{1}".format(pnl_method, use_phase_avg_effective))
-    if pnl_method == "points_norm":
-        pos_arr, turnover_arr, gross_ret_arr, net_ret_arr = _run_points_norm()
-    elif use_phase_avg_effective:
+    print("pnl_method:{0},use_phase_avg:{1}".format(pnl_method, use_phase_avg))
+    if use_phase_avg:
         # phase_avg:
         # 将 t % hp 的 hp 个相位子策略分别模拟，再对收益/仓位取均值。
         # 相比“直接除以 hp”，这是更稳的重叠持仓近似。
@@ -600,13 +555,10 @@ def create_evaluate(df: pd.DataFrame, factor_name:str,
                     title_prefix: str = "",
                     cost_rate:float=0.000023,
                     image_path:str=None):
-    pnl_method = str(pnl_method).strip().lower()
-    pnl_ret_col = return_name if pnl_method == "points_norm" else pnl_return_name
-
     profit_results, profit_daily, profit_month_return, profit_week_return = profitability(
-        data=df[['trade_time', factor_name, pnl_ret_col]],
+        data=df[['trade_time', factor_name, pnl_return_name]],
         factor_name=factor_name,
-        return_name=pnl_ret_col,
+        return_name=pnl_return_name,
         cost_rate=cost_rate,
         max_pos=0,
         holding_period=holding_period,

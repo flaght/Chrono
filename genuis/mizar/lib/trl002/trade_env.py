@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import gym
 from gym import spaces
 
-from lib.rl002.signal import Config, calculate_turnover, action_to_weights, calculate_transaction_cost, calculate_portfolio_return
+from lib.trl002.signal import Config, calculate_turnover, action_to_weights, calculate_transaction_cost, calculate_portfolio_return
 
 
 class TradingEnv:

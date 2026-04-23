@@ -53,10 +53,6 @@ class TradingEnv(gym.Env):
         self.current_step = 0
         self.future_ret_h = self._build_future_horizon_returns()
         
-        
-        valid_future = self.future_ret_h[np.isfinite(self.future_ret_h)]
-        self._ret_scale = float(np.std(valid_future)) + 1e-8
-
         self.prev_net_er_out = 0.0
         self.history = []
         
@@ -270,8 +266,7 @@ class TradingEnv(gym.Env):
         
         
         target_ret_raw = future_ret_h if np.isfinite(future_ret_h) else 0.0
-        # target_ret = target_ret_raw
-        target_ret = target_ret_raw / self._ret_scale
+        target_ret = target_ret_raw
 
         
         step_reward = net_er_out * target_ret

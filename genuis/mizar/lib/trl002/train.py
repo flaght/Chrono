@@ -8,8 +8,8 @@ from kichaos.stable3.sac import SAC
 from kichaos.stable3.common.callbacks import BaseCallback, EvalCallback, CheckpointCallback
 from kichaos.stable3.common.monitor import Monitor
 
-from lib.rl002.signal import Config
-from lib.rl002.trade_env import TradingEnv
+from lib.trl002.signal import Config
+from lib.trl002.trade_env import TradingEnv
 
 class TrainingMetricsCallback(BaseCallback):
     """训练指标回调"""

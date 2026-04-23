@@ -9,7 +9,7 @@ from kichaos.stable3.common.monitor import Monitor
 from kichaos.stable3.common.callbacks import BaseCallback, EvalCallback, CheckpointCallback
 
 from lib.rl001.signal import Config
-from lib.rl001.trade_env import TradingEnv
+from lib.trl001.trade_env import TradingEnv
 
 
 class ResetFixWrapper(gym.Wrapper):
@@ -199,7 +199,7 @@ def train_model(
     
     # 保存训练指标
     if metrics_callback.training_metrics:
-        metrics_path = os.path.join(log_dir, 'training_metrics.json')
+        metrics_path = os.path.join(output_dir, 'training_metrics.json')
         with open(metrics_path, 'w', encoding='utf-8') as f:
             json.dump(metrics_callback.training_metrics, f, indent=2)
         print(f"训练指标已保存到: {metrics_path}")

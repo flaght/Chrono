@@ -5,8 +5,8 @@ from typing import Dict, List, Optional, Any, Tuple
 
 from kichaos.stable3.sac import SAC
 
-from lib.rl001.signal import Config
-from lib.rl001.trade_env import TradingEnv
+from lib.trl001.signal import Config
+from lib.trl001.trade_env import TradingEnv
 
 
 class TradingSignalGenerator:

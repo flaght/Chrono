@@ -246,7 +246,7 @@ class PositionManager(object):
             self.short_positions = 0
             self.net_position = 0
             
-            
+  
 class TradingEnv:
     """
     支持 SAC 的交易环境
@@ -284,11 +284,12 @@ class TradingEnv:
         self.max_allowed_position = max_allowed_position
         self.use_cooldown = use_cooldown
         self.cooldown_steps = cooldown_steps if use_cooldown else 0
-        self.include_market_features = include_market_features
+        self.include_market_features = True#include_market_features
         self.volatility_window = volatility_window
         self.volume_window = volume_window
         self.masking_threshold_multiplier = masking_threshold_multiplier
         self.episode_len = episode_len
+        pdb.set_trace()
 
 
         self.reward_scale = reward_scale
@@ -392,7 +393,7 @@ class TradingEnv:
         if not self.include_market_features:
             return np.array([])
         row = self.df.iloc[time_index]
-
+        pdb.set_trace()
         if 'volatility' in self.df.columns:
             vol = row['volatility']
             vol_min = self.df['volatility'].min()
