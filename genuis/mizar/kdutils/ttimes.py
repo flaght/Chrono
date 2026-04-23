@@ -11,5 +11,7 @@ def get_dates(method):
         return '2022-07-25', '2025-03-13'
     elif method == 'cicso1':
         return '2020-01-02', '2025-08-29'
+    elif method == 'cicso2':
+        return '2020-01-01', '2026-01-01'
     elif method == 'dicso2':
         return '2011-01-01', '2025-09-17'

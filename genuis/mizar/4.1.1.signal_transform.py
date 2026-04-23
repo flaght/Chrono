@@ -1,3 +1,5 @@
+### 规则信号寻优
+
 import os,json,pdb,copy
 import pandas as pd
 from joblib import Parallel, delayed

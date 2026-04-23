@@ -162,15 +162,24 @@ class FactorEvaluate1(object):
 
         self.resample_data['nav'] = (1 + self.resample_data['net_ret']).cumprod(
         )  #  计算净值曲线（Net Asset Value）。这是 (1 + 净收益) 的累积乘积，代表了投资组合的模拟价值随时间的变化。
+        
+        ## 1. 计算回测跨越的年数
+        delta_days = (self.resample_data.index[-1] - self.resample_data.index[0]).days
+        years = delta_days / 365
+        if years <= 0: years = 1e-6 # 防止除零
+        
         # -------- 基础统计 --------
         total_ret = self.resample_data['nav'].iloc[-1] - 1  # 累计收益 整个回测期间的累计收益。
 
         avg_ret = self.resample_data['net_ret'].mean()  # 平均每次交易收益
+        
+        ann_ret = (1 + total_ret) ** (1 / years) - 1 # 计算年化
+        
 
         max_dd = (self.resample_data['nav'] / self.resample_data['nav'].cummax() -
                   1).min()  # 找到历史最高净值，然后计算当前净值相对历史最高点的最大下跌百分比。
 
-        calmar = total_ret / abs(max_dd) if max_dd != 0 else np.nan  # 卡玛比率
+        calmar = ann_ret / abs(max_dd) if max_dd != 0 else np.nan  # 卡玛比率
 
         ## 换算日收益率 算夏普
         daily_net_ret = self.resample_data['net_ret'].resample('1D').agg(
@@ -555,7 +564,7 @@ class FactorEvaluate1(object):
             )
 
         # 直接使用 base_output_dir，不创建子目录
-        output_dir = base_output_dir
+        output_dir = os.path.join(base_output_dir,str(self.name))
         os.makedirs(output_dir, exist_ok=True)
         print(f"Saving results to: {output_dir}")
 
@@ -585,6 +594,11 @@ class FactorEvaluate1(object):
 
         # 3. 保存图表
         image_path = os.path.join(output_dir, "evaluation_plot.png")
-        self.figure.savefig(image_path, dpi=300)
+        self.figure.savefig(image_path, dpi=150)
+        
+        ##单独保存
+        image_path1 = os.path.join(base_output_dir, "plot")
+        os.makedirs(image_path1, exist_ok=True)
+        self.figure.savefig(os.path.join(image_path1, "{0}.png".format(self.name)), dpi=150)
         plt.close(self.figure)
         print(f"Evaluation plot saved to: {image_path}")

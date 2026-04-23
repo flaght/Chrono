@@ -1,4 +1,4 @@
-### 生成对比图
+### 生成双品种绩效对比图
 import pandas as pd
 import numpy as np
 import pdb, argparse

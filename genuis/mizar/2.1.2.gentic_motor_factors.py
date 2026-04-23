@@ -1,3 +1,4 @@
+##寻优算法 挖掘因子
 import pandas as pd
 import numpy as np
 import pdb, argparse, random
@@ -25,6 +26,7 @@ from lib.cux001 import *
 
 
 class Warehouse(object):
+
     def __init__(self):
         ##预计算好精选因子库的收益率值
         self.factors = [
@@ -34,26 +36,32 @@ class Warehouse(object):
         ]
         self.evaluate_results = []
 
-    
     ## 计算绩效 保留收益率
-    def calculate_evaluate(self, total_data, horizon, indexs=['trade_time'], key='code'):
+    def calculate_evaluate(self,
+                           total_data,
+                           horizon,
+                           indexs=['trade_time'],
+                           key='code'):
         for factor in self.factors:
             factor_data = calc_factor(factor, total_data, indexs, key)
             factor_data = factor_data.reset_index().merge(
-                total_data.reset_index()[['trade_time','code','nxt1_ret']], 
+                total_data.reset_index()[['trade_time', 'code', 'nxt1_ret']],
                 on=['trade_time', 'code'])
             evaluate1 = FactorEvaluate1(factor_data=factor_data,
-                                factor_name='transformed',
-                                ret_name='nxt1_ret',
-                                roll_win=15,resampling_win=horizon,
-                                fee=0.000,
-                                scale_method='roll_zscore')
+                                        factor_name='transformed',
+                                        ret_name='nxt1_ret',
+                                        roll_win=15,
+                                        resampling_win=horizon,
+                                        fee=0.000,
+                                        scale_method='roll_zscore')
             evaluate1.run()
             returns = evaluate1.resample_data['nav']
             returns.name = factor
             self.evaluate_results.append(returns)
 
+
 warehouse = Warehouse()
+
 
 def callback_models(gen, rootid, best_programs, custom_params, total_data):
     #candidate_factors = merge_factors(best_programs=best_programs)
@@ -199,7 +207,6 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     if abs(fitness) < min_ic_threshold:
         return 0.0  # 预测能力太弱，直接淘汰
 
-    
     ## 不是有限数   ## 为nan
     if not np.isfinite(stats_df['calmar']) or np.isnan(
             stats_df['calmar']) or stats_df['calmar'] <= 0:
@@ -214,8 +221,6 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     ## ic 绝对值大于1 不正常
     if fitness >= 1:
         return 0.0
-
-
     '''
     ### 过滤相关性
     if custom_params['corr']['corr_threshold'] > 0 and custom_params['corr']['corr_threshold'] < 1:
@@ -231,13 +236,11 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     ic, _ = stats.spearmanr(data['transformed'], data['nxt1_ret'])
     if not np.isfinite(ic):
         return 0.0
-    
     '''
     if abs(ic) < min_ic_threshold:
         return 0.0  # 预测能力太弱，直接淘汰
     '''
     fitness = math.fabs(ic)
-    
     '''
     try:
         #   i. 因子缩放 (使用全样本z-score，速度快)
@@ -285,7 +288,13 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     return fitness
 
 
-def train(method, instruments, period, session, task_id, corr_threshold, count=0):
+def train(method,
+          instruments,
+          period,
+          session,
+          task_id,
+          corr_threshold,
+          count=0):
     two_operators_sets = [
         'MConVariance', 'MMASSI', 'MACCBands', 'MPWMA', 'MIChimoku', 'MRes',
         'MMeanRes', 'MCORR', 'MCoef', 'MSLMean', 'MSmart', 'MSharp',
@@ -313,6 +322,7 @@ def train(method, instruments, period, session, task_id, corr_threshold, count=0
     rootid = task_id  #INDEX_MAPPING[INSTRUMENTS_CODES[instruments]]
     ## 加载数据
     ## 加载因子+ 基础数据
+    pdb.set_trace()
     total_factors = fetch_temp_data(method=method,
                                     task_id=rootid,
                                     instruments=instruments,
@@ -323,10 +333,10 @@ def train(method, instruments, period, session, task_id, corr_threshold, count=0
                                        datasets=['train', 'val'],
                                        category='returns')
     total_data = total_factors.merge(total_returns, on=['trade_time', 'code'])
-    
+
     total_data.filter(regex="^nxt1").columns.to_list()
     nxt1_columns = total_data.filter(regex="^nxt1").columns.to_list()
-   
+
     basic_columns = [
         'close', 'high', 'low', 'open', 'value', 'volume', 'openint'
     ]
@@ -340,21 +350,26 @@ def train(method, instruments, period, session, task_id, corr_threshold, count=0
         if col not in ['trade_time', 'code', 'symbol'] + nxt1_columns +
         basic_columns + ['time_weight', 'equal_weight'] + not_columns.tolist()
     ]
-    filter_columns = ['twap','pct_change','high','close','low','open',
-                        'smart_tick_in','smart_money_in_pct','pct_change_close',
-                        'smart_tick_in_pct','pct_change']
-    pdb.set_trace()
 
-    use_factor_columns = [col for col in factor_columns if col not in filter_columns]
-    ## 随机取个数
+    ## 设置过滤掉或者必须保留 columns
 
-    ##
-    #if feature_count > 0:
-    #    pdb.set_trace()
-    if str(rootid) != '200037':
-        factor_columns = factor_columns if count == 0 else random.sample(factor_columns, count)
-        factor_columns = ['cj010_1_2_0', 'cr006_1_2_0', 'tc002_1_2_0', 'cr020_1_2_0', 'iv010_1_2_1', 'cj010_2_3_0', 'oi008_1_2_1', 'cr020_1_2_1', 'tv011_1_1_2_1', 'ixy010_1_2_0', 'tv019_1_2_0', 'ixy011_1_2_0', 'cj003_2_3_0', 'rv008_1_2_1_2', 'dv011_1_2_1', 'tc010_1_2_1', 'cr006_1_2_1', 'oi013_1_2_0', 'iv010_1_2_0', 'tc016_1_1_2_1']
+    # filter_columns = ['twap','pct_change','high','close','low','open',
+    #                     'smart_tick_in','smart_money_in_pct','pct_change_close',
+    #                     'smart_tick_in_pct','pct_change']
+    # pdb.set_trace()
 
+    # use_factor_columns = [col for col in factor_columns if col not in filter_columns]
+    # ## 随机取个数
+
+    # ##
+    # #if feature_count > 0:
+    # #    pdb.set_trace()
+    # if str(rootid) != '200037':
+    #     factor_columns = factor_columns if count == 0 else random.sample(factor_columns, count)
+    #     factor_columns = ['cj010_1_2_0', 'cr006_1_2_0', 'tc002_1_2_0', 'cr020_1_2_0', 'iv010_1_2_1', 'cj010_2_3_0', 'oi008_1_2_1', 'cr020_1_2_1', 'tv011_1_1_2_1', 'ixy010_1_2_0', 'tv019_1_2_0', 'ixy011_1_2_0', 'cj003_2_3_0', 'rv008_1_2_1_2', 'dv011_1_2_1', 'tc010_1_2_1', 'cr006_1_2_1', 'oi013_1_2_0', 'iv010_1_2_0', 'tc016_1_1_2_1']
+
+    # if str(rootid) == '300001':
+    #     factor_columns = ['fz002_2_3_1', 'fz002_2_3_0']
     return_name = "nxt1_ret_{}h".format(period)
     ### 评估是才聚合
     '''
@@ -375,6 +390,46 @@ def train(method, instruments, period, session, task_id, corr_threshold, count=0
         '{0}T'.format(period), label='right',
         closed='right').agg(aggregation_rules)
     '''
+    pdb.set_trace()
+    factor_columns = [
+        'cj007_10_15_1', 'cj007_1_2_1', 'cj007_2_3_0', 'cj007_5_10_0',
+        'cj011_5_10_1', 'cj012_10_15_1', 'cj012_5_10_1', 'cr011_10_15_1',
+        'cr011_5_10_1', 'db001_10_15_0', 'db001_5_10_0', 'db002_5_10_1',
+        'db005_10_15_0', 'db005_1_2_1', 'db005_2_3_1', 'db005_5_10_0',
+        'db006_10_15_1', 'db006_2_3_1', 'db006_5_10_0', 'dv002_10_15_1',
+        'dv002_1_2_1', 'dv002_2_3_1', 'dv002_5_10_1', 'dv009_10_15_1',
+        'dv009_5_10_1', 'fz002_10_15_0', 'fz002_1_2_0', 'fz002_1_2_1',
+        'fz002_2_3_0', 'fz002_5_10_0', 'fz002_5_10_1', 'gd002_10_15_1',
+        'iv012_10_15_1', 'iv012_1_2_1', 'iv012_2_3_1', 'iv012_5_10_1',
+        'ixy002_10_15_1', 'ixy003_10_15_1', 'ixy003_5_10_1', 'ixy004_5_10_1',
+        'ixy007_10_15_1', 'ixy007_1_2_1', 'ixy007_2_3_1', 'ixy007_5_10_1',
+        'ixy008_10_15_1', 'ixy008_1_2_1', 'ixy008_2_3_1', 'ixy008_5_10_1',
+        'ixy013_10_15_1', 'ixy013_5_10_1', 'ixy014_10_15_1', 'ixy014_5_10_1',
+        'ixy015_10_15_1', 'oi001_10_15_1', 'oi001_5_10_1', 'oi004_10_15_1',
+        'oi004_1_2_1', 'oi004_2_3_1', 'oi004_5_10_1', 'oi022_10_15_1',
+        'oi022_1_2_1', 'oi022_2_3_0', 'oi022_5_10_0', 'oi022_5_10_1',
+        'oi023_10_15_1', 'oi033_10_15_1', 'oi033_1_2_1', 'oi033_2_3_1',
+        'oi033_5_10_1', 'oi034_10_15_1', 'oi034_5_10_1', 'oi035_10_15_1',
+        'oi035_5_10_1', 'oi036_10_15_1', 'oi036_2_3_1', 'oi036_5_10_1',
+        'oi037_10_15_1', 'oi037_1_2_1', 'oi037_2_3_1', 'oi037_5_10_1',
+        'oi039_10_15_1', 'oi039_1_2_1', 'oi039_2_3_1', 'oi039_5_10_1',
+        'oi042_10_15_1', 'oi042_5_10_1', 'rv001_10_15_1_2', 'rv001_5_10_1_1',
+        'rv003_10_15_1_1', 'rv003_2_3_1_1', 'rv003_5_10_1_1',
+        'rv005_10_15_1_1', 'rv005_5_10_1_1', 'rv006_10_15_1_2',
+        'rv006_5_10_1_2', 'rv012_25_10_15_1', 'rv012_75_10_15_1',
+        'rv012_75_5_10_1', 'tc004_10_10_15_1', 'tc004_5_5_10_1',
+        'tc005_10_10_15_1', 'tc005_5_5_10_1', 'tc009_10_5_10_15_1',
+        'tc009_5_5_10_15_1', 'tc012_10_10_15_1', 'tc012_5_5_10_1',
+        'tc014_10_10_15_1', 'tc014_5_5_10_1', 'tc015_10_15_1', 'tc015_1_2_1',
+        'tc015_2_3_1', 'tc015_5_10_1', 'tc019_10_15_1', 'tc021_1_2_1',
+        'tf001_5_10_1', 'tf006_10_15_1', 'tf006_5_10_1', 'tn003_10_5_10_15_1',
+        'tn003_5_5_10_15_1', 'tn005_10_15_1', 'tn005_5_10_1', 'tn006_10_15_1',
+        'tn006_5_10_1', 'tv002_10_10_15_1', 'tv002_5_5_10_1', 'tv003_10_15_1',
+        'tv003_1_2_1', 'tv003_2_3_1', 'tv003_5_10_1', 'tv004_10_15_1',
+        'tv004_5_10_1', 'tv005_10_15_1', 'tv005_5_10_1', 'tv006_5_10_1',
+        'tv007_10_15_1', 'tv007_1_2_1', 'tv007_2_3_1', 'tv007_5_10_1',
+        'tv014_10_15_1', 'tv014_5_10_1', 'tv020_10_15_1'
+    ]
     if str(rootid) != '200037':
         agg_market_data = total_data[['trade_time', 'code'] + basic_columns]
         ###使用原始因子
@@ -387,25 +442,28 @@ def train(method, instruments, period, session, task_id, corr_threshold, count=0
                                           ]],
                                                    on=['trade_time', 'code'])
     else:
-        factors_data = total_data[['trade_time', 'code'] +
-                                  factor_columns + basic_columns].merge(
+        factors_data = total_data[['trade_time', 'code'] + factor_columns +
+                                  basic_columns].merge(
                                       total_returns[[
                                           'trade_time', 'code', return_name
                                       ]],
                                       on=['trade_time', 'code'])
-
+    pdb.set_trace()
     factors_data.rename(columns={return_name: 'nxt1_ret'}, inplace=True)
-    operators_sets = two_operators_sets  + one_operators_sets
+    operators_sets = two_operators_sets + one_operators_sets
     #operators_sets = custom_transformer(operators_sets)
     #  5 10 15 30 60 90 120 240
-
+    use_factor_columns = [
+        col for col in factors_data.columns
+        if col not in ['trade_time', 'code', 'nxt1_ret']
+    ]
     operators_sets = Operators(periods=[5, 10, 15, 30, 60, 90, 120, 240
                                         ]).custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 3000  # 5w
-    tournament_size = 1000  # 1K
+    population_size = 200  # 5w
+    tournament_size = 50  # 1K
     standard_score = 0.001
-    generations = 4
+    generations = 2
     custom_params = {
         'horizon': str(period),
         'rootid': rootid,
@@ -416,7 +474,7 @@ def train(method, instruments, period, session, task_id, corr_threshold, count=0
         'g_instruments': instruments,
         'return_name': return_name,
         'session': session,
-        'corr':{
+        'corr': {
             'corr_threshold': corr_threshold,  ## 单纯计算收益率相关性
         },
         #'gain': {
@@ -444,15 +502,15 @@ def train(method, instruments, period, session, task_id, corr_threshold, count=0
     }
 
     configure = {
-        'n_jobs': 8,
+        'n_jobs': 2,
         'population_size': population_size,
         'tournament_size': tournament_size,
         'init_depth': 3,
         'evaluate': 'both_evaluate',
         'method': 'fitness',
-        'crossover': 0.3,
-        'point_replace': 0.3,
-        'hoist_mutation': 0.05,
+        'crossover': 0.25,
+        'point_replace': 0.25,
+        'hoist_mutation': 0.15,
         'subtree_mutation': 0.15,
         'point_mutation': 0.2,
         'generations': generations,
@@ -463,29 +521,31 @@ def train(method, instruments, period, session, task_id, corr_threshold, count=0
         'rootid': rootid,
         'method': 'grow'  ## grow:多样性 full 规则性
     }
-    engine = Engine(population_size=configure['population_size'],
-                    tournament_size=configure['tournament_size'],
-                    init_depth=(1, configure['init_depth']),
-                    init_method=configure['method'],
-                    generations=configure['generations'],
-                    n_jobs=configure['n_jobs'],
-                    stopping_criteria=configure['stopping_criteria'],
-                    p_crossover=configure['crossover'],
-                    p_point_mutation=configure['point_mutation'],
-                    p_subtree_mutation=configure['subtree_mutation'],
-                    p_hoist_mutation=configure['hoist_mutation'],
-                    p_point_replace=configure['point_replace'],
-                    rootid=configure['rootid'],
-                    factor_sets=use_factor_columns, #factor_columns, 用于使用的特征例
-                    standard_score=configure['standard_score'],
-                    operators_sets=operators_sets,
-                    backup_cycle=1,
-                    convergence=configure['convergence'],
-                    fitness=callback_fitness,
-                    save_model=callback_models,
-                    custom_params=configure['custom_params'])
+    engine = Engine(
+        population_size=configure['population_size'],
+        tournament_size=configure['tournament_size'],
+        init_depth=(1, configure['init_depth']),
+        init_method=configure['method'],
+        generations=configure['generations'],
+        n_jobs=configure['n_jobs'],
+        stopping_criteria=configure['stopping_criteria'],
+        p_crossover=configure['crossover'],
+        p_point_mutation=configure['point_mutation'],
+        p_subtree_mutation=configure['subtree_mutation'],
+        p_hoist_mutation=configure['hoist_mutation'],
+        p_point_replace=configure['point_replace'],
+        rootid=configure['rootid'],
+        factor_sets=use_factor_columns,  #factor_columns, 用于使用的特征例
+        standard_score=configure['standard_score'],
+        operators_sets=operators_sets,
+        backup_cycle=1,
+        convergence=configure['convergence'],
+        fitness=callback_fitness,
+        save_model=callback_models,
+        custom_params=configure['custom_params'])
     factors_data = factors_data.set_index('trade_time')
-    if corr_threshold > 0 and corr_threshold < 1: ## 使用精选因子库相关性过滤
+    
+    if corr_threshold > 0 and corr_threshold < 1:  ## 使用精选因子库相关性过滤
         warehouse.calculate_evaluate(factors_data, period)
     engine.train(total_data=factors_data)
 

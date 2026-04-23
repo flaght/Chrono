@@ -75,8 +75,7 @@ def fetch_chosen(method, instruments, task_id, period):
     filename = os.path.join(base_path, method, instruments, "rulex",
                             str(task_id), "nxt1_ret_{}h".format(str(period)),
                             "draft.csv")
-    chosen_data = pd.read_csv(filename)
-    return chosen_data
+    return pd.read_csv(filename)  if os.path.exists(filename) else pd.DataFrame()
 
 
 def run2(method,
@@ -86,7 +85,7 @@ def run2(method,
          session,
          datasets=['train', 'val']):
     left_symbol = instruments
-
+    pdb.set_trace()
     ## 优先创建目录，避免无判断没有跑过
     outputs = os.path.join("records", method, left_symbol, 'rulex',
                            str(task_id), "nxt1_ret_{}h".format(str(period)),
@@ -111,9 +110,10 @@ def run2(method,
                                task_id=task_id,
                                period=period)
     pdb.set_trace()
-    formulas_in = chosen_data['formula']
-    is_not_in_p2 = ~programs['formual'].isin(formulas_in)
-    programs = programs[is_not_in_p2]
+    if not chosen_data.empty:
+        formulas_in = chosen_data['formula']
+        is_not_in_p2 = ~programs['formual'].isin(formulas_in)
+        programs = programs[is_not_in_p2]
 
     programs['final_fitness'] = np.abs(programs['final_fitness'])
 
