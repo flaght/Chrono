@@ -7,6 +7,7 @@ IM=200037
 RB=113001
 HC=134001
 M =104001
+BTC=300001
 
 [DATA_KIND]
 200037 = 'level2'
@@ -16,6 +17,7 @@ M =104001
 140002 = 'level2'
 134001 = 'basic'
 104001 = 'basic'
+300001 = 'basic'
 
 
 [PERFORMANCE]
@@ -62,5 +64,6 @@ ims="IM"
 ics="IC"
 ifs="IF"
 mc="M"
-hcb = "HC"
+hcb="HC"
+btcu="BTCUSDT"
 

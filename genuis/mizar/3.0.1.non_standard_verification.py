@@ -1,3 +1,4 @@
+### 标准化指定因子 和绩效
 import os,json,pdb,copy
 import pandas as pd
 from dotenv import load_dotenv
@@ -16,12 +17,6 @@ from lib.cux001 import FactorEvaluate1
 from lumina.genetic.util import create_id
 
 from kdutils.tactix import Tactix
-
-def select_features(outdirs, feature_id):
-    filename = os.path.join(outdirs, "selection", str(feature_id), "selected_features.feather")
-    selected_features = pd.read_feather(filename)
-    return selected_features.tolist()
-
 
 def select_features(outdirs, feature_id):
     filename = os.path.join(outdirs, "selection", str(feature_id), "selected_features.feather")
@@ -174,7 +169,6 @@ def train_check(method, instruments, task_id, period, name):
         evaluate1.figure.savefig(os.path.join(outdirs_factors, "plot", "train_{0}.png".format(factor_id)), dpi=300)
         evaluate2.figure.savefig(os.path.join(outdirs_factors, "plot", "test_{0}.png".format(factor_id)), dpi=300)
 
-    print('--->')
 
 
 if __name__ == '__main__':

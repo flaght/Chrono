@@ -1,9 +1,14 @@
-import pdb
+import pdb, os
 import pandas as pd
 from jdw import DBAPI
 from alphacopilot.api.data import RetrievalAPI, ddb_tools, DDBAPI
 
 kd_engine = DBAPI.FetchEngine.create_engine('kd')
+
+def fetch_local_market(base_path, method, instruments, name):
+    dirs = os.path.join(base_path, method, instruments, 'basic')
+    filename = os.path.join(dirs, f"{name}_data.feather")
+    return pd.read_feather(filename)
 
 
 def fetch_basic(begin_date, end_date, codes):

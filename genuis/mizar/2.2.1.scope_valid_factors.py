@@ -35,9 +35,7 @@ def load_factors(method,
     programs = programs[programs['final_fitness'] > abs_ic][[
         'name', 'formual', 'final_fitness'
     ]]
-    programs = programs[[
-        'name', 'formual', 'final_fitness'
-    ]]
+    programs = programs[['name', 'formual', 'final_fitness']]
     return programs
 
 
@@ -167,7 +165,7 @@ def run1(method,
         sategory='gentic',
         dategory='eligible',
         datasets=datasets,
-        calmar=3,
+        calmar=2,
         sharpe2=1.2,
         abs_ic=0.02,
         is_compare=False)
@@ -233,10 +231,10 @@ if __name__ == '__main__':
              instruments=variant.instruments,
              period=variant.period,
              task_id=variant.task_id,
-             session=variant.session)
+             session=variant.session) # 自身标的绩效
     elif variant.form == 'second':
         run2(method=variant.method,
              instruments=variant.instruments,
              period=variant.period,
              task_id=variant.task_id,
-             session=variant.session)
+             session=variant.session) # 对比标的绩效

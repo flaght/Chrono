@@ -11,7 +11,7 @@ from alphacopilot.api.calendars import advanceDateByCalendar
 from kdutils.ttimes import get_dates
 from kdutils.macro import base_path
 from config.contract import INSTRUMENTS_CODES
-from kdutils.data import fetch_main_market
+from kdutils.data import fetch_main_market, fetch_local_market
 from kdutils.tactix import Tactix
 
 import lumina.env as env
@@ -75,8 +75,9 @@ def calculate_factors(data, callback, instruments, method, start_date,
                  end_date=end_date)
 
     for i00 in [
-            i001, i002, i003, i004, i005, i006, i007, i008, i009, i010, i011,
-            i012, i013, i014
+             i001, i002, i003, i004, i005, i006,
+             i007, i008, i009, i010, i011, i012,
+             i013, i014
     ]:
         run(data=data,
             i00=i00,
@@ -88,16 +89,18 @@ def calculate_factors(data, callback, instruments, method, start_date,
 
 
 def main(method, instruments):
-    pdb.set_trace()
     start_date, end_date = get_dates(method)
     start_time = advanceDateByCalendar('china.sse', start_date,
                                        '-{0}b'.format(1)).strftime('%Y-%m-%d')
-    pdb.set_trace()
-    data = fetch_main_market(begin_date=start_time,
+
+    if instruments == 'btcu':
+        data = fetch_local_market(base_path=base_path, method=method, 
+                instruments=instruments, name='all')
+    else:
+        data = fetch_main_market(begin_date=start_time,
                              end_date=end_date,
                              codes=[INSTRUMENTS_CODES[instruments]])
     data = data.set_index(['trade_time', 'code']).unstack()
-    pdb.set_trace()
     calculate_factors(data,
                       instruments=instruments,
                       callback=callback_save,
@@ -116,6 +119,7 @@ def merge(method, instruments):
                 factor_file = os.path.join(root, file)
                 factor_data = pd.read_feather(factor_file)
                 res.append(factor_data.set_index(['trade_time', 'code']))
+    pdb.set_trace()
     factors_data = pd.concat(res, axis=1).sort_index()
     factors_data = factors_data.unstack().fillna(method='ffill')
     factors_data = factors_data.stack()
@@ -125,21 +129,26 @@ def merge(method, instruments):
     factors_data = factors_data.dropna().reset_index()
     start_date = factors_data['trade_time'].min().strftime('%Y-%m-%d %H:%M:%S')
     end_date = factors_data['trade_time'].max().strftime('%Y-%m-%d %H:%M:%S')
-    data = fetch_main_market(begin_date=start_date,
+    if instruments == 'btcu':
+        data = fetch_local_market(base_path=base_path, method=method, 
+                instruments=instruments, name='all')
+    else:
+        data = fetch_main_market(begin_date=start_date,
                              end_date=end_date,
                              codes=[INSTRUMENTS_CODES[instruments]])
+    base_columns = ['close', 'high', 'low', 'open', 'value','volume', 'openint', 'vwap']
+    merge_columns = list(set(data.columns)&set(base_columns))
     factors_data = factors_data.merge(data[[
-        'trade_time', 'code', 'close', 'high', 'low', 'open', 'value',
-        'volume', 'openint', 'vwap'
-    ]],
-                                      on=['trade_time', 'code'])
+        'trade_time', 'code'] + merge_columns],
+        on=['trade_time', 'code'])
+    pdb.set_trace()
     factors_data['trade_time'] = pd.to_datetime(
         factors_data['trade_time']).dt.strftime('%Y-%m-%d %H:%M:%S')
     factors_data = factors_data.sort_values(by=['trade_time', 'code'])
 
     times = factors_data['trade_time'].unique().tolist()
 
-    len1 = round(len(times) * 0.7)  # 60%部分
+    len1 = round(len(times) * 0.6)  # 60%部分
     len2 = round(len(times) * 0.2)  # 25%部分
     len3 = len(times) - len1 - len2
 
@@ -191,10 +200,15 @@ def create_yields(data, horizon, offset=0):
     return df
 
 
-def fetch_returns(begin_date, end_date, codes):
+def fetch_returns(begin_date, end_date, codes, method, instruments):
     res = []
     horizon_sets = [1, 2, 3, 5, 10, 15]
-    market_data = fetch_main_market(begin_date=begin_date,
+    pdb.set_trace()
+    if 'btcu' == instruments:
+        market_data = fetch_local_market(base_path=base_path, method=method, 
+                instruments=instruments, name='all')
+    else:
+        market_data = fetch_main_market(begin_date=begin_date,
                                     end_date=end_date,
                                     codes=codes)
     chg_data = create_chg(market_data)
@@ -231,7 +245,9 @@ def returns(method, instruments):
 
     returns_data = fetch_returns(begin_date=begin_date1,
                                  end_date=end_date1,
-                                 codes=[INSTRUMENTS_CODES[instruments]])
+                                 codes=[INSTRUMENTS_CODES[instruments]],
+                                 method=method, 
+                                 instruments=instruments)
     returns_data = returns_data.loc[start_date:end_date]
     returns_data = returns_data.reset_index()
 
