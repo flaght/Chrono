@@ -460,8 +460,8 @@ def train(method,
     operators_sets = Operators(periods=[5, 10, 15, 30, 60, 90, 120, 240
                                         ]).custom_transformer(operators_sets)
     #rootid = '200036'
-    population_size = 200  # 5w
-    tournament_size = 50  # 1K
+    population_size = 5#200  # 5w
+    tournament_size = 2#50  # 1K
     standard_score = 0.001
     generations = 2
     custom_params = {
