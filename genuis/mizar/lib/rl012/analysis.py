@@ -169,7 +169,7 @@ def profitability(data: pd.DataFrame, factor_name:str,
             i += 1
 
         turnover_arr = np.abs(pos_arr - np.r_[0.0, pos_arr[:-1]]) * 0.5
-        pdb.set_trace()
+        
         n_pairs = float(max(hp, 1))
         p_gross = realized_arr / n_pairs
         p_fee = float(cost_rate) * (turnover_arr / n_pairs)
