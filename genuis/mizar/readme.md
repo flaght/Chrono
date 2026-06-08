@@ -36,6 +36,10 @@
 2.1.6.optuna_parellel_factors.py
 - 2. 贝叶斯寻优挖掘因子
 
+
+2.1.7.transformer_parellel_factors.py
+- 2. tramsformer 推理因子
+
 2.2.1.scope_valid_factors.py
 - 1. 计算指定筛选挖掘因子绩效生成图
 - 2. 计算对比品种筛选挖掘因子绩效生成图
@@ -47,7 +51,6 @@
 - 1. 生成指定品种生成图
 
 
-
 2.2.6.model_select_factor.py
 - 1. 选中线性模型或者sklearn模型训练
 
@@ -56,7 +59,7 @@
 
 
 3.0.1.blend_factors.py
-- 1. 筛选因子 构建等权组合
+- 1. 相关性过滤筛选因子 构建等权组合
 
 3.1.1.predict_synthesis.py
 - 1. sklearn 模型预测结果
@@ -69,7 +72,6 @@
 
 3.1.4.linear_synthesis.py
 - 选中线性模型或者sklearn模型训练
-
 
 3.2.1.autoencoder.py
 - autoencoder 编码重构
@@ -90,3 +92,24 @@
 
 6.0.1.linear_increment_factors.py
 - 指定因子等权合成后绩效评估
+
+
+
+
+RB:
+total ic 大于0.02
+rank ic  大于0.1
+夏普大于 2.5
+卡玛 大于 3
+
+
+
+
+流程校验:
+- 1. 创建研究环境的需要的数据，包括计算包括标准化后的因子
+python 3.1.1.predict_synthesis.py --config_file="configs.yaml" --config_id="factors_rbb_synthesis"  
+
+- 2. 将数据进行切割
+python 6.0.2.create_rl_data.py --config_file="configs.yaml" --config_id="preprocess_rbb_data"
+
+- 3.
