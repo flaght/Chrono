@@ -57,9 +57,16 @@
 2.2.7.create_metrics.py
 - 1. 选中因子生成绩效文件
 
-
 3.0.1.blend_factors.py
+<<<<<<< HEAD
 - 1. 相关性过滤筛选因子 构建等权组合
+=======
+- 1. 因子值相关性筛选因子 
+- 2. 构建等权组合
+
+3.0.2.rl_increment_factor.py
+- 1. 新增因子对应强化学习结果绩效增量预估
+>>>>>>> a5b2a1fb9a62c650346c7deec94b4509ff18f795
 
 3.1.1.predict_synthesis.py
 - 1. sklearn 模型预测结果
@@ -80,6 +87,7 @@
 - NLL 模型
 
 
+
 4.1.1.signal_metrics.py
 - 预测的er值转换为信号并生成信号
 
@@ -93,6 +101,7 @@
 6.0.1.linear_increment_factors.py
 - 指定因子等权合成后绩效评估
 
+<<<<<<< HEAD
 
 
 
@@ -113,3 +122,8 @@ python 3.1.1.predict_synthesis.py --config_file="configs.yaml" --config_id="fact
 python 6.0.2.create_rl_data.py --config_file="configs.yaml" --config_id="preprocess_rbb_data"
 
 - 3.
+=======
+6.1.1.build_rl_strategy.py~6.1.4.build_rl_strategy.py
+- 强化学习合成
+
+>>>>>>> a5b2a1fb9a62c650346c7deec94b4509ff18f795

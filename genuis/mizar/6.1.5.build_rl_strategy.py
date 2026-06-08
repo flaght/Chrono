@@ -11,9 +11,9 @@ from kdutils.tactix import Tactix
 from kdutils.macro2 import *
 from lib.uvx import * 
 
-from lib.rl012.train import train_model
-from lib.rl012.predict import predict_test_set
-from lib.rl012.analysis import create_evaluate
+from lib.rl014.train import train_model
+from lib.rl014.predict import predict_test_set
+from lib.rl014.analysis import create_evaluate
 # from lib.rl011.analysis import analyze_run
 
 
@@ -218,7 +218,7 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id, trai
     train_data, val_data = load_data1(method=method, instruments=instruments, period=period, 
                                       task_id=task_id, ret_name=trade_params['ret_name'],
                                       features=selected_features, regime=min_regime)
-    pdb.set_trace()
+    
     env_config = {
         'holding_period': int(env_params['holding_period']),
         'reward_scale': float(env_params['reward_scale']),
@@ -228,7 +228,11 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id, trai
         'max_episode_steps': float(env_params['max_episode_steps']),
         'train_scheme': env_params['train_scheme'],
         'softmax_temperature':env_params['softmax_temperature'],
-        'seed': env_params['seed']
+        'seed': env_params['seed'],
+        'target_mode': env_params['target_mode'],
+        'target_cost_rate': float(env_params.get('target_cost_rate', COST_MAPPING[INSTRUMENTS_CODES[instruments]])
+        ),
+        'target_cost_mult': float(env_params['target_cost_mult']),
     }
     
     sac_config = {
@@ -399,7 +403,6 @@ def evaluate(method, instruments, task_id, period, env_id, trade_id,
                         cost_rate=COST_MAPPING[INSTRUMENTS_CODES[instruments]])
     
 if __name__ == '__main__':
-    pdb.set_trace()
     variant = Tactix().start()
     if variant.form == "train":
         train(method=variant.method, 

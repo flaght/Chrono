@@ -43,9 +43,15 @@ def load_data2(method, instruments, task_id, period):
                                               "test_data.feather"))
     return train_data, val_data, test_data
 
-def load_metrics():
-    metrics_data = pd.read_csv("/workspace/worker/kdwk/Chrono/genuis/mizar/rb1.csv", index_col=0)
-    metrics_data['abs_ic'] = metrics_data['ic_mean']
+def load_metrics(method, instruments, task_id, period):
+    # metrics_data = pd.read_csv("/workspace/worker/kdwk/Chrono/genuis/mizar/rb1.csv", index_col=0)
+    metrics_data = pd.read_csv(
+        os.path.join(base_path,method,instruments, 
+                     "rulex", task_id, "nxt1_ret_{0}h".format(period),
+                     "chosen_pro.csv"), index_col=0)
+    pdb.set_trace()
+    metrics_data['abs_ic'] = np.abs(metrics_data['ic_mean'])
+    metrics_data.rename(columns={'formula':'expression'}, inplace=True)
     return metrics_data
     
 def run1(method, instruments, task_id, period):
@@ -57,7 +63,7 @@ def run1(method, instruments, task_id, period):
     selected = []
     selected_expr = []
     corr_threshold = 0.7
-    
+    pdb.set_trace()
     for _, row in metrics_data.iterrows():
         expr = row["expression"]
         cur = total_data[["trade_time", expr]].dropna().copy()
@@ -84,7 +90,7 @@ def run1(method, instruments, task_id, period):
 
 def selected(method, instruments, task_id, period):
     pdb.set_trace()
-    metrics_data = load_metrics()
+    metrics_data = load_metrics(method=method, instruments=instruments, task_id=task_id, period=period)
     metrics_data = metrics_data.sort_values(by=['abs_ic'],ascending=False)
     train_data, val_data = load_data1(method=method, instruments=instruments, 
                                      task_id=task_id, period=period)
@@ -95,6 +101,7 @@ def selected(method, instruments, task_id, period):
     selected_exprs = {thr: [] for thr in thresholds}
     
     factor_cache = {}
+    pdb.set_trace()
     for expr in metrics_data["expression"]:
         df = total_data[["trade_time", expr]].dropna().copy()
         df = df.rename(columns={expr: "value"})
@@ -142,7 +149,7 @@ def selected(method, instruments, task_id, period):
             if keep:
                 selected_rows[thr].append(row)
                 selected_exprs[thr].append(expr)
-            
+    pdb.set_trace()
     dt_path = os.path.join(base_path, method, instruments, 'temp','model', str(task_id), str(period), 'rl', 'blend', 'corr')
     os.makedirs(dt_path, exist_ok=True)
     
@@ -223,6 +230,7 @@ def create_evaluate(df, factor_names, pnl_ret_col,
     
     
 def composite(method, instruments, task_id, period):
+    pdb.set_trace()
     train_data, val_data, test_data = load_data2(method=method, 
                                                  instruments=instruments, 
                                                  task_id=task_id, period=period)
@@ -269,6 +277,7 @@ def composite(method, instruments, task_id, period):
     
             
 if __name__ == '__main__':
+    # composite(method='bicso2', instruments='rbb', task_id='113001', period=5)
     selected(method='bicso2', instruments='rbb', task_id='113001', period=5)
     # variant = Tactix().start()
     # if variant.form == 'selected':
