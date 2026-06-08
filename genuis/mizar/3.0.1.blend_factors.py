@@ -49,6 +49,7 @@ def load_metrics(method, instruments, task_id, period):
         os.path.join(base_path,method,instruments, 
                      "rulex", task_id, "nxt1_ret_{0}h".format(period),
                      "chosen_pro.csv"), index_col=0)
+    pdb.set_trace()
     metrics_data['abs_ic'] = np.abs(metrics_data['ic_mean'])
     metrics_data.rename(columns={'formula':'expression'}, inplace=True)
     return metrics_data
@@ -88,6 +89,7 @@ def run1(method, instruments, task_id, period):
     
 
 def selected(method, instruments, task_id, period):
+    pdb.set_trace()
     metrics_data = load_metrics(method=method, instruments=instruments, task_id=task_id, period=period)
     metrics_data = metrics_data.sort_values(by=['abs_ic'],ascending=False)
     train_data, val_data = load_data1(method=method, instruments=instruments, 
@@ -228,6 +230,7 @@ def create_evaluate(df, factor_names, pnl_ret_col,
     
     
 def composite(method, instruments, task_id, period):
+    pdb.set_trace()
     train_data, val_data, test_data = load_data2(method=method, 
                                                  instruments=instruments, 
                                                  task_id=task_id, period=period)
@@ -274,7 +277,8 @@ def composite(method, instruments, task_id, period):
     
             
 if __name__ == '__main__':
-    composite(method='bicso2', instruments='rbb', task_id='113001', period=5)
+    # composite(method='bicso2', instruments='rbb', task_id='113001', period=5)
+    selected(method='bicso2', instruments='rbb', task_id='113001', period=5)
     # variant = Tactix().start()
     # if variant.form == 'selected':
     #     selected(method='bicso2', instruments='rbb', task_id='113001', period=5)

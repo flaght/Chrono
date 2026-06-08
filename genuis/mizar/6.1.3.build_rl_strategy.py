@@ -399,6 +399,7 @@ def evaluate(method, instruments, task_id, period, env_id, trade_id,
                         cost_rate=COST_MAPPING[INSTRUMENTS_CODES[instruments]])
     
 if __name__ == '__main__':
+    pdb.set_trace()
     variant = Tactix().start()
     if variant.form == "train":
         train(method=variant.method, 
