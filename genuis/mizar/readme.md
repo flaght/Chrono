@@ -58,15 +58,11 @@
 - 1. 选中因子生成绩效文件
 
 3.0.1.blend_factors.py
-<<<<<<< HEAD
-- 1. 相关性过滤筛选因子 构建等权组合
-=======
 - 1. 因子值相关性筛选因子 
 - 2. 构建等权组合
 
 3.0.2.rl_increment_factor.py
 - 1. 新增因子对应强化学习结果绩效增量预估
->>>>>>> a5b2a1fb9a62c650346c7deec94b4509ff18f795
 
 3.1.1.predict_synthesis.py
 - 1. sklearn 模型预测结果

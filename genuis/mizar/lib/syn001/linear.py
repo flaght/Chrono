@@ -16,20 +16,27 @@ def equal(data, selected_features):
     return data1
 
 
-def composit_equal(data, selected_features, roll_win, period, scale_method,
-                   expression):
+def composit_equal(data,
+                   selected_features,
+                   roll_win,
+                   period,
+                   scale_method,
+                   expression,
+                   name=None):
     data = data.set_index(['trade_time', 'code'])
     data1 = equal(data=data, selected_features=selected_features)
     data1 = pd.concat([data1, data["nxt1_ret_{0}h".format(period)]],
                       axis=1).sort_values(by=['trade_time', 'code'])
-    evaluate1 = FactorEvaluate1(factor_data=data1.reset_index(),
-                                factor_name='transformed',
-                                ret_name='nxt1_ret_{0}h'.format(period),
-                                roll_win=roll_win,
-                                fee=0.000,
-                                scale_method=scale_method,
-                                expression=expression,
-                                resampling_win=period)
+    evaluate1 = FactorEvaluate1(
+        factor_data=data1.reset_index(),
+        factor_name='transformed',
+        ret_name='nxt1_ret_{0}h'.format(period),
+        roll_win=roll_win,
+        fee=0.000,
+        scale_method=scale_method,
+        expression=expression,
+        resampling_win=period,
+        name=name if isinstance(name, str) else expression)
     _ = evaluate1.run()
     return data1, evaluate1
 
