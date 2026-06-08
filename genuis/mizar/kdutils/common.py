@@ -5,7 +5,12 @@ from kdutils.macro2 import *
 
 
 ### 读取数据 计算训练集，校验集，测试集，总数集的绩效
-def fetch_temp_data(method, instruments, task_id, datasets, category='data'):
+def fetch_temp_data(method,
+                    instruments,
+                    task_id,
+                    datasets,
+                    category='data',
+                    desired_columns=[]):
 
     res = []
 
@@ -16,8 +21,13 @@ def fetch_temp_data(method, instruments, task_id, datasets, category='data'):
                                 DATAKIND_MAPPING[str(task_id)],
                                 "{0}_{1}.feather".format(name, category))
         print(filename)
-        factors_data = pd.read_feather(filename).sort_values(
-            by=['trade_time', 'code'])
+        if len(desired_columns) == 0:
+            factors_data = pd.read_feather(filename).sort_values(
+                by=['trade_time', 'code'])
+        else:
+            factors_data = pd.read_feather(
+                filename,
+                columns=desired_columns).sort_values(by=['trade_time', 'code'])
         factors_data['trade_time'] = pd.to_datetime(factors_data['trade_time'])
         return factors_data
 

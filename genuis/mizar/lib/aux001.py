@@ -4,7 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from ultron.factor.genetic.geneticist.operators import calc_factor
+from ultron.factor.genetic.geneticist.operators import *
 from ultron.sentry.api import __all__
 from lumina.genetic.metrics.evaluate import FactorEvaluate
 from kdutils.common import fetch_temp_data, fetch_temp_returns
@@ -43,12 +43,13 @@ def fetch_times(method, task_id, instruments):
 
 
 ### 读取 相关数据
-def fetch_market(instruments, method, task_id, datasets):
+def fetch_market(instruments, method, task_id, datasets, features=[]):
     factors_data = fetch_temp_data(
         method=method,
         instruments=instruments,
         task_id=task_id,
-        datasets=datasets if isinstance(datasets, list) else [datasets])
+        datasets=datasets if isinstance(datasets, list) else [datasets],
+        desired_columns=features)
 
     returns_data = fetch_temp_returns(
         method=method,
@@ -62,10 +63,11 @@ def fetch_market(instruments, method, task_id, datasets):
 
 ### 公式因子值计算
 def calc_expression(expression, total_data):
-    factor_data = calc_factor(expression=expression,
-                              total_data=total_data,
-                              key='code',
-                              indexs=[])
+    factor_data = calc_factor(
+        expression=expression,
+        total_data=total_data[['code'] + eval(expression)._dependency],
+        key='code',
+        indexs=[])
     factor_data = factor_data.replace([np.inf, -np.inf], np.nan)
     factor_data['transformed'] = np.where(
         np.abs(factor_data.transformed.values) > 0.000001,

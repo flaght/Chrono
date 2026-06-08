@@ -1,5 +1,5 @@
 import pdb
-import os,hashlib
+import os, hashlib
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,6 +14,7 @@ scale_method: str = 'roll_min_max':
 'ew_zscore': 基于指数加权移动平均 (EWM) 的 Z-score 放缩，对近期数据赋予更高权重。
 'train_const': 使用前 roll_win 个样本的均值和标准差作为固定参数来放缩整个时间序列的因子。这意味着在初始窗口之后，放缩参数是常量，不再滚动变化。
 '''
+
 
 def generate_simple_id(formula: str) -> str:
     # 1. 移除空格并转为小写
@@ -129,10 +130,17 @@ class FactorEvaluate1(object):
         """
         计算因子与预期收益的滚动相关性
         """
+        ## 应该使用标准化后的
+        # self.resample_data['ic'] = self.resample_data[self.ret_name].rolling(
+        #     window=self.roll_win,
+        #     min_periods=5).corr(self.resample_data[self.factor_name])
+        # total_ic = self.resample_data[self.ret_name].corr(
+        #     self.resample_data[self.factor_name])
         self.resample_data['ic'] = self.resample_data[self.ret_name].rolling(
             window=self.roll_win,
-            min_periods=5).corr(self.resample_data[self.factor_name])
-        total_ic = self.resample_data[self.ret_name].corr(self.resample_data[self.factor_name])
+            min_periods=5).corr(self.resample_data['f_scaled'])
+        total_ic = self.resample_data[self.ret_name].corr(
+            self.resample_data['f_scaled'])
         self.resample_data['cumsum_ic'] = self.resample_data['ic'].cumsum()
         ic_mean = self.resample_data['ic'].mean()
         ic_std = self.resample_data['ic'].std()
@@ -160,24 +168,27 @@ class FactorEvaluate1(object):
             self.fee * self.resample_data['turnover']
         )  # 计算每期的净收益，即从总收益中减去交易费用。费用是换手率乘以设定的 fee。
 
-        self.resample_data['nav'] = (1 + self.resample_data['net_ret']).cumprod(
+        self.resample_data['nav'] = (
+            1 + self.resample_data['net_ret']
+        ).cumprod(
         )  #  计算净值曲线（Net Asset Value）。这是 (1 + 净收益) 的累积乘积，代表了投资组合的模拟价值随时间的变化。
-        
+
         ## 1. 计算回测跨越的年数
-        delta_days = (self.resample_data.index[-1] - self.resample_data.index[0]).days
-        years = delta_days / 365
-        if years <= 0: years = 1e-6 # 防止除零
-        
+        delta_days = (self.resample_data.index[-1] -
+                      self.resample_data.index[0]).days
+        years = delta_days / 250
+        if years <= 0: years = 1e-6  # 防止除零
+
         # -------- 基础统计 --------
         total_ret = self.resample_data['nav'].iloc[-1] - 1  # 累计收益 整个回测期间的累计收益。
 
         avg_ret = self.resample_data['net_ret'].mean()  # 平均每次交易收益
-        
-        ann_ret = (1 + total_ret) ** (1 / years) - 1 # 计算年化
-        
 
-        max_dd = (self.resample_data['nav'] / self.resample_data['nav'].cummax() -
-                  1).min()  # 找到历史最高净值，然后计算当前净值相对历史最高点的最大下跌百分比。
+        ann_ret = (1 + total_ret)**(1 / years) - 1  # 计算年化
+
+        max_dd = (
+            self.resample_data['nav'] / self.resample_data['nav'].cummax() -
+            1).min()  # 找到历史最高净值，然后计算当前净值相对历史最高点的最大下跌百分比。
 
         calmar = ann_ret / abs(max_dd) if max_dd != 0 else np.nan  # 卡玛比率
 
@@ -197,9 +208,10 @@ class FactorEvaluate1(object):
                     > 0).mean()  # 胜率，即净收益为正的周期所占的比例。
 
         profit_sum = self.resample_data.loc[self.resample_data['net_ret'] > 0,
-                                          'net_ret'].sum()
-        loss_sum = np.abs(self.resample_data.loc[self.resample_data['net_ret'] < 0,
-                                               'net_ret']).sum()
+                                            'net_ret'].sum()
+        loss_sum = np.abs(
+            self.resample_data.loc[self.resample_data['net_ret'] < 0,
+                                   'net_ret']).sum()
         profit_ratio = profit_sum / loss_sum if loss_sum != 0 else np.inf  #  盈亏比。正收益的绝对值之和除以负收益的绝对值之和。衡量盈利时的平均盈利幅度与亏损时的平均亏损幅度之比。
 
         return {
@@ -214,12 +226,11 @@ class FactorEvaluate1(object):
             'profit_ratio': profit_ratio
         }
 
-
     def cal_returns(self):
         """计算多空收益情况"""
         direction = np.sign(self.resample_data['f_scaled'].values)
         long_returns = self.resample_data['net_ret'][direction > 0]
-        short_returns =  self.resample_data['net_ret'][direction < 0]
+        short_returns = self.resample_data['net_ret'][direction < 0]
         long_sum_returns = long_avg_returns = long_win_ratio = 0.0
         short_sum_returns = short_avg_returns = short_win_ratio = 0.0
 
@@ -229,7 +240,6 @@ class FactorEvaluate1(object):
             long_avg_returns = long_returns.mean()
             long_win_ratio = (long_returns > 0).mean()
 
-
         short_count = len(short_returns)
         if short_count > 0:
             short_sum_returns = short_returns.sum()
@@ -237,18 +247,15 @@ class FactorEvaluate1(object):
             short_win_ratio = (short_returns > 0).mean()
 
         return {
-            "long_count":long_count,
-            "long_sum_returns":long_sum_returns,
-            "long_avg_returns":long_avg_returns,
-            "long_win_ratio":long_win_ratio,
-            "short_count":short_count,
-            "short_sum_returns":short_sum_returns,
-            "short_avg_returns":short_avg_returns,
-            "short_win_ratio":short_win_ratio
+            "long_count": long_count,
+            "long_sum_returns": long_sum_returns,
+            "long_avg_returns": long_avg_returns,
+            "long_win_ratio": long_win_ratio,
+            "short_count": short_count,
+            "short_sum_returns": short_sum_returns,
+            "short_avg_returns": short_avg_returns,
+            "short_win_ratio": short_win_ratio
         }
-
-
-
 
     def _cal_autocorr(self):
         """计算因子和收益率的滞后1期自相关性。"""
@@ -396,7 +403,8 @@ class FactorEvaluate1(object):
         # 1. 净值曲线 (NAV)
         ax1 = axes[0, 0]
         nav_data = self.resample_data['nav'].dropna()
-        gross_ret_data = (1 + self.resample_data['gross_ret']).cumprod().dropna()
+        gross_ret_data = (1 +
+                          self.resample_data['gross_ret']).cumprod().dropna()
 
         # 使用 use_index=False 来忽略时间轴，绘制连续序列
         nav_data.plot(ax=ax1,
@@ -449,8 +457,7 @@ class FactorEvaluate1(object):
             f"{'Factor Autocorr':<20}: {self.stats['factor_autocorr']:.4f}\n"  # 新增
             f"{'Return Autocorr':<20}: {self.stats['ret_autocorr']:.4f}\n"  # 新增
             f"{'Roll Window':<20}: {self.roll_win}\n"
-            f"{'Resampling Window':<20}: {self.resampling_win}\n"
-        )
+            f"{'Resampling Window':<20}: {self.resampling_win}\n")
         report_parts.append(performance_metrics)
         stats_text = "\n".join(report_parts)
 
@@ -507,8 +514,8 @@ class FactorEvaluate1(object):
         # 5. 每日收益率与回撤
         ax5 = axes[2, 0]
         drawdown_data = (
-            (self.resample_data['nav'] / self.resample_data['nav'].cummax() - 1) *
-            100).dropna()
+            (self.resample_data['nav'] / self.resample_data['nav'].cummax() -
+             1) * 100).dropna()
 
         drawdown_data.plot(ax=ax5, color='red', alpha=0.8, use_index=False)
         # fill_between 需要 numpy 数组
@@ -564,7 +571,7 @@ class FactorEvaluate1(object):
             )
 
         # 直接使用 base_output_dir，不创建子目录
-        output_dir = os.path.join(base_output_dir,str(self.name))
+        output_dir = os.path.join(base_output_dir, str(self.name))
         os.makedirs(output_dir, exist_ok=True)
         print(f"Saving results to: {output_dir}")
 
@@ -595,10 +602,12 @@ class FactorEvaluate1(object):
         # 3. 保存图表
         image_path = os.path.join(output_dir, "evaluation_plot.png")
         self.figure.savefig(image_path, dpi=150)
-        
+
         ##单独保存
         image_path1 = os.path.join(base_output_dir, "plot")
         os.makedirs(image_path1, exist_ok=True)
-        self.figure.savefig(os.path.join(image_path1, "{0}.png".format(self.name)), dpi=150)
+        self.figure.savefig(os.path.join(image_path1,
+                                         "{0}.png".format(self.name)),
+                            dpi=150)
         plt.close(self.figure)
         print(f"Evaluation plot saved to: {image_path}")

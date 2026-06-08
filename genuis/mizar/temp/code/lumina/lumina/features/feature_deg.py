@@ -1,0 +1,47 @@
+# -*- encoding:utf-8 -*-
+import numpy as np
+from lumina.env import g_max_window, g_point_num
+from ultron.kdutils import regression
+from lumina.features.fixes import BuyFeatureMixin, SellFeatureMixin, FeatureBase
+
+
+class FeatureDeg(FeatureBase, BuyFeatureMixin, SellFeatureMixin):
+
+    def __init__(self):
+        self.deg_keys = frozenset([21, 42, 60, 252])
+        self.windows = [i for i in range(g_max_window + 1)]
+
+    def get_feature_keys(self, buy_feature):
+        return [
+            '{}deg_ang{}_w{}'.format(
+                self.feature_prefix(buy_feature=buy_feature), dk, w)
+            for dk in self.deg_keys for w in self.windows
+        ]
+
+    def _calc_feature(self, kl_pd, combine_kl_pd, day_ind, buy_feature, window,
+                      deg_dict):
+        for dk in self.deg_keys:
+            if day_ind - dk - window >= 0:
+                deg_close = kl_pd[day_ind - dk + 1 - window:day_ind + 1 -
+                                  window].close
+            else:
+                combine_kl_pd = combine_kl_pd.loc[:kl_pd.index[day_ind]]
+                deg_close = combine_kl_pd[
+                    -dk - window:].close if combine_kl_pd.shape[0] > (
+                        dk + window) else combine_kl_pd.close
+            ang = regression.calc_regress_deg(deg_close)
+            ang = 0 if np.isnan(ang) else round(ang, g_point_num)
+            deg_dict['{}deg_ang{}_w{}'.format(
+                self.feature_prefix(buy_feature=buy_feature), dk,
+                window)] = ang
+
+    def calc_feature(self, kl_pd, combine_kl_pd, day_ind, buy_feature):
+        deg_dict = {}
+        for w in self.windows:
+            self._calc_feature(kl_pd=kl_pd,
+                               combine_kl_pd=combine_kl_pd,
+                               day_ind=day_ind,
+                               buy_feature=buy_feature,
+                               window=w,
+                               deg_dict=deg_dict)
+        return deg_dict

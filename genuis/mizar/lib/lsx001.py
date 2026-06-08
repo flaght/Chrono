@@ -74,6 +74,7 @@ def build_factors(method,
                   period,
                   name,
                   datasets=['train', 'val', 'test']):
+    pdb.set_trace()
     if name in ['draft']:
         expressions = fetch_draft_factors(method=method,
                                           instruments=instruments,

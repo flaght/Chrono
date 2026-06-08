@@ -206,11 +206,11 @@ def load_data(method, task_id, instruments, period, session, category):
     results = pd.DataFrame(res)
     return results
 
-def load_data2(method, task_id, instruments, period):
+def load_data2(method, task_id, instruments, period, filename="draft.csv"):
     res = []
     file_path = os.path.join(base_path, method, instruments, 'rulex', task_id,
                              "nxt1_ret_{0}h".format(period))
-    draft_data = pd.read_csv(os.path.join(file_path, "draft.csv"))
+    draft_data = pd.read_csv(os.path.join(file_path, filename))
     draft_data['source'] = draft_data['source'].astype(int)
     draft_data['factor_id'] = draft_data['formula'].apply(lambda x: create_id(generate_simple_id(x)))
     for row in draft_data.itertuples():
