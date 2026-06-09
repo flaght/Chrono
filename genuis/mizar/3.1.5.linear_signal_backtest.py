@@ -1,0 +1,275 @@
+import os, json, pdb, copy
+import pandas as pd
+from joblib import Parallel, delayed
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from lib.cux001 import FactorEvaluate1
+from lib.rl012.sandbox import PositionBacktester
+from kdutils.macro2 import *
+from kdutils.tactix import Tactix
+from lib.attr001.ftd001 import *
+from lib.bck001 import *
+
+signal_functions = {
+    "band_signal": {
+        "1001": {
+            "roll_num": 0,
+            "threshold": 0.05,
+        },
+        "1002": {
+            "roll_num": 0,
+            "threshold": 0.10,
+        },
+        "1003": {
+            "roll_num": 0,
+            "threshold": 0.15,
+        },
+        "1004": {
+            "roll_num": 0,
+            "threshold": 0.20,
+        },
+    },
+    "gate_signal": {
+        "1001": {
+            "roll_num": 20,
+            "threshold": 0.75,
+        },
+        "1002": {
+            "roll_num": 24,
+            "threshold": 0.80,
+        },
+        "1003": {
+            "roll_num": 30,
+            "threshold": 0.85,
+        },
+        "1004": {
+            "roll_num": 40,
+            "threshold": 0.90,
+        },
+    },
+    "rollrank1_signal": {
+        "1001": {
+            "roll_num": 20,
+            "threshold": 0.80,
+        },
+        "1002": {
+            "roll_num": 24,
+            "threshold": 0.85,
+        },
+        "1003": {
+            "roll_num": 30,
+            "threshold": 0.90,
+        },
+    },
+    "rollrank2_signal": {
+        "1001": {
+            "roll_num": 20,
+            "threshold": 0.75,
+        },
+        "1002": {
+            "roll_num": 24,
+            "threshold": 0.80,
+        },
+        "1003": {
+            "roll_num": 30,
+            "threshold": 0.85,
+        },
+    }
+}
+
+_PARALLEL_MARKET_DATA = None
+
+
+def parallel_backtest(signal_data, name, expression, code, period,
+                      max_position, lot_per_signal, contract_multiplier):
+    pdb.set_trace()
+    signal_data = signal_data.rename(columns={'transformed': 'value'})
+    market_data = _PARALLEL_MARKET_DATA
+    # position_data = build_locked_signals(model_output=signal_data,
+    #                                      base_position=max_position,
+    #                                      lot_per_signal=lot_per_signal,
+    #                                      cooldown_bars=0,
+    #                                      hold_bars=period,
+    #                                      entry_resampling_win=period,
+    #                                      date_col='trade_date'
+    #                                      if 'trade_date' in signal_data.columns
+    #                                      else None)
+    position_data = build_capped_locked_signals(
+        model_output=signal_data,
+        base_position=max_position,
+        lot_per_signal=lot_per_signal,
+        cooldown_bars=0,
+        hold_bars=period,
+        entry_resampling_win=period,
+        date_col='trade_date' if 'trade_date' in signal_data.columns else None,
+        max_daily_open_lots=10,
+        max_daily_open_lots_per_direction=5,
+        max_active_open_lots=2,
+        max_active_open_lots_per_direction=1,
+        min_abs_value=None,
+        block_same_direction_reentry=True,
+        block_opposite_direction_reentry=False,
+    )
+    pb = PositionBacktester(market_data=market_data,
+                            contract_multiplier=contract_multiplier,
+                            slippage=0.001)
+    trade_records, daily_stats = pb.run(position_df=position_data, code='RB')
+    print('-->')
+
+
+def backtest_signal1(method, instruments, task_id, period, corr):
+    trading_sessions = (("21:00", "23:00"), ("09:00", "10:15"),
+                        ("10:30", "11:30"), ("13:30", "15:00"))
+    base_path1 = os.path.join(base_path, method, instruments, 'temp', 'model',
+                              str(task_id), str(period), 'rl')
+    dirs1 = os.path.join(base_path1, "signal", "equal_weight", str(corr))
+
+    min_time = None
+    max_time = None
+    res = []
+    file_path = Path(dirs1)
+    for feat_file in file_path.rglob('*.feather'):
+        print(feat_file)
+        signal_data = pd.read_feather(feat_file)
+        name = feat_file.parts[-1].split('.')[0]
+        if 'test' not in name:
+            continue
+        expression = "{0}_{1}_{2}_{3}".format(feat_file.parts[-4],
+                                              feat_file.parts[-3],
+                                              feat_file.parts[-2], name)
+        min_time = signal_data['trade_time'].min(
+        ) if min_time is None else min(signal_data['trade_time'].min(),
+                                       min_time)
+        max_time = signal_data['trade_time'].max(
+        ) if max_time is None else max(signal_data['trade_time'].max(),
+                                       max_time)
+        res.append((name, expression, signal_data))
+
+    market_data = load_market_data(instruments=instruments,
+                                   begin_time=min_time,
+                                   end_time=max_time,
+                                   trading_sessions=trading_sessions)
+    global _PARALLEL_MARKET_DATA
+    _PARALLEL_MARKET_DATA = market_data
+    pdb.set_trace()
+    parallel_backtest(signal_data=res[11][2],
+                      name=res[11][0],
+                      expression=res[11][1],
+                      code='RB',
+                      period=period,
+                      max_position=1,
+                      lot_per_signal=1,
+                      contract_multiplier=10)
+
+
+def metrics_signal1(method, instruments, task_id, period, corr):
+    base_path1 = os.path.join(base_path, method, instruments, 'temp', 'model',
+                              str(task_id), str(period), 'rl')
+    dirs1 = os.path.join(base_path1, "signal", "equal_weight", str(corr))
+
+    file_path = Path(dirs1)
+    for feat_file in file_path.rglob('*.feather'):
+        signal_data = pd.read_feather(feat_file)
+        name = feat_file.parts[-1].split('.')[0]
+        evaluate = FactorEvaluate1(factor_data=signal_data,
+                                   factor_name='signal',
+                                   ret_name='nxt1_ret_{0}h'.format(period),
+                                   roll_win=15,
+                                   fee=0.0,
+                                   scale_method='raw',
+                                   expression="{0}_{1}_{2}_{3}".format(
+                                       feat_file.parts[-4],
+                                       feat_file.parts[-3],
+                                       feat_file.parts[-2], name),
+                                   resampling_win=period,
+                                   name=name)
+        output = os.path.join(feat_file.parent, "metrics")
+        os.makedirs(output, exist_ok=True)
+        _ = evaluate.run()
+        evaluate.plot_results()
+        evaluate.save_results(output)
+
+
+def create_signal1(method, instruments, task_id, period, corr):
+
+    def signal_to_save(data, name):
+        signal_dt = create_signal(data=data.copy(),
+                                  signal_method=key1,
+                                  signal_params=params)
+        total_data = signal_dt.merge(data, on=['trade_time', 'code'])
+        filename = os.path.join(base_dirs,
+                                "{0}_{1}.feather".format(key2, name))
+        total_data.to_feather(filename)
+
+    base_path1 = os.path.join(base_path, method, instruments, 'temp', 'model',
+                              str(task_id), str(period), 'rl')
+
+    dirs_path = os.path.join(base_path1, "composite", "linear", 'equal_weight',
+                             str(corr), 'data')
+    val_data = pd.read_feather(os.path.join(dirs_path, "val_data.feather"))
+    test_data = pd.read_feather(os.path.join(dirs_path, "test_data.feather"))
+    dirs1 = os.path.join(base_path1, "signal", "equal_weight")
+    for key1, functions in signal_functions.items():
+        for key2, params in functions.items():
+            print(key1, key2)
+            base_dirs = os.path.join(dirs1, str(corr), key1)
+            os.makedirs(base_dirs, exist_ok=True)
+            signal_to_save(data=test_data, name='test')
+            signal_to_save(data=val_data, name='val')
+
+    # signal_method = 'quantile_signal'
+    # signal_params = signal_functions[signal_method]["1001"]
+    # pos_data = eval(signal_method)(factor_data=test_data.set_index(
+    #     ['trade_time', 'code'])[['transformed']],
+    #                                **signal_params)
+    # pos_data = pos_data.stack()
+    # pos_data.name = 'signal'
+    # signals_df = pos_data.reset_index()
+
+    # signals_df = signals_df.merge(
+    #     test_data, on=['trade_time',
+    #                    'code']).rename(columns={'transformed': 'value'})
+    # position_data = build_position_signals(model_output=signals_df,
+    #                                        hold_bars=5,
+    #                                        max_position=1,
+    #                                        lot_per_signal=1,
+    #                                        cooldown_bars=5)
+
+    # trading_sessions = (("21:00", "23:00"), ("09:00", "10:15"),
+    #                     ("10:30", "11:30"), ("13:30", "15:00"))
+
+    # market_data = load_market_data(instruments=instruments,
+    #                                begin_time='2024-04-18',
+    #                                end_time='2026-04-30',
+    #                                trading_sessions=trading_sessions)
+    # pdb.set_trace()
+    # pb = PositionBacktester(market_data=market_data,
+    #                         contract_multiplier=10,
+    #                         slippage=0.1)
+    # trade_records, daily_stats = pb.run(position_df=position_data, code='RB')
+    print('-->')
+
+
+if __name__ == '__main__':
+    variant = Tactix().start()
+    if variant.form == 'build':
+        create_signal1(method=variant.method,
+                       instruments=variant.instruments,
+                       task_id=variant.task_id,
+                       period=variant.period,
+                       corr=variant.corr)
+    elif variant.form == 'metrics':
+        metrics_signal1(method=variant.method,
+                        instruments=variant.instruments,
+                        task_id=variant.task_id,
+                        period=variant.period,
+                        corr=variant.corr)
+    elif variant.form == 'backtest':
+        backtest_signal1(method=variant.method,
+                         instruments=variant.instruments,
+                         task_id=variant.task_id,
+                         period=variant.period,
+                         corr=variant.corr)
