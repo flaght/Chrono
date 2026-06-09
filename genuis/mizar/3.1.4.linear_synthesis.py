@@ -31,7 +31,8 @@ def equal_weight(train_data, val_data, test_data, corr_data, corr, period,
         roll_win=15,
         period=period,
         scale_method='raw',
-        expression='train')
+        expression='train_{0}'.format(corr),
+        name='train')
 
     val_result, val_evaluate1 = composit_equal(
         data=val_data,
@@ -39,7 +40,8 @@ def equal_weight(train_data, val_data, test_data, corr_data, corr, period,
         roll_win=15,
         period=period,
         scale_method='raw',
-        expression='val')
+        expression='val_{0}'.format(corr),
+        name='val')
 
     test_result, test_evaluate1 = composit_equal(
         data=test_data,
@@ -47,15 +49,15 @@ def equal_weight(train_data, val_data, test_data, corr_data, corr, period,
         roll_win=15,
         period=period,
         scale_method='raw',
-        expression='test')
+        expression='test_{0}'.format(corr),
+        name='test')
 
-    dir_path = os.path.join(basic_path, "composite", "linear", str(int(corr)))
+    dir_path = os.path.join(basic_path, str(int(corr)))
     metrics_path = os.path.join(dir_path, "metrics")
     data_path = os.path.join(dir_path, "data")
     os.makedirs(metrics_path, exist_ok=True)
     os.makedirs(data_path, exist_ok=True)
 
-    
     train_result.reset_index().to_feather(
         os.path.join(data_path, "train_data.feather"))
     val_result.reset_index().to_feather(
@@ -73,7 +75,7 @@ def equal_weight(train_data, val_data, test_data, corr_data, corr, period,
     test_evaluate1.save_results(base_output_dir=metrics_path)
 
 
-def train_model(method, instruments, task_id, period):
+def train_model(method, instruments, task_id, period, form):
     train_data, val_data, test_data = load_data2(method=method,
                                                  instruments=instruments,
                                                  task_id=task_id,
@@ -83,10 +85,8 @@ def train_model(method, instruments, task_id, period):
                               str(task_id), str(period), 'rl')
     dt_path = os.path.join(basic_path, 'blend', 'corr')
 
-    pdb.set_trace()
     file_path = Path(dt_path)
     for csv_file in file_path.rglob('*.csv'):
-        pdb.set_trace()
         corr_data = pd.read_csv(csv_file, index_col=0)
         name = csv_file.parts[-1].split('.')[0]
         train_data1 = train_data[
@@ -98,14 +98,15 @@ def train_model(method, instruments, task_id, period):
         test_data1 = test_data[
             ['trade_time', 'code', 'nxt1_ret_{0}h'.format(period)] +
             corr_data['expression'].to_list()]
-
-        equal_weight(train_data=train_data1,
-                     val_data=val_data1,
-                     test_data=test_data1,
-                     corr_data=corr_data,
-                     corr=name,
-                     period=period,
-                     basic_path=basic_path)
+        if form == 'equal_weight':
+            equal_weight(train_data=train_data1,
+                         val_data=val_data1,
+                         test_data=test_data1,
+                         corr_data=corr_data,
+                         corr=name,
+                         period=period,
+                         basic_path=os.path.join(basic_path, "composite",
+                                                 "linear", 'equal_weight'))
 
 
 if __name__ == '__main__':
@@ -113,4 +114,5 @@ if __name__ == '__main__':
     train_model(method=variant.method,
                 instruments=variant.instruments,
                 task_id=variant.task_id,
-                period=variant.period)
+                period=variant.period,
+                form=variant.form)

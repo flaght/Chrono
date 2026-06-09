@@ -94,7 +94,7 @@ def valid_programs(method,
     #programs = programs.loc[:1]
     program_rows = programs[["name", "formual",
                              "final_fitness"]].to_dict(orient="records")
-    pdb.set_trace()
+    
     global _PARALLEL_TOTAL_DATA, _PARALLEL_TOTAL_DATA1
     _PARALLEL_TOTAL_DATA = total_data
     _PARALLEL_TOTAL_DATA1 = total_data1
