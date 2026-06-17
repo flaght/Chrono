@@ -10,9 +10,10 @@ load_dotenv()
 from alphacopilot.api.calendars import advanceDateByCalendar
 from kdutils.ttimes import get_dates
 from kdutils.macro import base_path
-from config.contract import INSTRUMENTS_CODES
-from kdutils.data import fetch_main_market, fetch_local_market
+from config.contract import INSTRUMENTS_CODES, INDEX_MAPPING
+from kdutils.data import fetch_main_market, fetch_local_market, fetch_local_market1
 from kdutils.tactix import Tactix
+from lib.iux001 import fetch_data
 
 import lumina.env as env
 
@@ -34,6 +35,14 @@ import lumina.impulse.i013 as i013
 import lumina.impulse.i014 as i014
 
 
+### 过滤逻辑异常日期
+def filter_date(total_data, start_exclude, end_exclude):
+    mask = (total_data['trade_time']
+            < start_exclude) | (total_data['trade_time'] > end_exclude)
+    filtered_dt1 = total_data[mask]
+    return filtered_dt1
+
+
 def callback_save(instruments, factors_data, name, method, start_date,
                   end_date):
     cond1 = (factors_data.index.get_level_values(
@@ -43,6 +52,7 @@ def callback_save(instruments, factors_data, name, method, start_date,
     factors_data = factors_data[cond1]
     ff = factors_data.sort_index().reset_index()
     ff1 = ff  #ff.set_index(['trade_time', 'code']).unstack()
+    # pdb.set_trace()
     dirs = os.path.join(base_path, method, instruments, 'factors')
     if not os.path.exists(dirs):
         os.makedirs(dirs)
@@ -75,10 +85,11 @@ def calculate_factors(data, callback, instruments, method, start_date,
                  end_date=end_date)
 
     for i00 in [
-             i001, i002, i003, i004, i005, i006,
-             i007, i008, i009, i010, i011, i012,
-             i013, i014
+            i001, i002, i003, i004, i005, i006, i007, i008, i009, i010, i011,
+            i012, i013, i014
     ]:
+        # for i00 in [i007, i008, i009, i013]:
+        # for i00 in [i012]:
         run(data=data,
             i00=i00,
             callback=callback,
@@ -88,18 +99,31 @@ def calculate_factors(data, callback, instruments, method, start_date,
             end_date=end_date)
 
 
-def main(method, instruments):
+def main(method, instruments, source):
     start_date, end_date = get_dates(method)
     start_time = advanceDateByCalendar('china.sse', start_date,
                                        '-{0}b'.format(1)).strftime('%Y-%m-%d')
-
+    pdb.set_trace()
     if instruments == 'btcu':
-        data = fetch_local_market(base_path=base_path, method=method, 
-                instruments=instruments, name='all')
+        data = fetch_local_market(base_path=base_path,
+                                  method=method,
+                                  instruments=instruments,
+                                  name='all')
+
     else:
-        data = fetch_main_market(begin_date=start_time,
-                             end_date=end_date,
-                             codes=[INSTRUMENTS_CODES[instruments]])
+        if source == 'research':
+            data = fetch_local_market1(base_path=os.environ['BAR_FUT_DIRS'],
+                                       begin_date=start_time,
+                                       end_date=end_date,
+                                       codes=[INSTRUMENTS_CODES[instruments]])
+        elif source == 'bench':
+            data = fetch_main_market(begin_date=start_time,
+                                     end_date=end_date,
+                                     codes=[INSTRUMENTS_CODES[instruments]],
+                                     forced_alignment=True)
+        else:
+            raise ValueError("source:{0}".format(source))
+    pdb.set_trace()
     data = data.set_index(['trade_time', 'code']).unstack()
     calculate_factors(data,
                       instruments=instruments,
@@ -109,7 +133,7 @@ def main(method, instruments):
                       end_date=end_date)
 
 
-def merge(method, instruments):
+def merge(method, instruments, source):
     base_dirs = os.path.join(base_path, method, instruments, 'factors')
     res = []
     for root, dirs, files in os.walk(base_dirs):
@@ -130,26 +154,43 @@ def merge(method, instruments):
     start_date = factors_data['trade_time'].min().strftime('%Y-%m-%d %H:%M:%S')
     end_date = factors_data['trade_time'].max().strftime('%Y-%m-%d %H:%M:%S')
     if instruments == 'btcu':
-        data = fetch_local_market(base_path=base_path, method=method, 
-                instruments=instruments, name='all')
+        data = fetch_local_market(base_path=base_path,
+                                  method=method,
+                                  instruments=instruments,
+                                  name='all')
     else:
-        data = fetch_main_market(begin_date=start_date,
-                             end_date=end_date,
-                             codes=[INSTRUMENTS_CODES[instruments]])
-    base_columns = ['close', 'high', 'low', 'open', 'value','volume', 'openint', 'vwap']
-    merge_columns = list(set(data.columns)&set(base_columns))
-    factors_data = factors_data.merge(data[[
-        'trade_time', 'code'] + merge_columns],
-        on=['trade_time', 'code'])
+        pdb.set_trace()
+        if source == 'research':
+            data = fetch_local_market1(base_path=os.environ['BAR_FUT_DIRS'],
+                                       begin_date=start_date,
+                                       end_date=end_date,
+                                       codes=[INSTRUMENTS_CODES[instruments]])
+        else:
+            data = fetch_main_market(begin_date=start_date,
+                                     end_date=end_date,
+                                     codes=[INSTRUMENTS_CODES[instruments]],
+                                     forced_alignment=True)
+    base_columns = [
+        'close', 'high', 'low', 'open', 'value', 'volume', 'openint', 'vwap'
+    ]
+    merge_columns = list(set(data.columns) & set(base_columns))
+    factors_data = factors_data.merge(data[['trade_time', 'code'] +
+                                           merge_columns],
+                                      on=['trade_time', 'code'])
     pdb.set_trace()
     factors_data['trade_time'] = pd.to_datetime(
         factors_data['trade_time']).dt.strftime('%Y-%m-%d %H:%M:%S')
     factors_data = factors_data.sort_values(by=['trade_time', 'code'])
 
+    ## 非正常周期过滤
+    # factors_data = filter_date(total_data=factors_data,
+    #                            start_exclude='2015-07-07 14:35:00',
+    #                            end_exclude='2015-08-25 09:50:00')
+    pdb.set_trace()
     times = factors_data['trade_time'].unique().tolist()
 
     len1 = round(len(times) * 0.6)  # 60%部分
-    len2 = round(len(times) * 0.2)  # 25%部分
+    len2 = round(len(times) * 0.25)  # 25%部分
     len3 = len(times) - len1 - len2
 
     ## 训练集
@@ -200,17 +241,29 @@ def create_yields(data, horizon, offset=0):
     return df
 
 
-def fetch_returns(begin_date, end_date, codes, method, instruments):
+def fetch_returns(begin_date, end_date, codes, method, instruments, source):
     res = []
     horizon_sets = [1, 2, 3, 5, 10, 15]
     pdb.set_trace()
     if 'btcu' == instruments:
-        market_data = fetch_local_market(base_path=base_path, method=method, 
-                instruments=instruments, name='all')
+        market_data = fetch_local_market(base_path=base_path,
+                                         method=method,
+                                         instruments=instruments,
+                                         name='all')
     else:
-        market_data = fetch_main_market(begin_date=begin_date,
-                                    end_date=end_date,
-                                    codes=codes)
+        if source == 'research':
+            market_data = fetch_local_market1(
+                base_path=os.environ['BAR_FUT_DIRS'],
+                begin_date=begin_date,
+                end_date=end_date,
+                codes=[INSTRUMENTS_CODES[instruments]])
+        else:
+            market_data = fetch_main_market(
+                begin_date=begin_date,
+                end_date=end_date,
+                codes=[INSTRUMENTS_CODES[instruments]],
+                forced_alignment=True)
+    pdb.set_trace()
     chg_data = create_chg(market_data)
     for horizon in horizon_sets:
         df = create_yields(data=chg_data.copy(), horizon=horizon)
@@ -235,9 +288,9 @@ def fetch_returns(begin_date, end_date, codes, method, instruments):
     return data1
 
 
-def returns(method, instruments):
+def returns(method, instruments, source):
     pdb.set_trace()
-    start_date, end_date = get_dates(method)
+    start_date, end_date = get_dates(method=method)
     begin_date1 = advanceDateByCalendar("china.sse", start_date,
                                         '-5b').strftime('%Y-%m-%d')
     end_date1 = advanceDateByCalendar("china.sse", end_date,
@@ -246,8 +299,9 @@ def returns(method, instruments):
     returns_data = fetch_returns(begin_date=begin_date1,
                                  end_date=end_date1,
                                  codes=[INSTRUMENTS_CODES[instruments]],
-                                 method=method, 
-                                 instruments=instruments)
+                                 method=method,
+                                 instruments=instruments,
+                                 source=source)
     returns_data = returns_data.loc[start_date:end_date]
     returns_data = returns_data.reset_index()
 
@@ -255,10 +309,14 @@ def returns(method, instruments):
         returns_data['trade_time']).dt.strftime('%Y-%m-%d %H:%M:%S')
     returns_data = returns_data.sort_values(by=['trade_time', 'code'])
 
+    returns_data = filter_date(total_data=returns_data,
+                               start_exclude='2015-07-07 14:35:00',
+                               end_exclude='2015-08-25 09:50:00')
+
     times = returns_data['trade_time'].unique().tolist()
 
-    len1 = round(len(times) * 0.6)  # 70%部分
-    len2 = round(len(times) * 0.2)  # 20%部分
+    len1 = round(len(times) * 0.6)  # 60%部分
+    len2 = round(len(times) * 0.25)  # 25%部分
     len3 = len(times) - len1 - len2
     pdb.set_trace()
     ## 训练集
@@ -282,16 +340,58 @@ def returns(method, instruments):
         os.path.join(target_dir, 'test_returns.feather'))
 
 
+def recent(method, instruments, source):
+    pdb.set_trace()
+    total_data = fetch_data(
+        method=method,
+        instruments=instruments,
+        task_id=INDEX_MAPPING[INSTRUMENTS_CODES[instruments]],
+        datasets=['train', 'val'])
+    max_date = total_data['trade_time'].max()
+    start_date = advanceDateByCalendar('china.sse', max_date,
+                                       '-{0}b'.format(750))
+    mask = (total_data['trade_time'] >= start_date) & (total_data['trade_time']
+                                                       <= max_date)
+    total_data = total_data[mask]
+    nxt1_columns = total_data.filter(regex="^nxt1").columns.to_list()
+    nxt1_columns = nxt1_columns + ['time_weight', 'equal_weight']
+    features = [
+        col for col in total_data.columns
+        if col not in ['trade_time', 'code'] + nxt1_columns
+    ]
+    recent_returns = total_data[['trade_time', 'code'] + nxt1_columns]
+    recent_data = total_data[['trade_time', 'code'] + features]
+
+    pdb.set_trace()
+    recent_data.reset_index(drop=True).to_feather(
+        os.path.join(os.path.join(base_path, method, instruments, 'basic'),
+                     'recent_data.feather'))
+
+    recent_returns.reset_index(drop=True).to_feather(
+        os.path.join(os.path.join(base_path, method, instruments, 'returns'),
+                     'recent_returns.feather'))
+
+
 if __name__ == '__main__':
     pdb.set_trace()
     variant = Tactix().start()
     if variant.form == 'factors':
-        main(method=variant.method, instruments=variant.instruments)
+        main(method=variant.method,
+             instruments=variant.instruments,
+             source=variant.source)
     elif variant.form == 'merge':
-        merge(method=variant.method, instruments=variant.instruments)
+        merge(method=variant.method,
+              instruments=variant.instruments,
+              source=variant.source)
     elif variant.form == 'returns':
-        returns(method=variant.method, instruments=variant.instruments)
-        
+        returns(method=variant.method,
+                instruments=variant.instruments,
+                source=variant.source)
+
+    elif variant.form == 'recent':
+        recent(method=variant.method,
+               instruments=variant.instruments,
+               source=variant.source)
 
 #main(method='dicso2', instruments='rbb')
 #merge(method='dicso2', instruments='rbb')
