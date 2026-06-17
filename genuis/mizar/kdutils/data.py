@@ -1,4 +1,5 @@
 import pdb, os, datetime
+import numpy as np
 import pandas as pd
 from pymongo import InsertOne, DeleteOne
 
@@ -54,6 +55,42 @@ def fetch_basic1(begin_date, end_date, symbols):
     })
 
 
+def fetch_basic2(begin_date,
+                 end_date,
+                 codes=None,
+                 columns=[
+                     'contractObject', 'code', 'exchangeCD', 'contMultNum',
+                     'lastTradeDate'
+                 ]):
+   
+    name = 'fut_basic'
+    names = DBAPI.CustomizeFactory(kd_engine).name(name=name)
+    clause_list = [names.flag == 1]
+    if isinstance(codes, list):
+        clause_list.append(names.contractObject.in_(codes))
+    elif isinstance(codes, str):
+        clause_list.append(names.contractObject.in_([codes]))
+
+    basic_info = DBAPI.CustomizeFactory(kd_engine).custom(
+        name=name,
+        clause_list=clause_list,
+        columns=columns + ['tradeCommiUnit'])
+    # basic_info = basic_info.sort_values(by='listDate',
+    #                                     ascending=False).drop_duplicates(
+    #                                         subset='contractObject',
+    #                                         keep='first')
+    pdb.set_trace()
+    basic_info = basic_info[
+        (basic_info['lastTradeDate'] >= begin_date.strftime("%Y-%m-%d"))
+        & (basic_info['lastTradeDate'] <= end_date.strftime("%Y-%m-%d")) 
+        #&(basic_info['tradeCommiUnit'] == '%')
+        ]
+    return basic_info.rename(columns={
+        'contractObject': 'code',
+        'code': 'symbol'
+    })
+
+
 def fetch_local_market1(base_path,
                         begin_date,
                         end_date,
@@ -97,21 +134,39 @@ def fetch_local_market1(base_path,
     }).drop(drop_colmns, axis=1)
     min_data['trade_time'] = pd.to_datetime(min_data['trade_time'])
     ## 过滤非正常交易时间段
-    times_to_exclude = [
-        datetime.time(8, 59, 0),
-        datetime.time(20, 59, 0),
-        datetime.time(15, 16, 0)
-    ]
-    min_data = min_data[~min_data['trade_time'].dt.time.isin(times_to_exclude)]
-    return min_data
+    # times_to_exclude = [
+    #     datetime.time(8, 59, 0),
+    #     datetime.time(20, 59, 0),
+    #     datetime.time(15, 16, 0)
+    # ]
+   
+    t = min_data["trade_time"].dt.time
+    day_session = (((t >= datetime.time(9, 0)) & (t <= datetime.time(11, 30)))
+                   | ((t >= datetime.time(13, 30)) &
+                      (t <= datetime.time(15, 0))))
 
+    night_session = (((t >= datetime.time(21, 0)) &
+                      (t <= datetime.time(23, 59, 59))) |
+                     ((t >= datetime.time(0, 0)) &
+                      (t <= datetime.time(2, 30))))
+
+    # min_data = min_data[~min_data['trade_time'].dt.time.isin(times_to_exclude)]
+    min_data = min_data[day_session | night_session]
+    
+    min_data['vwap'] = np.where(min_data['volume'] != 0, np.nan, min_data['vwap'])
+    min_data = min_data.sort_values(by=['trade_time', 'code', 'volume'])
+    min_data['vwap'] = min_data['vwap'].ffill()
+    min_data_cleaned = min_data[(min_data['volume'] != 0)&(min_data['value'] != 0)].copy()
+    return min_data_cleaned.reset_index(drop=True)
 
 def fetch_main_market(begin_date,
                       end_date,
                       codes,
                       method='pcr',
-                      keep_symbol=False):
+                      keep_symbol=False,
+                      forced_alignment=False):
     basic_info = fetch_basic(begin_date, end_date, codes)
+    pdb.set_trace()
     data = RetrievalAPI.get_main_price(begin_date=begin_date,
                                        end_date=end_date,
                                        codes=codes,
@@ -152,6 +207,9 @@ def fetch_main_market(begin_date,
     data = data.dropna(subset=['vwap'])
     data = data.drop_duplicates(subset=['trade_time', 'code']).sort_values(
         by=['trade_time', 'code'])
+    
+    if forced_alignment:
+        data['trade_time'] = data['trade_time'] - pd.Timedelta(minutes=1)
     return data
 
 
