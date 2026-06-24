@@ -367,7 +367,7 @@ class FactorEvaluate1(object):
         if self.stats is None:
             raise RuntimeError(
                 "Please run the 'run()' method before plotting.")
-
+        
         def set_sequential_xticks(ax, series, num_ticks=7):
             """
             为一个使用整数索引绘图的坐标轴设置日期标签。

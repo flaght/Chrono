@@ -32,7 +32,7 @@ class PositionBacktester(object):
                  base_position: int = 10,
                  night_session_start: str = '2100',
                  session_anchor_start: str = '2059'):
-
+        pdb.set_trace()
         self.market_data = market_data.copy()
         self.slippage = slippage
         self.initial_capital = initial_capital
@@ -52,20 +52,21 @@ class PositionBacktester(object):
             'trade_time'].dt.strftime('%H%M').astype(str)
         night_start_minutes = _hhmm_to_minutes(night_session_start)
         anchor_start_minutes = _hhmm_to_minutes(session_anchor_start)
+        pdb.set_trace()
         minute_values = self.market_data['min_time'].map(_hhmm_to_minutes)
         self.market_data['session_date'] = self.market_data['date']
         night_mask = minute_values >= night_start_minutes
 
-        if night_mask.any():
-            unique_night_dates = self.market_data.loc[
-                night_mask, 'date'].drop_duplicates()
-            next_day_map = {
-                date_value: _next_trading_day(date_value)
-                for date_value in unique_night_dates
-            }
-            self.market_data.loc[night_mask,
-                                 'session_date'] = self.market_data.loc[
-                                     night_mask, 'date'].map(next_day_map)
+        # if night_mask.any():
+        #     unique_night_dates = self.market_data.loc[
+        #         night_mask, 'date'].drop_duplicates()
+        #     next_day_map = {
+        #         date_value: _next_trading_day(date_value)
+        #         for date_value in unique_night_dates
+        #     }
+        #     self.market_data.loc[night_mask,
+        #                          'session_date'] = self.market_data.loc[
+        #                              night_mask, 'date'].map(next_day_map)
 
         self.market_data['session_sort_key'] = np.where(
             minute_values >= anchor_start_minutes,
@@ -86,6 +87,7 @@ class PositionBacktester(object):
             self.time_index[(date, code)] = times
 
         self.price_lookup = {}
+        
         for row in self.market_data.itertuples():
             key = (row.session_date, row.code, row.min_time)
             self.price_lookup[key] = row.vwap

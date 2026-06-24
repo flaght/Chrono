@@ -62,7 +62,7 @@ def fetch_basic2(begin_date,
                      'contractObject', 'code', 'exchangeCD', 'contMultNum',
                      'lastTradeDate'
                  ]):
-   
+
     name = 'fut_basic'
     names = DBAPI.CustomizeFactory(kd_engine).name(name=name)
     clause_list = [names.flag == 1]
@@ -82,9 +82,9 @@ def fetch_basic2(begin_date,
     pdb.set_trace()
     basic_info = basic_info[
         (basic_info['lastTradeDate'] >= begin_date.strftime("%Y-%m-%d"))
-        & (basic_info['lastTradeDate'] <= end_date.strftime("%Y-%m-%d")) 
+        & (basic_info['lastTradeDate'] <= end_date.strftime("%Y-%m-%d"))
         #&(basic_info['tradeCommiUnit'] == '%')
-        ]
+    ]
     return basic_info.rename(columns={
         'contractObject': 'code',
         'code': 'symbol'
@@ -139,7 +139,7 @@ def fetch_local_market1(base_path,
     #     datetime.time(20, 59, 0),
     #     datetime.time(15, 16, 0)
     # ]
-   
+
     t = min_data["trade_time"].dt.time
     day_session = (((t >= datetime.time(9, 0)) & (t <= datetime.time(11, 30)))
                    | ((t >= datetime.time(13, 30)) &
@@ -152,12 +152,14 @@ def fetch_local_market1(base_path,
 
     # min_data = min_data[~min_data['trade_time'].dt.time.isin(times_to_exclude)]
     min_data = min_data[day_session | night_session]
-    
-    min_data['vwap'] = np.where(min_data['volume'] != 0, np.nan, min_data['vwap'])
+    min_data['vwap'] = np.where(min_data['volume'] != 0, min_data['vwap'],
+                                np.nan)
     min_data = min_data.sort_values(by=['trade_time', 'code', 'volume'])
     min_data['vwap'] = min_data['vwap'].ffill()
-    min_data_cleaned = min_data[(min_data['volume'] != 0)&(min_data['value'] != 0)].copy()
+    min_data_cleaned = min_data[(min_data['volume'] != 0)
+                                & (min_data['value'] != 0)].copy()
     return min_data_cleaned.reset_index(drop=True)
+
 
 def fetch_main_market(begin_date,
                       end_date,
@@ -207,7 +209,7 @@ def fetch_main_market(begin_date,
     data = data.dropna(subset=['vwap'])
     data = data.drop_duplicates(subset=['trade_time', 'code']).sort_values(
         by=['trade_time', 'code'])
-    
+
     if forced_alignment:
         data['trade_time'] = data['trade_time'] - pd.Timedelta(minutes=1)
     return data
