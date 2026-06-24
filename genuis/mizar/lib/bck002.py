@@ -52,6 +52,8 @@ def create_signal(data, signal_method, signal_params, name='transformed'):
 
 
 
+
+
 def rebuild_executed_signal_for_eval(signal_data: pd.DataFrame,
                                      position_data: pd.DataFrame,
                                      signal_col: str = "signal",

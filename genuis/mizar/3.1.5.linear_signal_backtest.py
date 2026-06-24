@@ -100,31 +100,42 @@ def parallel_backtest(signal_data, name, parts, period, contract_multiplier,
     print(name)
     signal_data = signal_data.rename(columns={'transformed': 'value'})
     market_data = _PARALLEL_MARKET_DATA
-    position_data = build_capped_locked_signals(
+    # position_data = build_capped_locked_signals(
+    #     model_output=signal_data,
+    #     base_position=params['base_position'],
+    #     lot_per_signal=params['lot_per_signal'],
+    #     cooldown_bars=0,
+    #     hold_bars=period,
+    #     entry_resampling_win=params['entry_resampling_win'],
+    #     date_col='trade_date' if 'trade_date' in signal_data.columns else None,
+    #     max_daily_open_lots=params['max_daily_open_lots'],  #10,
+    #     max_daily_open_lots_per_direction=params[
+    #         'max_daily_open_lots_per_direction'],  #5,
+    #     max_active_open_lots=params['max_active_open_lots'],  #2,
+    #     max_active_open_lots_per_direction=params[
+    #         'max_active_open_lots_per_direction'],  #1,
+    #     extend_same_direction=params['extend_same_direction'],
+    #     min_abs_value=params['min_abs_value'],
+    #     block_same_direction_reentry=params['block_same_direction_reentry'],
+    #     block_opposite_direction_reentry=params[
+    #         'block_opposite_direction_reentry'])
+
+    position_data = build_paired_position_signals(
         model_output=signal_data,
-        base_position=params['base_position'],
-        lot_per_signal=params['lot_per_signal'],
-        cooldown_bars=0,
-        hold_bars=period,
-        entry_resampling_win=params['entry_resampling_win'],
-        date_col='trade_date' if 'trade_date' in signal_data.columns else None,
-        max_daily_open_lots=params['max_daily_open_lots'],  #10,
-        max_daily_open_lots_per_direction=params[
-            'max_daily_open_lots_per_direction'],  #5,
-        max_active_open_lots=params['max_active_open_lots'],  #2,
-        max_active_open_lots_per_direction=params[
-            'max_active_open_lots_per_direction'],  #1,
-        extend_same_direction=params['extend_same_direction'],
-        min_abs_value=params['min_abs_value'],
-        block_same_direction_reentry=params['block_same_direction_reentry'],
-        block_opposite_direction_reentry=params[
-            'block_opposite_direction_reentry'])
+        hold_bars=5,
+        lot_per_signal=1,
+        max_active_lots=None,
+        value_col="value",
+        signal_col="signal",
+        date_col="trade_date" if "trade_date" in signal_data.columns else None,
+        allow_overnight=True,
+    )
 
     pb = PositionBacktester(market_data=market_data,
                             contract_multiplier=contract_multiplier,
                             slippage=0.001)
     trade_records, daily_stats = pb.run(position_df=position_data, code='RB')
-    dirs1 = os.path.join(basic_path, parts[-4], parts[-3], parts[-2], name)
+    dirs1 = os.path.join(basic_path, parts[-3], parts[-2], name)
     os.makedirs(dirs1, exist_ok=True)
     pdb.set_trace()
     position_data.to_feather(os.path.join(dirs1, "position_data.feather"))
@@ -178,6 +189,20 @@ def backtest_signal1(method, instruments, task_id, period, corr):
         'block_same_direction_reentry': True,  # 同方向暴露未恢复前，不再接受同方向新信号。
         'block_opposite_direction_reentry': True,  # 任一反方向暴露未恢复前，不接受当前方向新信号。
         'extend_same_direction': True  # 若暴露到期 bar 又出现同方向信号，
+    }
+
+    params = {
+        "base_position": 100000,
+        "lot_per_signal": 1,
+        "entry_resampling_win": None,
+        "max_daily_open_lots": None,
+        "max_daily_open_lots_per_direction": None,
+        "max_active_open_lots": None,
+        "max_active_open_lots_per_direction": None,
+        "min_abs_value": None,
+        "block_same_direction_reentry": False,
+        "block_opposite_direction_reentry": False,
+        "extend_same_direction": False,
     }
 
     params = {
