@@ -105,7 +105,6 @@ def load_data(method, instruments, task_id, period, backtest_id,
     # position_path = '/workspace/worker/pj/Chrono/genuis/mizar/records/ricso2/rbb/temp/model/113001/5/rl/backtest/rl/1013836755991964/1018806311332385/erband_signal/1002_test/position_data.feather'
 
     # trader_path = '/workspace/worker/pj/Chrono/genuis/mizar/records/ricso2/rbb/temp/model/113001/5/rl/backtest/rl/1013836755991964/1018806311332385/erband_signal/1002_test/trade_records.feather'
-    pdb.set_trace()
     signal_path = os.path.join(base_path, method, instruments, "temp", "model",
                                str(task_id), str(period),
                                "rl", "signal", composite_method,
@@ -139,8 +138,6 @@ def load_data(method, instruments, task_id, period, backtest_id,
 ###  信号数对比
 def run1(method, instruments, task_id, period, backtest_id, composite_method,
          composite_id, signal_method, signal_id):
-
-    pdb.set_trace()
     signal_data, position_data, trader_data = load_data(
         method=method,
         instruments=instruments,
@@ -224,13 +221,15 @@ def run2(method,
     pcr_df = create_yields(data=pcr_chg_data.copy(), horizon=period)
     pcr_df.name = pcr_col
     res.append(pcr_df)
-
+    
+    
     yields_data = pd.concat(res, axis=1)
     trader_execute = trader_execute.merge(yields_data,
                                           on=['trade_time', 'code'])
     trader_execute['execute_ret'] = np.log(trader_execute['close_price'] /
                                            trader_execute['open_price'])
     
+    ### 注意信号计算收益率时候 并没有过滤非正常交易日 注意仅在自行合成CTP bar的数据源
     pairs = [(ret_col, non_col), (ret_col, pcr_col), (ret_col, "execute_ret"),
              (non_col, pcr_col), (non_col, "execute_ret"),
              (pcr_col, "execute_ret")]
