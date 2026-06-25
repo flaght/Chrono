@@ -28,6 +28,7 @@ def load_data1(method, instruments, task_id, period):
 
 
 def load_data2(method, instruments, task_id, period):
+    pdb.set_trace()
     base_dirs = os.path.join(base_path, method, instruments, 'temp', 'model',
                              str(task_id), str(period), 'rl', 'data')
 
@@ -181,6 +182,7 @@ def create_evaluate(df, factor_names, pnl_ret_col, cost_rate, holding_period,
                     pnl_method, title_prefix, image_path):
     res1 = []
     res2 = []
+    pdb.set_trace()
     for factor_name in factor_names:
         _, profit_daily, _, _ = profitability(
             data=df[['trade_time', factor_name, pnl_ret_col]],
@@ -283,6 +285,7 @@ def create_evaluate(df, factor_names, pnl_ret_col, cost_rate, holding_period,
 
 
 def composite(method, instruments, task_id, period):
+    pdb.set_trace()
     train_data, val_data, test_data = load_data2(method=method,
                                                  instruments=instruments,
                                                  task_id=task_id,
@@ -310,7 +313,7 @@ def composite(method, instruments, task_id, period):
     create_evaluate(
         df=train_data,
         factor_names=['corr_4', 'corr_5', 'corr_6', 'corr_8', 'corr_7'],
-        pnl_ret_col='nxt1_ret_5h',
+        pnl_ret_col='nxt1_ret_{0}h'.format(period),
         cost_rate=COST_MAPPING[INSTRUMENTS_CODES[instruments]],
         holding_period=period,
         pnl_method='points_norm',
@@ -320,7 +323,7 @@ def composite(method, instruments, task_id, period):
     create_evaluate(
         df=val_data,
         factor_names=['corr_4', 'corr_5', 'corr_6', 'corr_8', 'corr_7'],
-        pnl_ret_col='nxt1_ret_5h',
+        pnl_ret_col='nxt1_ret_{0}h'.format(period),
         cost_rate=COST_MAPPING[INSTRUMENTS_CODES[instruments]],
         holding_period=period,
         pnl_method='points_norm',
@@ -330,7 +333,7 @@ def composite(method, instruments, task_id, period):
     create_evaluate(
         df=test_data,
         factor_names=['corr_4', 'corr_5', 'corr_6', 'corr_8', 'corr_7'],
-        pnl_ret_col='nxt1_ret_5h',
+        pnl_ret_col='nxt1_ret_{0}h'.format(period),
         cost_rate=COST_MAPPING[INSTRUMENTS_CODES[instruments]],
         holding_period=period,
         pnl_method='points_norm',

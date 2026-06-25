@@ -104,4 +104,4 @@ def start(trade_time,
 
 
 if __name__ == '__main__':
-    start(trade_time=datetime.datetime(2026, 6, 5))
+    start(trade_time=datetime.datetime(2026, 6, 12))

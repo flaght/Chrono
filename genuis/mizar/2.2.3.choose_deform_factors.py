@@ -19,8 +19,8 @@ leg_mappping = {"rbb": ["hcb"], "ims": ["ics"]}
 
 def create_evalute(column, period, factor_data, instruments, outputs):
     left_evaluate = calc_all1(expression=column,
-                             total_data1=factor_data,
-                             period=period)
+                              total_data1=factor_data,
+                              period=period)
     left_evaluate.run()
     left_evaluate.plot_results()
     left_evaluate.save_results(base_output_dir=outputs)
@@ -70,12 +70,14 @@ def fetch_data1(method, instruments, datasets, features, task_id, period):
     return total_data
 
 
-def fetch_chosen(method, instruments, task_id, period):
+def fetch_chosen(method, instruments, task_id, period, filename="choose.csv"):
 
     filename = os.path.join(base_path, method, instruments, "rulex",
                             str(task_id), "nxt1_ret_{}h".format(str(period)),
-                            "draft.csv")
-    return pd.read_csv(filename)  if os.path.exists(filename) else pd.DataFrame()
+                            filename)
+    print(filename)
+    return pd.read_csv(filename) if os.path.exists(
+        filename) else pd.DataFrame()
 
 
 def run2(method,
@@ -149,10 +151,64 @@ def run2(method,
                           outputs=outputs)
 
 
+def run3(method,
+         instruments,
+         period,
+         task_id,
+         filename='choose.csv',
+         datasets=['recent']):
+    pdb.set_trace()
+    ## 加载初选目录
+    outputs = os.path.join("records", method, instruments, 'rulex',
+                           str(task_id), "nxt1_ret_{}h".format(str(period)),
+                           "recent")
+    if not os.path.exists(outputs):
+        os.makedirs(outputs)
+
+    chosen_data = fetch_chosen(method=method,
+                               instruments=instruments,
+                               task_id=task_id,
+                               period=period,
+                               filename=filename)
+    pdb.set_trace()
+    features = [
+        eval(program.formula)._dependency
+        for program in chosen_data.itertuples()
+    ]
+    features = list(itertools.chain.from_iterable(features))
+    features = list(set(features))
+    factor_data = fetch_data1(method=method,
+                              instruments=instruments,
+                              datasets=datasets,
+                              features=features,
+                              task_id=task_id,
+                              period=period)
+    k_split = 2
+    expression_list = chosen_data['formula'].tolist()
+    expression_list = [
+        expression for expression in expression_list
+        if len(extract_operators(expression)) < 5
+    ]
+    process_list = split_k(k_split, expression_list)
+    res = create_parellel(process_list=process_list,
+                          callback=run_evalute,
+                          period=period,
+                          factor_data=factor_data,
+                          instruments=instruments,
+                          outputs=outputs)
+
+
 if __name__ == '__main__':
     variant = Tactix().start()
-    run2(method=variant.method,
-         instruments=variant.instruments,
-         period=variant.period,
-         task_id=variant.task_id,
-         session=variant.session)
+    if variant.form == 'all':
+        run2(method=variant.method,
+             instruments=variant.instruments,
+             period=variant.period,
+             task_id=variant.task_id,
+             session=variant.session)
+    elif variant.form == 'recent':
+        run3(method=variant.method,
+             instruments=variant.instruments,
+             period=variant.period,
+             task_id=variant.task_id,
+             filename=variant.filename)
