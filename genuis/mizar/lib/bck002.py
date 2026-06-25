@@ -2,9 +2,8 @@ import pandas as pd
 from pathlib import Path
 from lumina.genetic.signal.method import *
 from lib.attr001.ftd001 import *
+from lib.rl012.sandbox import empyrical_metrics
 from kdutils.macro2 import *
-
-
 
 
 def attach_position_labels(trader_data, position_data):
@@ -39,7 +38,6 @@ def attach_position_labels(trader_data, position_data):
     return trade_labeled.drop(columns=['_seq'])
 
 
-
 ### 转信号
 def create_signal(data, signal_method, signal_params, name='transformed'):
     data.rename(columns={name: 'transformed'}, inplace=True)
@@ -49,9 +47,6 @@ def create_signal(data, signal_method, signal_params, name='transformed'):
     pos_data = pos_data.stack()
     pos_data.name = 'signal'
     return pos_data.reset_index()
-
-
-
 
 
 def rebuild_executed_signal_for_eval(signal_data: pd.DataFrame,
@@ -88,7 +83,8 @@ def rebuild_executed_signal_for_eval(signal_data: pd.DataFrame,
     required_signal_cols = {code_col, time_col, signal_col}
     missing_signal = required_signal_cols - set(signal_data.columns)
     if missing_signal:
-        raise ValueError(f"signal_data missing required columns: {missing_signal}")
+        raise ValueError(
+            f"signal_data missing required columns: {missing_signal}")
 
     result = signal_data.copy()
     result[time_col] = pd.to_datetime(result[time_col])
@@ -114,7 +110,8 @@ def rebuild_executed_signal_for_eval(signal_data: pd.DataFrame,
     pos[time_col] = pd.to_datetime(pos[time_col])
 
     if "signal_type" in pos.columns:
-        open_mask = pos["signal_type"].isin(["open", "open_exposure", "consume_lock"])
+        open_mask = pos["signal_type"].isin(
+            ["open", "open_exposure", "consume_lock"])
         open_pos = pos.loc[open_mask].copy()
     else:
         # If signal_type is absent, treat all position rows as open events.
@@ -137,29 +134,31 @@ def rebuild_executed_signal_for_eval(signal_data: pd.DataFrame,
     )
     open_summary["executed_signal"] = open_summary["executed_signal"].clip(
         lower=-1, upper=1).astype(int)
-    open_summary["executed_lots"] = open_summary["executed_lots"].fillna(0).astype(int)
+    open_summary["executed_lots"] = open_summary["executed_lots"].fillna(
+        0).astype(int)
     open_summary["is_executable"] = True
 
-    result = result.merge(open_summary,
-                          on=[code_col, time_col],
-                          how="left")
+    result = result.merge(open_summary, on=[code_col, time_col], how="left")
     result["executed_signal"] = result["executed_signal"].fillna(0).astype(int)
     result["executed_lots"] = result["executed_lots"].fillna(0).astype(int)
-    result["is_executable"] = result["is_executable"].fillna(False).astype(bool)
+    result["is_executable"] = result["is_executable"].fillna(False).astype(
+        bool)
 
     # Keep the FactorEvaluate-facing signal exactly equal to the input signal.
     result[signal_col] = result["raw_signal"]
     return result
 
 
-def build_paired_position_signals(model_output: pd.DataFrame,
-                                  hold_bars: int = 5,
-                                  lot_per_signal: int = 1,
-                                  max_active_lots: int = None,
-                                  value_col: str = "value",
-                                  signal_col: str = "signal",
-                                  date_col: str = None,
-                                  allow_overnight: bool = True) -> pd.DataFrame:
+def build_paired_position_signals(
+        model_output: pd.DataFrame,
+        hold_bars: int = 5,
+        lot_per_signal: int = 1,
+        max_active_lots: int = None,
+        value_col: str = "value",
+        signal_col: str = "signal",
+        entry_resampling_win: int = 5,
+        date_col: str = None,
+        allow_overnight: bool = True) -> pd.DataFrame:
     """
     Convert discrete signals into simple paired open/close orders.
 
@@ -245,6 +244,14 @@ def build_paired_position_signals(model_output: pd.DataFrame,
         for i, raw_signal in enumerate(signals):
             # Release active lots that are scheduled to close on this bar.
             active_lots -= active_lots_by_close_idx.pop(i, 0)
+            if entry_resampling_win and entry_resampling_win >= 1:
+                is_entry_bar = int(
+                    min_times[i]) % int(entry_resampling_win) == 0
+
+            ## 是否生成信号
+            can_extend = True if is_entry_bar else False
+            if not can_extend:
+                continue
 
             signal = int(raw_signal)
             if signal == 0:
@@ -312,7 +319,10 @@ def build_paired_position_signals(model_output: pd.DataFrame,
         return pd.DataFrame(columns=columns)
 
     result = pd.DataFrame(records)
-    result["_order"] = result["signal_type"].map({"close": 0, "open": 1}).fillna(9)
+    result["_order"] = result["signal_type"].map({
+        "close": 0,
+        "open": 1
+    }).fillna(9)
     result = result.sort_values(["code", "trade_time", "_order", "pair_id"])
     return result.drop(columns=["_order"]).reset_index(drop=True)
 
@@ -1248,6 +1258,107 @@ def load_market_data(instruments, begin_time, end_time, trading_sessions):
 #period = 5
 
 
+def _load_backtest_results(method,
+                           instruments,
+                           task_id,
+                           period,
+                           category='equal_weight',
+                           param_id=None,
+                           sub_path=None):
+
+    if isinstance(param_id, str):
+        basic_path = os.path.join(base_path, method,
+                                  instruments, 'temp', 'model', str(task_id),
+                                  str(period), 'rl', 'backtest', category,
+                                  param_id)
+    else:
+        basic_path = os.path.join(base_path, method,
+                                  instruments, 'temp', 'model', str(task_id),
+                                  str(period), 'rl', 'backtest')
+
+    basic_path = Path(basic_path)
+    res = []
+    if not basic_path.exists():
+        print(f"Warning: Root path does not exist: {basic_path}")
+        return []
+
+    if sub_path:
+        # **核心修改点**
+        # a. 构建一个 glob 搜索模式。
+        #    '**' 是一个通配符，代表“任意多层子目录”。
+        #    所以这个模式的意思是：在 root_path 下的任何地方，找到匹配 sub_path 的目录，
+        #    然后再在那个目录里找到 'daily_stats.feather' 文件。
+        search_pattern = f"**/{sub_path}/**/daily_stats.feather"
+        files_to_load = basic_path.glob(search_pattern)
+    else:
+        # 如果没有提供 sub_path，则递归搜索所有的 'daily_stats.feather'
+        files_to_load = basic_path.rglob('daily_stats.feather')
+
+    res = {}
+    for feat_file in files_to_load:
+        # 从文件路径中提取有意义的名称
+        # 这个逻辑依然适用：取文件的上两级目录名作为标识
+        try:
+            print(feat_file.parts)
+            name = f"{feat_file.parts[-6]}_{feat_file.parts[-5]}_{feat_file.parts[-3]}_{feat_file.parts[-2]}"
+            daily_stats = pd.read_feather(feat_file)
+            res[name] = daily_stats
+        except Exception as e:
+            print(f"Failed to load or process file {feat_file}: {e}")
+    return res
+
+
+def load_backtest_series(method,
+                         instruments,
+                         task_id,
+                         period,
+                         category='equal_weight',
+                         param_id=None,
+                         sub_path=None):
+    res = []
+    res1 = _load_backtest_results(method,
+                                  instruments,
+                                  task_id,
+                                  period,
+                                  category=category,
+                                  param_id=param_id,
+                                  sub_path=sub_path)
+    for k, daily_stats in res1.items():
+        pnl_series = daily_stats.set_index('date')['cumulative_pnl']
+        pnl_series.name = k
+        res.append(pnl_series)
+    return res
+
+
+def load_backtest_summary(method,
+                          instruments,
+                          task_id,
+                          period,
+                          initial_capital=50000,
+                          category='equal_weight',
+                          param_id=None,
+                          sub_path=None):
+    res = []
+    res1 = _load_backtest_results(method,
+                                  instruments,
+                                  task_id,
+                                  period,
+                                  category=category,
+                                  param_id=param_id,
+                                  sub_path=sub_path)
+    for k, daily_stats in res1.items():
+        daily_dict = empyrical_metrics(daily_stats=daily_stats,
+                                       initial_capital=initial_capital)
+        daily_dict['name'] = k
+        res.append(daily_dict)
+    dt = pd.DataFrame(res)
+    dt = dt[[
+        'name', 'total_pnl', 'annual_return', 'annual_volatility',
+        'sharpe_ratio', 'calmar_ratio', 'max_drawdown'
+    ]]
+    return dt
+
+
 def load_backtest_results(method,
                           instruments,
                           task_id,
@@ -1265,7 +1376,6 @@ def load_backtest_results(method,
                                   instruments, 'temp', 'model', str(task_id),
                                   str(period), 'rl', 'backtest')
 
-    
     basic_path = Path(basic_path)
     res = []
     if not basic_path.exists():
@@ -1287,8 +1397,8 @@ def load_backtest_results(method,
     for feat_file in files_to_load:
         # 从文件路径中提取有意义的名称
         # 这个逻辑依然适用：取文件的上两级目录名作为标识
-        #print(feat_file.parts)
-        name = f"{feat_file.parts[-6]}_{feat_file.parts[-3]}_{feat_file.parts[-2]}"
+        print(feat_file.parts)
+        name = f"{feat_file.parts[-6]}_{feat_file.parts[-5]}_{feat_file.parts[-3]}_{feat_file.parts[-2]}"
 
         try:
             pnl_series = pd.read_feather(feat_file).set_index(

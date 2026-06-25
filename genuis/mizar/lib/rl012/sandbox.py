@@ -1,4 +1,4 @@
-import pdb
+import pdb, empyrical
 import pandas as pd
 import numpy as np
 from typing import Tuple, Optional
@@ -32,7 +32,6 @@ class PositionBacktester(object):
                  base_position: int = 10,
                  night_session_start: str = '2100',
                  session_anchor_start: str = '2059'):
-        pdb.set_trace()
         self.market_data = market_data.copy()
         self.slippage = slippage
         self.initial_capital = initial_capital
@@ -52,7 +51,6 @@ class PositionBacktester(object):
             'trade_time'].dt.strftime('%H%M').astype(str)
         night_start_minutes = _hhmm_to_minutes(night_session_start)
         anchor_start_minutes = _hhmm_to_minutes(session_anchor_start)
-        pdb.set_trace()
         minute_values = self.market_data['min_time'].map(_hhmm_to_minutes)
         self.market_data['session_date'] = self.market_data['date']
         night_mask = minute_values >= night_start_minutes
@@ -68,11 +66,13 @@ class PositionBacktester(object):
         #                          'session_date'] = self.market_data.loc[
         #                              night_mask, 'date'].map(next_day_map)
 
-        self.market_data['session_sort_key'] = np.where(
-            minute_values >= anchor_start_minutes,
-            minute_values,
-            minute_values + 24 * 60,
-        )
+        # self.market_data['session_sort_key'] = np.where(
+        #     minute_values >= anchor_start_minutes,
+        #     minute_values,
+        #     minute_values + 24 * 60,
+        # )
+        self.market_data['session_sort_key'] = self.market_data[
+            'trade_time'].dt.strftime('%Y%m%d%H%M').astype(int) - 200000000000
 
         self.market_data = self.market_data.sort_values(
             ['session_date', 'code',
@@ -87,7 +87,7 @@ class PositionBacktester(object):
             self.time_index[(date, code)] = times
 
         self.price_lookup = {}
-        
+
         for row in self.market_data.itertuples():
             key = (row.session_date, row.code, row.min_time)
             self.price_lookup[key] = row.vwap
@@ -178,7 +178,7 @@ class PositionBacktester(object):
             times = self.time_index[(date, code)]
             if len(times) < 120:
                 continue
-            
+
             first_time = times[0]
             last_time = times[-1]
 
@@ -221,7 +221,11 @@ class PositionBacktester(object):
                     min_time = signal.min_time
                     direction = signal.direction
                     numbers = signal.numbers
-
+                    # if min_time == '2255' and date.strftime(
+                    #         '%Y-%m-%d'
+                    # ) == '2024-04-18' and signal.signal_type == 'open':
+                    #     pdb.set_trace()
+                    #     print()
                     theoretical_price = self.next_price(date, code, min_time)
                     if theoretical_price is None:
                         # 无法成交（当日最后一个信号）
@@ -307,37 +311,84 @@ class PositionBacktester(object):
         self.daily_stats = pd.DataFrame(all_daily_stats)
         return self.trade_records, self.daily_stats
 
-    def metrics(self) -> dict:
-        if self.daily_stats is None or len(self.daily_stats) == 0:
-            return {}
 
-        df = self.daily_stats
+def metrics(daily_stats=None, initial_capital=50000) -> dict:
+    if daily_stats is None or len(daily_stats) == 0:
+        return {}
 
-        total_days = len(df)
-        win_days = (df['daily_pnl'] > 0).sum()
-        lose_days = (df['daily_pnl'] < 0).sum()
-        win_rate = win_days / total_days * 100
+    df = daily_stats.copy()
 
-        total_pnl = df['cumulative_pnl'].iloc[-1]
-        final_nav = df['nav'].iloc[-1]
+    total_days = len(df)
+    win_days = (df['daily_pnl'] > 0).sum()
+    lose_days = (df['daily_pnl'] < 0).sum()
+    win_rate = win_days / total_days * 100
 
-        # 计算最大回撤
-        df['cum_nav'] = df['nav'].cummax()
-        df['drawdown'] = (df['cum_nav'] - df['nav']) / df['cum_nav'] * 100
-        max_drawdown = df['drawdown'].max()
+    total_pnl = df['cumulative_pnl'].iloc[-1]
+    final_nav = df['nav'].iloc[-1]
 
-        # 计算夏普比率（假设无风险利率为 0）
-        daily_returns = df['daily_pnl'] / self.initial_capital
-        sharpe_ratio = np.sqrt(252) * daily_returns.mean() / daily_returns.std(
-        ) if daily_returns.std() > 0 else 0
+    # 计算最大回撤
+    df['cum_nav'] = df['nav'].cummax()
+    df['drawdown'] = (df['cum_nav'] - df['nav']) / df['cum_nav'] * 100
+    max_drawdown = df['drawdown'].max()
 
-        return {
-            'total_days': total_days,
-            'win_days': win_days,
-            'lose_days': lose_days,
-            'win_rate': win_rate,
-            'total_pnl': total_pnl,
-            'final_nav': final_nav,
-            'max_drawdown': max_drawdown,
-            'sharpe_ratio': sharpe_ratio
-        }
+    # 计算夏普比率（假设无风险利率为 0）
+    daily_returns = df['daily_pnl'] / initial_capital
+    sharpe_ratio = np.sqrt(252) * daily_returns.mean() / daily_returns.std(
+    ) if daily_returns.std() > 0 else 0
+
+    return {
+        'total_days': total_days,
+        'win_days': win_days,
+        'lose_days': lose_days,
+        'win_rate': win_rate,
+        'total_pnl': total_pnl,
+        'final_nav': final_nav,
+        'max_drawdown': max_drawdown,
+        'sharpe_ratio': sharpe_ratio
+    }
+
+
+def empyricals(daily_stats=None, initial_capital=50000, period='daily'):
+    daily_stats = daily_stats.copy().set_index('date')
+    equity = initial_capital + daily_stats['cumulative_pnl']
+    prev_equity = equity - daily_stats['daily_pnl']
+    nav = equity / initial_capital
+    daily_return = daily_stats[
+        'daily_pnl'] / prev_equity  # if prev_equity != 0 else 0.0
+    cum_return = nav - 1.0
+
+    returns = daily_return
+    returns = returns.replace([np.inf, -np.inf], np.nan).dropna()
+    return {
+        'annual_return':
+        empyrical.annual_return(returns=returns, period=period),
+        'annual_volatility':
+        empyrical.annual_volatility(returns=returns, period=period),
+        'cagr':
+        empyrical.cagr(returns=returns, period=period),
+        'sharpe_ratio':
+        empyrical.sharpe_ratio(returns=returns, period=period),
+        'downside_risk':
+        empyrical.downside_risk(returns=returns, period=period),
+        'max_drawdown':
+        empyrical.max_drawdown(returns=returns),
+        'calmar_ratio':
+        empyrical.calmar_ratio(returns=returns, period=period)
+    }
+
+
+def empyrical_metrics(daily_stats=None, initial_capital=50000, period='daily'):
+    metrics1 = metrics(daily_stats=daily_stats,
+                       initial_capital=initial_capital)
+    metrics2 = empyricals(daily_stats=daily_stats,
+                          initial_capital=initial_capital,
+                          period=period)
+    return {
+        'total_pnl':
+        metrics1['total_pnl'],
+        'annual_return':metrics2['annual_return'],
+        'annual_volatility':metrics2['annual_volatility'],
+        'sharpe_ratio':metrics2['sharpe_ratio'],
+        'calmar_ratio':metrics2['calmar_ratio'],
+        'max_drawdown':metrics2['max_drawdown']
+    }
