@@ -223,7 +223,7 @@ def load_sirius_params(code: str, task_id: str):
         config = yaml.safe_load(f)
 
     config = config[code]
-    pdb.set_trace()
+    
     if task_id not in config:
         raise KeyError(f"配置文件中必须包含 {task_id}。")
 

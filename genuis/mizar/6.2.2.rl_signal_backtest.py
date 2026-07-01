@@ -132,28 +132,39 @@ signal_functions = {
     }
 }
 
+
+def online_signal1(method, instruments, task_id, period, composite_method,
+                   composite_id):
+    trading_sessions = (("21:00", "23:00"), ("09:00", "10:15"),
+                        ("10:30", "11:30"), ("13:30", "15:00"))
+    params = {}
+
+    online_composite_signal(method=method,
+                            instruments=instruments,
+                            task_id=task_id,
+                            period=period,
+                            composite_method=composite_method,
+                            composite_id=composite_id,
+                            params=params,
+                            trading_sessions=trading_sessions)
+
+
 def backtest_signal1(method, instruments, task_id, period, composite_method,
                      composite_id):
     trading_sessions = (("21:00", "23:00"), ("09:00", "10:15"),
                         ("10:30", "11:30"), ("13:30", "15:00"))
-    # params = {
-    #     "base_position": 100000,
-    #     "lot_per_signal": 1,
-    #     "entry_resampling_win": None,
-    #     "max_daily_open_lots": None,
-    #     "max_daily_open_lots_per_direction": None,
-    #     "max_active_open_lots": None,
-    #     "max_active_open_lots_per_direction": None,
-    #     "min_abs_value": None,
-    #     "block_same_direction_reentry": False,
-    #     "block_opposite_direction_reentry": False,
-    #     "extend_same_direction": False,
-    # }
-    
     params = {
+        "base_position": 100000,
         "lot_per_signal": 1,
-        "entry_resampling_win":1,
-        "max_active_lots":None
+        "entry_resampling_win": None,
+        "max_daily_open_lots": None,
+        "max_daily_open_lots_per_direction": None,
+        "max_active_open_lots": None,
+        "max_active_open_lots_per_direction": None,
+        "min_abs_value": None,
+        "block_same_direction_reentry": False,
+        "block_opposite_direction_reentry": False,
+        "extend_same_direction": False,
     }
 
     backtest_composite_signal(method=method,
@@ -164,6 +175,7 @@ def backtest_signal1(method, instruments, task_id, period, composite_method,
                               composite_id=composite_id,
                               params=params,
                               trading_sessions=trading_sessions)
+
 
 def metrics_signal1(method, instruments, task_id, period, composite_method,
                     composite_id):
@@ -178,13 +190,13 @@ def metrics_signal1(method, instruments, task_id, period, composite_method,
 def create_signal1(method, instruments, task_id, period, composite_method,
                    composite_id):
     val_data, test_data = load_er_data2(method=method,
-                                       instruments=instruments,
-                                       task_id=task_id,
-                                       period=period,
-                                       composite_method=composite_method,
-                                       composite_id=composite_id,
-                                       val_name='val_data',
-                                       test_name='test_data')
+                                        instruments=instruments,
+                                        task_id=task_id,
+                                        period=period,
+                                        composite_method=composite_method,
+                                        composite_id=composite_id,
+                                        val_name='val_data',
+                                        test_name='test_data')
     create_composite_signal(method=method,
                             instruments=instruments,
                             task_id=task_id,
@@ -194,8 +206,7 @@ def create_signal1(method, instruments, task_id, period, composite_method,
                             signal_functions=signal_functions,
                             val_data=val_data,
                             test_data=test_data)
-    
-    
+
 
 if __name__ == '__main__':
     variant = Tactix().start()
@@ -220,3 +231,11 @@ if __name__ == '__main__':
                          period=variant.period,
                          composite_id=variant.composite_id,
                          composite_method=variant.composite_method)
+
+    elif variant.form == 'online':
+        online_signal1(method=variant.method,
+                       instruments=variant.instruments,
+                       task_id=variant.task_id,
+                       period=variant.period,
+                       composite_id=variant.composite_id,
+                       composite_method=variant.composite_method)

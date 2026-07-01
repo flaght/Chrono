@@ -36,10 +36,6 @@
 2.1.6.optuna_parellel_factors.py
 - 2. 贝叶斯寻优挖掘因子
 
-
-2.1.7.transformer_parellel_factors.py
-- 2. tramsformer 推理因子
-
 2.2.1.scope_valid_factors.py
 - 1. 计算指定筛选挖掘因子绩效生成图
 - 2. 计算对比品种筛选挖掘因子绩效生成图
@@ -51,18 +47,20 @@
 - 1. 生成指定品种生成图
 
 
+
+
 2.2.6.model_select_factor.py
 - 1. 选中线性模型或者sklearn模型训练
 
 2.2.7.create_metrics.py
 - 1. 选中因子生成绩效文件
 
-3.0.1.blend_factors.py
-- 1. 因子值相关性筛选因子 
-- 2. 构建等权组合
+3.0.1.preprocess_data.py
+- 1. 因子调整方向，时序标准化
+- 2. 强化学习模型训练准备数据
 
-3.0.2.rl_increment_factor.py
-- 1. 新增因子对应强化学习结果绩效增量预估
+3.0.2.blend_factors.py
+- 1. 筛选因子 构建等权组合
 
 3.1.1.predict_synthesis.py
 - 1. sklearn 模型预测结果
@@ -76,12 +74,12 @@
 3.1.4.linear_synthesis.py
 - 选中线性模型或者sklearn模型训练
 
+
 3.2.1.autoencoder.py
 - autoencoder 编码重构
 
 3.2.2.sequential.py 3.2.3.sequentialnll.py 3.2.4.seqdeconlynll.py
 - NLL 模型
-
 
 
 4.1.1.signal_metrics.py
@@ -97,29 +95,84 @@
 6.0.1.linear_increment_factors.py
 - 指定因子等权合成后绩效评估
 
-<<<<<<< HEAD
+步骤说明：
+
+- 1. 执行 1.1.1.create_basic_factors.py
+    - 作用: 创建基础字段，创建不同周期收益率，切割数据集 训练集,校验集,测试集,近期数据集。 近期数据集用于看因子最近表现
+
+
+- 2.1  执行 2.1.2.gentic_motor_factors.py
+    - 作用: 根据 1.1.1 生成的基础字段，指定收益率  进化算法无定向挖掘因子
+- 2.2 执行 2.1.3.directed_motor_factors.py
+    - 作用: 根据 1.1.1 生成的基础字段，指定收益率  进化算法定向挖掘因子，所谓定向就是指定算子，指定特征进行挖掘
+- 2.3 执行 2.1.5.optuna_parellel_factors.py
+    - 作用: 根据 1.1.1 生成的基础字段，指定收益率  进化算法定向挖掘因子 指定表达式进行定向挖掘
+- 2.4 执行 2.1.6.optuna_parellel_factors.py
+    - 作用: 根据 1.1.1 生成的基础字段，指定收益率  进化算法定向挖掘因子 指定基础字段类进行定向挖掘
+
+- 3.  执行 2.2.1.scope_valid_factors_parallel.py
+    - 作用: 根据上述挖掘模块挖掘出来的因子，根据复合指标 IC, 卡玛 夏普初步筛选因子
+
+- 4.  执行 2.2.3.choose_deform_factors.py
+    - 作用 根据上述筛选出来的因子 在训练集和校验集 生成绩效图
+
+- 5.  21.2.人工初筛绩效因子.ipynb
+    - 作用: 人工筛选因子
+
+- 6. 执行 2.2.3.choose_deform_factors.py
+    - 作用: 根据上述筛选出来的因子 在近期集 生成绩效图
+
+- 7. 21.3.人工再筛绩效因子.ipynb
+    - 作用: 通过绩效图筛选近期也表现不错的因子
+
+- 8.  执行 3.0.1.preprocess_data.py  build
+    - 作用: 筛选的因子进行方向调整和时序标准化
+
+- 9.  执行 3.0.1.preprocess_data.py  prepare
+    - 作用: 切割因子数据，创建训练集 校验集 测试集
+
+- 10. 执行  3.0.2.blend_factors.py  selected
+    - 作用: 根据剔除高相关性因子
+
+
+- 11.1.  执行 3.1.4.linear_synthesis.py
+    - 作用: 根据不同相关性筛选的因子进行等权合成
+
+- 12.1 执行 3.1.5.linear_signal_backtest.py  build
+    - 作用: 把合成后的er 转成 信号 
+
+- 12.2 执行 3.1.5.linear_signal_backtest.py  metrics
+    - 作用: 对信号进行绩效评估
+
+- 12.3 执行 3.1.5.linear_signal_backtest.py  backtest
+    - 作用: 信号转成交易规则进行回测
+
+- 13.1  执行 6.1.3.build_rl_strategy.py train
+    - 作用: 根据相关性筛选因子，进行强化学习模型训练
+
+- 13.2  执行 6.1.3.build_rl_strategy.py predict
+    - 作用: 使用模型预测训练集 校验集 测试集 
+
+- 13.3  执行 6.1.3.build_rl_strategy.py eval
+    - 作用: 对训练集 校验集 测试集 进行评估
+
+- 13.4  执行 6.2.1.create_rl_strategy.py predict
+    - 作用: 用已训练方式用模型生成校验集和测试集
+
+- 13.5  执行 6.2.1.create_rl_strategy.py forecast
+    - 作用: 用workflow的方式用模型生成校验集和测试集
+
+- 13.6  执行 6.2.1.create_rl_strategy.py metrics
+    - 作用: 对比 原始训练方式和workflow方式生成校验集和测试集的绩效值。确保生产时一致
+
+- 13.7 执行 6.2.2.rl_signal_backtest.py  build
+    - 作用: 把合成后的er 转成 信号 
+
+- 13.8 执行 6.2.2.rl_signal_backtest.py  metrics
+    - 作用: 对信号进行绩效评估
+
+- 13.9 执行 6.2.2.rl_signal_backtest.py  backtest
+    - 作用: 信号转成交易规则进行回测
 
 
 
-RB:
-total ic 大于0.02
-rank ic  大于0.1
-夏普大于 2.5
-卡玛 大于 3
-
-
-
-
-流程校验:
-- 1. 创建研究环境的需要的数据，包括计算包括标准化后的因子
-python 3.1.1.predict_synthesis.py --config_file="configs.yaml" --config_id="factors_rbb_synthesis"  
-
-- 2. 将数据进行切割
-python 6.0.2.create_rl_data.py --config_file="configs.yaml" --config_id="preprocess_rbb_data"
-
-- 3.
-=======
-6.1.1.build_rl_strategy.py~6.1.4.build_rl_strategy.py
-- 强化学习合成
-
->>>>>>> a5b2a1fb9a62c650346c7deec94b4509ff18f795

@@ -198,6 +198,7 @@ def load_data(method, task_id, instruments, period, session, category):
     file_path = os.path.join(base_path, method, instruments, 'rulex', task_id,
                              "nxt1_ret_{0}h".format(period),
                              "{0}".format(session_name))
+    print(file_path)
     file_path = Path(file_path)
     res = []
     for feather_file in file_path.rglob('*.txt'):
@@ -236,6 +237,33 @@ def load_data2(method, task_id, instruments, period, filename="draft.csv"):
     return pd.DataFrame(res)
     
     
+def load_data3(method, task_id, instruments, period, filename="draft.csv"):
+    res = []
+    file_path = os.path.join(base_path, method, instruments, 'rulex', task_id,
+                             "nxt1_ret_{0}h".format(period))
+    draft_data = pd.read_csv(os.path.join(file_path, filename))
+    draft_data['source'] = draft_data['source'].astype(int)
+    draft_data['factor_id'] = draft_data['formula'].apply(lambda x: create_id(generate_simple_id(x)))
+    for row in draft_data.itertuples():
+        filename = os.path.join(file_path, "recent",
+                                row.factor_id, "performance_summary.txt")
+        data1 = parse_summary(filename)
+        desired_order = [
+            'factor_id', 'formula', 'category', 'direction', 'source', 
+            'ic_mean', 'ann_sharpe', 'calmar', 'max_dd', 'avg_ret', 
+            'total_ret', 'win_rate', 'pl_ratio', 'turnover', 'factor_ac','plot']
+        
+        target_keys = ['avg_ret', 'ann_sharpe', 'max_dd', 'calmar', 
+                       'win_rate','pl_ratio','ic_mean', 'turnover',
+                       'factor_ac','total_ret']
+        extracted_data = {k: data1.get(k) for k in target_keys}
+        extracted_data.update(row._asdict())
+        extracted_data["plot"] = os.path.join(file_path, "recent",
+                                row.factor_id, "evaluation_plot.png")
+        ordered_data = {k: extracted_data.get(k) for k in desired_order}
+        res.append(ordered_data)
+    return pd.DataFrame(res)
+
 def make_clickable(val):
     return f'<a target="_blank" href="{val}">{val}</a>'
 

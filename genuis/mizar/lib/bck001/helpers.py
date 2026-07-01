@@ -6,6 +6,260 @@ from lib.bck001.data import *
 from kdutils.macro2 import *
 
 
+
+# def attach_instruction_labels(trader_data, instruction_data):
+#     """
+#     给 trade_records 的 regular row 补回在线 instruction 的 open/close 标签。
+
+#     instruction_data 来自在线规则状态机，其中 extend 只是续期状态，不是实际
+#     交易动作，因此这里仅用 open/close 与 trader_data 合并。
+#     """
+#     trader_regular = trader_data[trader_data['signal_type'] ==
+#                                  'regular'].copy()
+
+#     instruction = instruction_data.copy()
+#     if 'trade_time' not in instruction.columns:
+#         raise ValueError("instruction_data must contain 'trade_time'")
+
+#     trader_regular['trade_time'] = pd.to_datetime(trader_regular['trade_time'])
+#     instruction['trade_time'] = pd.to_datetime(instruction['trade_time'])
+#     instruction = instruction[instruction['signal_type'].isin(
+#         ['open', 'close'])].copy()
+
+#     meta_cols = [
+#         'trade_time', 'code', 'direction', 'numbers', 'position_direction',
+#         'signal_type', 'reason', 'expire_bar'
+#     ]
+#     meta_cols = [col for col in meta_cols if col in instruction.columns]
+#     instruction_meta = instruction[meta_cols].copy()
+#     instruction_meta = instruction_meta.rename(
+#         columns={'signal_type': 'signal_type_instruction'})
+
+#     keys = ['trade_time', 'code', 'direction', 'numbers']
+#     trader_regular['_seq'] = trader_regular.groupby(keys).cumcount()
+#     instruction_meta['_seq'] = instruction_meta.groupby(keys).cumcount()
+
+#     trade_labeled = trader_regular.merge(
+#         instruction_meta,
+#         on=keys + ['_seq'],
+#         how='left',
+#         suffixes=('_trade', '_instruction'))
+
+#     return trade_labeled.drop(columns=['_seq'])
+
+
+
+def build_instruction_period_pairs(instruction_data):
+    """
+    把在线 instruction 拆成“一个持仓周期一个 pair”的评估表。
+
+    与 attach_instruction_labels 不同，这个函数不会去匹配真实成交记录。
+    extend 被视为虚拟分段点：上一段在 extend 时间结束，并从同一时间
+    开始下一段。这样可以用每段自己的 open_trade_time/close_trade_time
+    去重算对应区间收益。
+    """
+    required_cols = {'trade_time', 'code', 'position_direction', 'signal_type'}
+    missing = required_cols - set(instruction_data.columns)
+    if missing:
+        raise ValueError(f"instruction_data missing required columns: {missing}")
+
+    instruction = instruction_data.copy()
+    instruction['trade_time'] = pd.to_datetime(instruction['trade_time'])
+    instruction['_signal_type_order'] = instruction['signal_type'].map({
+        'close': 0,
+        'extend': 1,
+        'open': 2
+    }).fillna(9)
+    instruction = instruction.sort_values(
+        ['code', 'trade_time', '_signal_type_order']).reset_index(drop=True)
+
+    pair_id = 0
+    active = {}
+    records = []
+
+    def source_value(row, direction):
+        if hasattr(row, 'source_value'):
+            return float(row.source_value)
+        if hasattr(row, 'value'):
+            return float(row.value)
+        return float(direction)
+
+    def close_active(code, direction, close_time, close_reason):
+        open_info = active.pop((code, direction), None)
+        if open_info is None:
+            return
+        records.append({
+            'trade_time': open_info['open_trade_time'],
+            'close_time': close_time,
+            'code': code,
+            'direction': direction,
+            'numbers': open_info['numbers'],
+            'pair_id': open_info['pair_id'],
+            'source_value': open_info['source_value'],
+            'open_trade_time': open_info['open_trade_time'],
+            'close_trade_time': close_time,
+            'open_reason': open_info['open_reason'],
+            'close_reason': close_reason,
+        })
+
+    for row in instruction.itertuples(index=False):
+        signal_type = row.signal_type
+        if signal_type not in ('open', 'extend', 'close'):
+            continue
+
+        trade_time = pd.Timestamp(row.trade_time)
+        code = row.code
+        direction = int(row.position_direction)
+        numbers = int(getattr(row, 'numbers', 1) or 1)
+        reason = getattr(row, 'reason', signal_type)
+
+        if signal_type == 'open':
+            if (code, direction) in active:
+                close_active(code, direction, trade_time, 'open_rollover')
+            pair_id += 1
+            active[(code, direction)] = {
+                'pair_id': pair_id,
+                'open_trade_time': trade_time,
+                'numbers': numbers,
+                'source_value': source_value(row, direction),
+                'open_reason': reason,
+            }
+            continue
+
+        if signal_type == 'extend':
+            if (code, direction) not in active:
+                continue
+            close_active(code, direction, trade_time, reason)
+            pair_id += 1
+            active[(code, direction)] = {
+                'pair_id': pair_id,
+                'open_trade_time': trade_time,
+                'numbers': numbers,
+                'source_value': source_value(row, direction),
+                'open_reason': reason,
+            }
+            continue
+
+        if signal_type == 'close':
+            close_active(code, direction, trade_time, reason)
+
+    columns = [
+        'trade_time', 'close_time', 'code', 'direction', 'numbers', 'pair_id',
+        'source_value', 'open_trade_time', 'close_trade_time', 'open_reason',
+        'close_reason'
+    ]
+    if not records:
+        return pd.DataFrame(columns=columns)
+
+    return pd.DataFrame(records).sort_values(
+        ['code', 'trade_time', 'pair_id']).reset_index(drop=True)
+    
+    
+def attach_instruction_labels(trader_data, instruction_data):
+    """
+    给 trade_records 的 regular row 补回在线 instruction 的 open/close 标签。
+
+    instruction_data 来自在线规则状态机，其中 extend 只是续期状态，不是实际
+    交易动作，因此这里仅用 open/close 与 trader_data 合并。
+    """
+    pdb.set_trace()
+    trader_regular = trader_data[trader_data['signal_type'] ==
+                                 'regular'].copy()
+
+    instruction = instruction_data.copy()
+    if 'trade_time' not in instruction.columns:
+        raise ValueError("instruction_data must contain 'trade_time'")
+
+    trader_regular['trade_time'] = pd.to_datetime(trader_regular['trade_time'])
+    instruction['trade_time'] = pd.to_datetime(instruction['trade_time'])
+    instruction = instruction[instruction['signal_type'].isin(
+        ['open', 'close'])].copy()
+    instruction['_signal_type_order'] = instruction['signal_type'].map({
+        'close': 0,
+        'open': 1
+    }).fillna(9)
+    instruction = instruction.sort_values(
+        ['code', 'trade_time', '_signal_type_order']).reset_index(drop=True)
+
+    pair_id = 0
+    active_positions = {}
+    pair_ids = []
+    open_trade_times = []
+    close_trade_times = []
+
+    for row in instruction.itertuples():
+        code = row.code
+        signal_type = row.signal_type
+        trade_time = row.trade_time
+        direction = int(row.direction)
+        position_direction = int(row.position_direction)
+
+        if signal_type == 'open':
+            pair_id += 1
+            active_positions[(code, direction)] = {
+                'pair_id': pair_id,
+                'open_trade_time': trade_time,
+            }
+            pair_ids.append(pair_id)
+            open_trade_times.append(trade_time)
+            close_trade_times.append(pd.NaT)
+            continue
+
+        if signal_type == 'close':
+            open_side = position_direction
+            open_info = active_positions.pop((code, open_side), None)
+            if open_info is None:
+                pair_ids.append(pd.NA)
+                open_trade_times.append(pd.NaT)
+                close_trade_times.append(trade_time)
+            else:
+                pair_ids.append(open_info['pair_id'])
+                open_trade_times.append(open_info['open_trade_time'])
+                close_trade_times.append(trade_time)
+
+    instruction['pair_id'] = pair_ids
+    instruction['open_trade_time'] = open_trade_times
+    instruction['close_trade_time'] = close_trade_times
+
+    close_meta = instruction['signal_type'].eq('close')
+    close_by_pair = instruction.loc[close_meta & instruction['pair_id'].notna(),
+                                    ['pair_id', 'close_trade_time']]
+    close_by_pair = close_by_pair.drop_duplicates('pair_id').set_index(
+        'pair_id')['close_trade_time']
+    open_meta = instruction['signal_type'].eq('open')
+    instruction.loc[open_meta, 'close_trade_time'] = instruction.loc[
+        open_meta, 'pair_id'].map(close_by_pair)
+
+    meta_cols = [
+        'trade_time', 'code', 'direction', 'numbers', 'position_direction',
+        'signal_type', 'reason', 'expire_bar', 'pair_id', 'open_trade_time',
+        'close_trade_time'
+    ]
+    meta_cols = [col for col in meta_cols if col in instruction.columns]
+    instruction_meta = instruction[meta_cols].copy()
+    instruction_meta = instruction_meta.rename(
+        columns={'signal_type': 'signal_type_instruction'})
+
+    keys = ['trade_time', 'code', 'direction', 'numbers']
+    trader_regular['_seq'] = trader_regular.groupby(keys).cumcount()
+    instruction_meta['_signal_type_order'] = instruction_meta[
+        'signal_type_instruction'].map({
+            'close': 0,
+            'open': 1
+        }).fillna(9)
+    instruction_meta = instruction_meta.sort_values(
+        keys + ['_signal_type_order']).reset_index(drop=True)
+    instruction_meta['_seq'] = instruction_meta.groupby(keys).cumcount()
+    instruction_meta = instruction_meta.drop(columns=['_signal_type_order'])
+
+    trade_labeled = trader_regular.merge(
+        instruction_meta,
+        on=keys + ['_seq'],
+        how='left',
+        suffixes=('_trade', '_instruction'))
+
+    return trade_labeled.drop(columns=['_seq'])
+
 def attach_position_labels(trader_data, position_data):
     """
     trade_records 里的 signal_type 只有 regular/base_position/close_position，
@@ -247,6 +501,8 @@ def build_paired_position_signals(
             if entry_resampling_win and entry_resampling_win >= 1:
                 is_entry_bar = int(
                     min_times[i]) % int(entry_resampling_win) == 0
+            else:
+                is_entry_bar = 1
 
             ## 是否生成信号
             can_extend = True if is_entry_bar else False
