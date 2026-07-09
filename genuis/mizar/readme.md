@@ -135,46 +135,67 @@
     - 作用: 根据剔除高相关性因子
 
 
-- 11.1.  执行 3.1.4.linear_synthesis.py  predict
-    - 作用: 使用原生方法根据不同相关性筛选的因子进行等权合成
-- 11.2.  执行 3.1.4.linear_synthesis.py  forecast
-    - 作用: 使用WF方法根据不同相关性筛选的因子进行等权合成
+- 11.1.  执行 3.1.4.blend_synthesis.py  predict
+    - 作用: 使用原生方法根据不同相关性筛选的因子进行等权合成, 绩效评估也在里面
+- 11.2.  执行 3.1.4.blend_synthesis.py  forecast
+    - 作用: 使用WF方法根据不同相关性筛选的因子进行等权合成, 绩效评估也在里面
 
-- 12.1 执行 3.1.5.linear_signal_backtest.py  build
-    - 作用: 把合成后的er 转成 信号 
+对比两个合成方法结果是否一致
 
-- 12.2 执行 3.1.5.linear_signal_backtest.py  metrics
-    - 作用: 对信号进行绩效评估
+
+- 12.1 执行 3.1.5.blend_signal_backtest.py  build
+    - 作用: 把原始方法合成后的er 转成 信号 
+
+- 12.2 执行 3.1.5.blend_signal_backtest.py  metrics
+    - 作用: 原始方法对信号进行绩效评估
 
 - 12.3 执行 3.1.5.linear_signal_backtest.py  backtest
-    - 作用: 信号转成交易规则进行回测
+    - 作用: 原始方法信号转成交易规则进行回测
+
+- 12.4 执行 3.1.5.linear_signal_backtest.py  wfs
+    - 作用: 把WF方法合成后的er转成信号 
+
+- 12.5 执行 3.1.5.linear_signal_backtest.py  wfm
+    - 作用: WF方法对信号进行绩效评估
+
+- 12.6 执行 3.1.5.linear_signal_backtest.py  wfb
+    - 作用: WF方法转成交易规则进行回测
+
 
 - 13.1  执行 6.1.3.build_rl_strategy.py train
     - 作用: 根据相关性筛选因子，进行强化学习模型训练
 
 - 13.2  执行 6.1.3.build_rl_strategy.py predict
     - 作用: 使用模型预测训练集 校验集 测试集 
-
+    
 - 13.3  执行 6.1.3.build_rl_strategy.py eval
     - 作用: 对训练集 校验集 测试集 进行评估
 
 - 13.4  执行 6.2.1.create_rl_strategy.py predict
-    - 作用: 用已训练方式用模型生成校验集和测试集
+    - 作用:  使用原生方法对模型生成校验集和测试集
 
 - 13.5  执行 6.2.1.create_rl_strategy.py forecast
-    - 作用: 用workflow的方式用模型生成校验集和测试集
+    - 作用: 使用WF方法对模型生成校验集和测试集
 
 - 13.6  执行 6.2.1.create_rl_strategy.py metrics
-    - 作用: 对比 原始训练方式和workflow方式生成校验集和测试集的绩效值。确保生产时一致
+    - 作用: 对 原始方式和WF方式生成校验集和测试集的绩效值
 
 - 13.7 执行 6.2.2.rl_signal_backtest.py  build
-    - 作用: 把合成后的er 转成 信号 
+    - 作用: 把原始方法合成后的er 转成 信号 
 
 - 13.8 执行 6.2.2.rl_signal_backtest.py  metrics
-    - 作用: 对信号进行绩效评估
+    - 作用: 原始方法对信号进行绩效评估
 
 - 13.9 执行 6.2.2.rl_signal_backtest.py  backtest
-    - 作用: 信号转成交易规则进行回测
+    - 作用: 原始方法信号转成交易规则进行回测
 
+- 13.10 执行 6.2.2.rl_signal_backtest.py  wfs
+    - 作用: 把WF方法合成后的er转成信号 
+
+- 13.11 执行 6.2.2.rl_signal_backtest.py  wfm
+    - 作用:  WF方法对信号进行绩效评估
+
+- 13.12 执行 6.2.2.rl_signal_backtest.py  wfb
+    - 作用: WF方法转成交易规则进行回测
 
 
