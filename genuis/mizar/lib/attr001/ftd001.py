@@ -14,12 +14,17 @@ from lib.ret001 import create_chg, create_yields
 
 
 ## 提取研究环境数据(通联数据)
-def fetch_bench_data(instruments, begin_time, end_time, adjusted_method='pcr'):
+def fetch_bench_data(instruments,
+                     begin_time,
+                     end_time,
+                     adjusted_method='pcr',
+                     forced_alignment=False):
     market_data = fetch_main_market(begin_date=begin_time,
                                     end_date=end_time,
                                     codes=[INSTRUMENTS_CODES[instruments]],
                                     method=adjusted_method,
-                                    keep_symbol=True)
+                                    keep_symbol=True,
+                                    forced_alignment=forced_alignment)
     market_data = market_data.set_index(['trade_time', 'code'])
 
     prev_close = market_data.groupby(level='code')['close'].shift(1)
@@ -34,7 +39,8 @@ def fetch_bench_data(instruments, begin_time, end_time, adjusted_method='pcr'):
 def fetch_research_data(instruments,
                         begin_time,
                         end_time,
-                        adjusted_method='pcr'):
+                        adjusted_method='pcr',
+                        **kwargs):
 
     # pdb.set_trace()
     market_data = fetch_local_market1(base_path=os.environ['BAR_FUT_DIRS'],
@@ -58,7 +64,8 @@ def fetch_research_data(instruments,
 def fetch_trader_data(instruments,
                       begin_time,
                       end_time,
-                      adjusted_method='pcr'):
+                      adjusted_method='pcr',
+                      **kwargs):
 
     market_data = fetch_trader_market1(begin_time=begin_time,
                                        end_time=end_time,
@@ -107,7 +114,7 @@ def fetch_factors_metrics(mongo_client,
 
     cursor = mongo_client[os.environ['MG_COLL']]["realm_factors_metrics"].find(
         query)
-
+    print(query)
     results = pd.DataFrame(list(cursor))
     results = results.drop(['_id'], axis=1) if not results.empty else results
     return results
@@ -186,7 +193,7 @@ def update_returns_series(mongo_client, series_data, table_name, category,
 
 
 ## 更新预测值
-def update_netout_series1(mongo_client, series_data, table_name, category):
+def update_netout_series1(mongo_client, series_data, table_name, category, name='value'):
     """
     将包含多列信息的 DataFrame 极速 Upsert 到 MongoDB。
     要求 df_data 必须包含: ['trade_time', 'symbol', 'value', 'code', 'task_id']
@@ -207,7 +214,7 @@ def update_netout_series1(mongo_client, series_data, table_name, category):
         df['trade_time'] = df['trade_time'].astype(str)
 
     # 2. 过滤掉 value 为 NaN 的行，减少数据库垃圾数据
-    df = df.dropna(subset=['value'])
+    df = df.dropna(subset=[name])
 
     if df.empty:
         print(f"⚠️ 表 [{table_name}] 过滤 NaN 后没有有效数据需要存储。")
@@ -225,11 +232,14 @@ def update_netout_series1(mongo_client, series_data, table_name, category):
             'symbol': row.symbol
         }
         # 要更新或插入的具体数据
-        update_data = {
-            '$set': {
-                'value': float(row.value),
+        set1 = {
+                name: float(getattr(row, name)),
                 'signal': int(row.signal)
             }
+        if 'value' not in set1:
+            set1['value'] = row.value
+        update_data = {
+            '$set': set1
         }
 
         operations.append(UpdateOne(filter_query, update_data, upsert=True))
