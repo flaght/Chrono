@@ -1,11 +1,13 @@
-import datetime, itertools
+### 合成计算及绩效
+import datetime, itertools, json
 from collections import namedtuple
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # from chaosmind.timing.sirius0001.workflow import WorkFlow
-from chaosmind.timing.sirius0002.workflow import WorkFlow
+#from chaosmind.timing.sirius0002.workflow import WorkFlow
+from chaosmind.timing.sirius0003.workflow import WorkFlow
 from ultron.tradingday import *
 from lib.uvx import load_sirius_params
 from lib.attr001.ftd001 import *
@@ -24,7 +26,18 @@ class EvaluateTuple(
 
 
 def run1(category, factors_infos, params, code, symbol, task_id, factors_data):
-    pdb.set_trace()
+    # workflow = WorkFlow(directory=params['model_path'],
+    #                     code=code,
+    #                     symbol=symbol,
+    #                     task_id=task_id,
+    #                     factors_infos=factors_infos,
+    #                     softmax_temperature=params['softmax_temperature'],
+    #                     min_open_signal_abs=params['min_open_signal_abs'],
+    #                     logit_clip=params['logit_clip'],
+    #                     min_trade_advantage=params['min_trade_advantage'],
+    #                     min_margin=params['min_margin'],
+    #                     method=params['method'],
+    #                     win=params['win'])
     workflow = WorkFlow(directory=params['model_path'],
                         code=code,
                         symbol=symbol,
@@ -32,21 +45,21 @@ def run1(category, factors_infos, params, code, symbol, task_id, factors_data):
                         factors_infos=factors_infos,
                         softmax_temperature=params['softmax_temperature'],
                         min_open_signal_abs=params['min_open_signal_abs'],
-                        logit_clip=params['logit_clip'],
-                        min_trade_advantage=params['min_trade_advantage'],
-                        min_margin=params['min_margin'],
                         method=params['method'],
-                        win=params['win'])
+                        win=params['win'],
+                        signal_method=params['signal_method'],
+                        signal_params=params['signal_params'],
+                        period=params['horizon'])
+
     total_data1 = factors_data.dropna()
     all_trade_times = total_data1.index.get_level_values(
         'trade_time').unique().sort_values()
     res = []
     for time in all_trade_times:
         print(time)
-        rt = workflow.create_signals(trade_time=time, data=total_data1)
+        rt = workflow.create_values(trade_time=time, data=total_data1)
         res.append(rt)
     results = pd.DataFrame(res)
-    pdb.set_trace()
     results['category'] = category
     return results
 
@@ -54,8 +67,8 @@ def run1(category, factors_infos, params, code, symbol, task_id, factors_data):
 ## 模型预测er
 def start1(task_id, instruments):
     mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
-    begin_time = datetime.datetime(2026, 5, 7)
-    end_time = datetime.datetime(2026, 6, 5)
+    begin_time = datetime.datetime(2026, 6, 1)
+    end_time = datetime.datetime(2026, 6, 30)
     start_time = advanceDateByCalendar('china.sse', begin_time, '-1b')
     end_time1 = advanceDateByCalendar('china.sse', end_time, '1b')
 
@@ -72,7 +85,7 @@ def start1(task_id, instruments):
         end_time=end_time1.strftime("%Y-%m-%d %H:%M:%S"),
         names=names,
         table_name='raw_factors')
-    pdb.set_trace()
+    
     for cy in category:
         factors1 = factors_data[factors_data['category'] == cy]
         factors_data1 = factors1.pivot_table(index=['trade_time', 'code'],
@@ -86,11 +99,12 @@ def start1(task_id, instruments):
                        symbol='rb9999',
                        task_id=task_id,
                        factors_data=factors_data1)
-
+        
         update_netout_series1(mongo_client=mongo_client,
                               series_data=results,
                               table_name='realm_netout_series',
-                              category=cy)
+                              category=cy,
+                              name='net_er_out')
 
 
 ######### ===========>
@@ -155,9 +169,12 @@ def run_source(mongo_client, params, category, instruments, cost_rate,
     returns_data = returns_data.drop(
         ['category'], axis=1).rename(columns={"value": 'nxt1_ret'})
 
+    netout_data['value'] = netout_data['value'].apply(lambda x: np.array(json.loads(x)))
+    pdb.set_trace()
     metrics_daily = run_start(returns_data=returns_data,
                               netout_data=netout_data,
                               holding_period=params['horizon'],
+                              factor_name='net_er_out',
                               cost_rate=cost_rate)
     metrics_daily['task_id'] = task_id
     metrics_daily['category'] = category
@@ -176,8 +193,8 @@ def start2(instruments, task_id):
     adjusted_method = 'pcr'
 
     mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
-    begin_time = datetime.datetime(2026, 5, 7)
-    end_time = datetime.datetime(2026, 6, 5)
+    begin_time = datetime.datetime(2026, 6, 1)
+    end_time = datetime.datetime(2026, 7, 1)
     start_time = advanceDateByCalendar('china.sse', begin_time, '-1b')
     end_time1 = advanceDateByCalendar('china.sse', end_time, '1b')
 
@@ -197,5 +214,5 @@ def start2(instruments, task_id):
 
 
 if __name__ == '__main__':
-    start1(instruments='rbb', task_id='1029921127239410')
-    start2(instruments='rbb', task_id='1029921127239410')
+    start1(instruments='rbb', task_id='1018806311332385')
+    start2(instruments='rbb', task_id='1018806311332385')

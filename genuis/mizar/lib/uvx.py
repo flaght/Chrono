@@ -221,7 +221,7 @@ def load_sirius_params(code: str, task_id: str):
     file_path = os.path.join("config", "strategy","sirius.yaml")
     with open(file_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
-
+        
     config = config[code]
     
     if task_id not in config:

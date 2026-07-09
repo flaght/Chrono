@@ -1,3 +1,4 @@
+### 因子值及绩效跟踪
 import datetime, itertools
 from collections import namedtuple
 from dotenv import load_dotenv
@@ -61,6 +62,7 @@ def persist_evaluate_series(mongo_client,
         df['name'] = eval_result.name
         df['code'] = code
         df['category'] = category
+        pdb.set_trace()
         update_netout_series2(mongo_client,
                               df_data=df,
                               table_name='realm_factors_metrics',
@@ -151,6 +153,7 @@ def run(market_data, mongo_client, trading_sessions, factors_infos, params,
                         trading_sessions=trading_sessions,
                         factors_infos=factors_infos,
                         params=params)
+    pdb.set_trace()
     persist_evaluate_series(mongo_client=mongo_client,
                             eval_results=eval_results,
                             category=category,
@@ -166,7 +169,8 @@ def run_source(fetch_market_func, mongo_client, trading_sessions,
     market_data = fetch_market_func(instruments=instruments,
                                     begin_time=start_time,
                                     end_time=end_time,
-                                    adjusted_method=adjusted_method)
+                                    adjusted_method=adjusted_method,
+                                    forced_alignment=True)
 
     run(market_data=market_data,
         mongo_client=mongo_client,
@@ -184,8 +188,8 @@ def start1(task_id, instruments, adjusted_method='pcr'):
     trading_sessions = (("21:00", "23:00"), ("09:00", "10:15"),
                         ("10:30", "11:30"), ("13:30", "15:00"))
     adjusted_method = 'pcr'
-    begin_time = datetime.datetime(2026, 5, 7)
-    end_time = datetime.datetime(2026, 6, 5)
+    begin_time = datetime.datetime(2026, 6, 1)
+    end_time = datetime.datetime(2026, 6, 30)
     start_time = advanceDateByCalendar('china.sse', begin_time, '-1b')
 
     ###
@@ -194,9 +198,9 @@ def start1(task_id, instruments, adjusted_method='pcr'):
     # factors_infos = [factors_infos[0]]
 
     source_configs = [
-        ("bench", fetch_bench_data),
+        #("bench", fetch_bench_data),
         ("research", fetch_research_data),
-        ("trader", fetch_trader_data),
+        #("trader", fetch_trader_data),
     ]
 
     for category, fetch_market_func in source_configs:
@@ -261,4 +265,4 @@ def start1(task_id, instruments, adjusted_method='pcr'):
 if __name__ == '__main__':
     #pdb.set_trace()
     #td = pd.read_feather('/workspace/data/dev/kd/intelkit/records/raw_data/cn_futures/20260601/rb2610_20260601.feather')
-    start1(instruments='rbb', task_id='1029921127239410')
+    start1(instruments='rbb', task_id='1018806311332385')

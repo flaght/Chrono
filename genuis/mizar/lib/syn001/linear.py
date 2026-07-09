@@ -16,15 +16,51 @@ def equal(data, selected_features):
     return data1
 
 
-def composit_equal(data,
-                   selected_features,
-                   roll_win,
-                   period,
-                   scale_method,
-                   expression,
-                   name=None):
+## 直接合成
+def composit_equal1(data,
+                    selected_features,
+                    roll_win,
+                    period,
+                    scale_method,
+                    expression,
+                    name=None):
     data = data.set_index(['trade_time', 'code'])
     data1 = equal(data=data, selected_features=selected_features)
+    data1 = pd.concat([data1, data["nxt1_ret_{0}h".format(period)]],
+                      axis=1).sort_values(by=['trade_time', 'code'])
+    evaluate1 = FactorEvaluate1(
+        factor_data=data1.reset_index(),
+        factor_name='transformed',
+        ret_name='nxt1_ret_{0}h'.format(period),
+        roll_win=roll_win,
+        fee=0.000,
+        scale_method=scale_method,
+        expression=expression,
+        resampling_win=period,
+        name=name if isinstance(name, str) else expression)
+    _ = evaluate1.run()
+    return data1, evaluate1
+
+
+## workflow
+def composit_equal2(wf,
+                    data,
+                    roll_win,
+                    period,
+                    scale_method,
+                    expression,
+                    name=None):
+    res = []
+    data = data.set_index(['trade_time', 'code'])
+    all_trade_times = data.index.get_level_values(
+        'trade_time').unique().sort_values()
+    for time in all_trade_times:
+        print(time)
+        rt = wf.create_values(trade_time=time, data=data)
+        res.append(rt)
+    data1 = pd.DataFrame(res)
+    #pdb.set_trace()
+    data1 = data1.set_index(['trade_time', 'code'])[['task_id', 'transformed']]
     data1 = pd.concat([data1, data["nxt1_ret_{0}h".format(period)]],
                       axis=1).sort_values(by=['trade_time', 'code'])
     evaluate1 = FactorEvaluate1(

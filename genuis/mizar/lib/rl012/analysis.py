@@ -77,6 +77,7 @@ def profitability(data: pd.DataFrame, factor_name:str,
     
     hp = max(int(holding_period), 1)
     data = data.copy().set_index('trade_time')
+    
     action_arr = data[factor_name].to_numpy(dtype=np.float64)
     ret_arr = data[return_name].to_numpy(dtype=np.float64)
     n = len(ret_arr)
