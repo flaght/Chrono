@@ -218,7 +218,7 @@ def metrics_composite_signal(method, instruments, task_id, period,
     dirs1 = os.path.join(base_path1, "signal", "proto", composite_method,
                          str(composite_id))
     file_path = Path(dirs1)
-    pdb.set_trace()
+    
     for feat_file in file_path.rglob('*.feather'):
         signal_data = pd.read_feather(feat_file)
         name = feat_file.parts[-1].split('.')[0]

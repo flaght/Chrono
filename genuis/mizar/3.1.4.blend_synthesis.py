@@ -79,7 +79,6 @@ def equal_weight1(train_data, val_data, test_data, corr_data, corr, period,
 
 def equal_weight2(val_data, test_data, corr_data, corr, instruments, task_id,
                   period, basic_path):
-    pdb.set_trace()
     factors_infos = [{
         "formula": row.expression,
         "direction": 1 if row.ic_mean > 0 else -1
@@ -227,13 +226,13 @@ def predict_model(method, instruments, task_id, period, composite_method):
 if __name__ == '__main__':
     ### 等权 固定权重，波动率倒数加权 不需要训练模型，所以预测和评估放在一起。
     variant = Tactix().start()
-    if variant.form == "predict":
+    if variant.form == "predict": ## 原始模式生成er
         predict_model(method=variant.method,
                       instruments=variant.instruments,
                       task_id=variant.task_id,
                       period=variant.period,
                       composite_method=variant.composite_method)
-    elif variant.form == "forecast":
+    elif variant.form == "forecast": ## wf 模式生成er
         forecast_model(method=variant.method,
                        instruments=variant.instruments,
                        task_id=variant.task_id,

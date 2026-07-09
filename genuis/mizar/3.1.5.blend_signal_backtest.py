@@ -364,7 +364,8 @@ def create_signal1(method, instruments, task_id, period, composite_method,
                                         composite_method=composite_method,
                                         composite_id=composite_id,
                                         val_name='val_data',
-                                        test_name='test_data')
+                                        test_name='test_data',
+                                        category='or')
     create_composite_signal(method=method,
                             instruments=instruments,
                             task_id=task_id,
