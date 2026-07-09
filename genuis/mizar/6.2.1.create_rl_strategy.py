@@ -54,7 +54,7 @@ def predict(method, instruments, task_id, period, model_id):
                              str(model_id))
     output_dir = os.path.join(base_path, method, instruments, 'temp', 'model',
                               str(task_id), str(period), 'rl', 'composite',
-                              "model", "rl", str(model_id), "data")
+                              "model", "rl", str(model_id), "data", "or")
     best_model_path = os.path.join(file_dirs, "best_model")
     config_path = os.path.join(file_dirs, "config.json")
     generator = SignalGenerator(model_path=best_model_path,
@@ -62,6 +62,8 @@ def predict(method, instruments, task_id, period, model_id):
                                 deterministic=True)
     for category in ['val', 'test']:
         ### 数据本身已经做过标准化，方向调整
+        filename = os.path.join(output_dir,
+                                "{0}_data.feather".format(category))
         data = load_data0(
             method=method,
             instruments=instruments,
@@ -72,7 +74,7 @@ def predict(method, instruments, task_id, period, model_id):
             regime=[],
             category=category)
         filename = os.path.join(output_dir,
-                                "or_{0}_data.feather".format(category))
+                                "{0}_data.feather".format(category))
         signals_df = generator.predict_signals(data)
         os.makedirs(output_dir, exist_ok=True)
         print(filename)
@@ -82,20 +84,26 @@ def predict(method, instruments, task_id, period, model_id):
 def forecast(method, instruments, task_id, period, model_id):
     output_dir = os.path.join(base_path, method, instruments, 'temp', 'model',
                               str(task_id), str(period), 'rl', 'composite',
-                              "model", "rl", str(model_id), "data")
+                              "model", "rl", str(model_id), "data", "wf")
 
     factors_infos, params = load_sirius_params(
         code=INSTRUMENTS_CODES[instruments], task_id=str(model_id))
 
-    workflow = WorkFlow(directory=params['model_path'],
-                        code=INSTRUMENTS_CODES[instruments],
-                        symbol="{0}9999".format(instruments.lower()),
-                        task_id=task_id,
-                        factors_infos=factors_infos,
-                        softmax_temperature=params['softmax_temperature'],
-                        min_open_signal_abs=params['min_open_signal_abs'],
-                        method=params['method'],
-                        win=params['win'])
+    pdb.set_trace()
+    workflow = WorkFlow(
+        directory=params['model_path'],
+        code=INSTRUMENTS_CODES[instruments],
+        symbol="{0}9999".format(instruments.lower()),
+        task_id=task_id,
+        factors_infos=factors_infos,
+        softmax_temperature=params['softmax_temperature'],
+        min_open_signal_abs=params['min_open_signal_abs'],
+        period=params['horizon'],  # 当前未使用上
+        signal_method=params['signal_method'],  # 当前未使用上
+        signal_params=params['signal_params'],  # 当前未使用上
+        method=params['method'],  # 当前未使用上
+        win=params['win']  # 当前未使用上
+    )
     for category in ['val', 'test']:
         ### 数据本身已经做过标准化，方向调整
         data = load_data0(
@@ -118,7 +126,7 @@ def forecast(method, instruments, task_id, period, model_id):
             res.append(rt)
         signals_df = pd.DataFrame(res)
         filename = os.path.join(output_dir,
-                                "wf_{0}_data.feather".format(category))
+                                "{0}_data.feather".format(category))
         os.makedirs(output_dir, exist_ok=True)
         print(filename)
         signals_df.to_feather(filename)
@@ -126,9 +134,19 @@ def forecast(method, instruments, task_id, period, model_id):
 
 def metrics(method, instruments, task_id, period, model_id):
 
-    def _metrics(predict_data, test_data1, instruments, name, metrics_path):
+    def _metrics(dirs1, instruments, name, metrics_path, category):
+        pdb.set_trace()
+        base_dirs1 = os.path.join(dirs1, 'data')
+
+        base_dirs2 = os.path.join(dirs1, 'composite', "model", "rl",
+                                  str(model_id), "data", name)
+        predict_data = pd.read_feather(
+            os.path.join(base_dirs2, "{0}_data.feather".format(category)))
+        data1 = pd.read_feather(
+            os.path.join(base_dirs1, "{0}_data.feather".format(category)))
+
         predict_data['code'] = INSTRUMENTS_CODES[instruments]
-        predict_data1 = predict_data.merge(test_data1,
+        predict_data1 = predict_data.merge(data1,
                                            on=['trade_time', 'code'])
         evaluate1 = FactorEvaluate1(factor_data=predict_data1.reset_index(),
                                     factor_name='net_er_out',
@@ -136,42 +154,74 @@ def metrics(method, instruments, task_id, period, model_id):
                                     roll_win=15,
                                     fee=0.000,
                                     scale_method='raw',
-                                    expression=name,
+                                    expression="{0}_{1}".format(name,category),
                                     resampling_win=period,
-                                    name=name)
+                                    name=category)
         _ = evaluate1.run()
         evaluate1.plot_results()
-        evaluate1.save_results(base_output_dir=metrics_path)
-
+        evaluate1.save_results(base_output_dir=os.path.join(metrics_path, name))
+        
     dirs1 = os.path.join(base_path, method, instruments, 'temp', 'model',
                          str(task_id), str(period), 'rl')
-    base_dirs1 = os.path.join(dirs1, 'data')
-
-    base_dirs2 = os.path.join(dirs1, 'composite', "model", "rl", str(model_id),
-                              "data")
-
-    for category in ['val', 'test']:
-        or_predict_data = pd.read_feather(
-            os.path.join(base_dirs2, "or_{0}_data.feather".format(category)))
-        wf_predict_data = pd.read_feather(
-            os.path.join(base_dirs2, "wf_{0}_data.feather".format(category)))
-
-        data1 = pd.read_feather(os.path.join(base_dirs1, "{0}_data.feather".format(category)))
-
-        metrics_path = os.path.join(dirs1, 'composite', "model", "rl",
+    metrics_path = os.path.join(dirs1, 'composite', "model", "rl",
                                     str(model_id), "metrics")
+    for name in ['or', 'wf']:
+        for category in ['val', 'test']:
+            _metrics(dirs1=dirs1, 
+                     instruments=instruments, 
+                     name=name, metrics_path=metrics_path, 
+                     category=category)
+            
 
-        _metrics(predict_data=or_predict_data,
-                 test_data1=data1,
-                 instruments=instruments,
-                 name='or_{0}'.format(category),
-                 metrics_path=metrics_path)
+# def metrics(method, instruments, task_id, period, model_id):
 
-        _metrics(predict_data=wf_predict_data,
-                 test_data1=data1,
-                 instruments=instruments,
-                 name='wf_{0}'.format(category),
-                 metrics_path=metrics_path)
+#     def _metrics(predict_data, test_data1, instruments, name, metrics_path):
+#         predict_data['code'] = INSTRUMENTS_CODES[instruments]
+#         predict_data1 = predict_data.merge(test_data1,
+#                                            on=['trade_time', 'code'])
+#         evaluate1 = FactorEvaluate1(factor_data=predict_data1.reset_index(),
+#                                     factor_name='net_er_out',
+#                                     ret_name='nxt1_ret_{0}h'.format(period),
+#                                     roll_win=15,
+#                                     fee=0.000,
+#                                     scale_method='raw',
+#                                     expression=name,
+#                                     resampling_win=period,
+#                                     name=name)
+#         _ = evaluate1.run()
+#         evaluate1.plot_results()
+#         evaluate1.save_results(base_output_dir=metrics_path)
+
+#     dirs1 = os.path.join(base_path, method, instruments, 'temp', 'model',
+#                          str(task_id), str(period), 'rl')
+#     base_dirs1 = os.path.join(dirs1, 'data')
+
+#     base_dirs2 = os.path.join(dirs1, 'composite', "model", "rl", str(model_id),
+#                               "data")
+
+#     for category in ['val', 'test']:
+#         or_predict_data = pd.read_feather(
+#             os.path.join(base_dirs2, "or_{0}_data.feather".format(category)))
+#         wf_predict_data = pd.read_feather(
+#             os.path.join(base_dirs2, "wf_{0}_data.feather".format(category)))
+
+#         data1 = pd.read_feather(
+#             os.path.join(base_dirs1, "{0}_data.feather".format(category)))
+
+#         metrics_path = os.path.join(dirs1, 'composite', "model", "rl",
+#                                     str(model_id), "metrics")
+
+#         _metrics(predict_data=or_predict_data,
+#                  test_data1=data1,
+#                  instruments=instruments,
+#                  name='or_{0}'.format(category),
+#                  metrics_path=metrics_path)
+
+#         _metrics(predict_data=wf_predict_data,
+#                  test_data1=data1,
+#                  instruments=instruments,
+#                  name='wf_{0}'.format(category),
+#                  metrics_path=metrics_path)
 
     # or_predict_data['code'] = INSTRUMENTS_CODES[instruments]
     # wf_predict_data['code'] = INSTRUMENTS_CODES[instruments]

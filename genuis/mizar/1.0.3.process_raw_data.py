@@ -64,7 +64,7 @@ def run1(trade_date):
             })
         else:
             print(f"⚠️ 跳过不合规或乱码文件: {filename}")
-
+    #pdb.set_trace()
     symbols = [result['symbol'] for result in results]
     basic_info = fetch_basic1(begin_date=trade_date,
                               end_date=trade_date,
@@ -107,4 +107,4 @@ def start1(start_time, end_time):
 
 
 if __name__ == '__main__':
-    start1(start_time='2025-05-30', end_time='2025-05-30')
+    start1(start_time='2026-06-30', end_time='2026-06-30')

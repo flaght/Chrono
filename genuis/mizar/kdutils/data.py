@@ -168,7 +168,6 @@ def fetch_main_market(begin_date,
                       keep_symbol=False,
                       forced_alignment=False):
     basic_info = fetch_basic(begin_date, end_date, codes)
-    pdb.set_trace()
     data = RetrievalAPI.get_main_price(begin_date=begin_date,
                                        end_date=end_date,
                                        codes=codes,

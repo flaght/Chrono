@@ -294,7 +294,7 @@ def attach_position_labels(trader_data, position_data):
 
 ### 转信号
 def create_signal(data, signal_method, signal_params, name='transformed'):
-    data.rename(columns={name: 'transformed'}, inplace=True)
+    data = data.rename(columns={name: 'transformed'})
     pos_data = eval(signal_method)(factor_data=data.set_index(
         ['trade_time', 'code'])[['transformed']],
                                    **signal_params)
