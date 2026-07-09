@@ -135,8 +135,10 @@
     - 作用: 根据剔除高相关性因子
 
 
-- 11.1.  执行 3.1.4.linear_synthesis.py
-    - 作用: 根据不同相关性筛选的因子进行等权合成
+- 11.1.  执行 3.1.4.linear_synthesis.py  predict
+    - 作用: 使用原生方法根据不同相关性筛选的因子进行等权合成
+- 11.2.  执行 3.1.4.linear_synthesis.py  forecast
+    - 作用: 使用WF方法根据不同相关性筛选的因子进行等权合成
 
 - 12.1 执行 3.1.5.linear_signal_backtest.py  build
     - 作用: 把合成后的er 转成 信号 
