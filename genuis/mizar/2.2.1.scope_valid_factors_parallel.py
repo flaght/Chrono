@@ -30,13 +30,14 @@ def parallel_evaluate1(column, period):
     print(column.formual, period)
     total_data = _PARALLEL_TOTAL_DATA
     total_data1 = _PARALLEL_TOTAL_DATA1
-    factor_data = calc_expression(expression=column.formual,
+    try:
+        factor_data = calc_expression(expression=column.formual,
                                   total_data=total_data1)
-    dt = merging_data1(factor_data=factor_data,
+        dt = merging_data1(factor_data=factor_data,
                        returns_data=total_data,
                        period=period)
 
-    evaluate1 = FactorEvaluate1(factor_data=dt,
+        evaluate1 = FactorEvaluate1(factor_data=dt,
                                 factor_name='transformed',
                                 ret_name='nxt1_ret_{0}h'.format(period),
                                 roll_win=15,
@@ -44,10 +45,13 @@ def parallel_evaluate1(column, period):
                                 scale_method='roll_zscore',
                                 resampling_win=period,
                                 expression=column.formual)
-    state_dt = evaluate1.run()
-    state_dt['name'] = column.name
-    state_dt['expression'] = column.formual
-    return state_dt
+        state_dt = evaluate1.run()
+        state_dt['name'] = column.name
+        state_dt['expression'] = column.formual
+        return state_dt
+    except Exception as e:
+        print("===>{0}".format(str(e)))
+        return {}
 
 
 def load_factors(method,
@@ -62,10 +66,10 @@ def load_factors(method,
                         str(session))
     filename = os.path.join(
         dirs, "programs_{0}_{1}.feather".format(str(task_id), str(session)))
-
+    pdb.set_trace()
     programs = pd.read_feather(filename)
     pdb.set_trace()
-    programs = programs[programs['final_fitness'] > abs_ic][[
+    programs = programs[programs['final_fitness'] > 0][[
         'name', 'formual', 'final_fitness'
     ]]
     programs = programs[['name', 'formual', 'final_fitness']]
@@ -86,15 +90,19 @@ def valid_programs(method,
                             task_id=task_id,
                             instruments=instruments,
                             datasets=datasets)
-
-    total_data = total_data[['trade_time', 'code'] + features +
+    pdb.set_trace()
+    mix_columns = list(set(features) & set(total_data.columns))
+    if len(mix_columns) <= 0:
+        print("not any features!!!!")
+        return pd.DataFrame()
+    total_data = total_data[['trade_time', 'code'] + mix_columns +
                             ['nxt1_ret_{}h'.format(period)]]
     total_data1 = total_data.set_index(['trade_time'])
 
     #programs = programs.loc[:1]
     program_rows = programs[["name", "formual",
                              "final_fitness"]].to_dict(orient="records")
-    
+
     global _PARALLEL_TOTAL_DATA, _PARALLEL_TOTAL_DATA1
     _PARALLEL_TOTAL_DATA = total_data
     _PARALLEL_TOTAL_DATA1 = total_data1
@@ -108,7 +116,7 @@ def valid_programs(method,
             ctx = mp.get_context("fork")
         except ValueError:
             ctx = mp.get_context()
-        with ctx.Pool(processes=8) as pool:
+        with ctx.Pool(processes=16) as pool:
             res = pool.starmap(parallel_evaluate1, args_for_starmap)
     # res = []
     # i = 0
@@ -134,11 +142,13 @@ def valid_programs(method,
     #     state_dt['name'] = program.name
     #     state_dt['expression'] = program.formual
     #     res.append(state_dt)
+    
+    res = [r1 for r1 in res if len(r1) > 0]
     pdb.set_trace()
     perf_data = pd.DataFrame(res)[[
         'name', 'expression', 'ic_mean', 'calmar', 'sharpe2'
     ]]
-
+    pdb.set_trace()
     perf_data['abs_ic'] = np.abs(perf_data['ic_mean'])
     perf_data = perf_data[(perf_data['calmar'] > calmar)
                           & (perf_data['sharpe2'] > sharpe2) &
@@ -200,9 +210,10 @@ def run(method,
     pdb.set_trace()
     if not os.path.exists(dirs):
         os.makedirs(dirs)
-    filename = os.path.join(
-        dirs, "programs_{0}_{1}.feather".format(task_id, str(session)))
-    validated_programs.reset_index(drop=True).to_feather(filename)
+    if not validated_programs.empty:
+        filename = os.path.join(
+            dirs, "programs_{0}_{1}.feather".format(task_id, str(session)))
+        validated_programs.reset_index(drop=True).to_feather(filename)
 
 
 ### 过滤挖掘后的因子

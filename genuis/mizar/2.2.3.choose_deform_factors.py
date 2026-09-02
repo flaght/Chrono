@@ -21,6 +21,9 @@ def create_evalute(column, period, factor_data, instruments, outputs):
     left_evaluate = calc_all1(expression=column,
                               total_data1=factor_data,
                               period=period)
+    filename = os.path.join(outputs, left_evaluate.name, "evaluation_plot.png")
+    if os.path.exists(filename):
+        print("{0} exists".format(filename))
     left_evaluate.run()
     left_evaluate.plot_results()
     left_evaluate.save_results(base_output_dir=outputs)
@@ -43,6 +46,7 @@ def load_factors(method,
                  task_id,
                  session,
                  category='gentic'):
+    
     dirs = os.path.join(base_path, method, instruments, category, 'ic',
                         str(task_id), "nxt1_ret_{}h".format(str(period)),
                         str(session))
@@ -95,7 +99,7 @@ def run2(method,
     if not os.path.exists(outputs):
         os.makedirs(outputs)
 
-    ### 此目录为挖掘的原始目录
+    ### 此目录为挖掘的原始目录 session 对应的目录
     programs = load_factors(method=method,
                             instruments=instruments,
                             period=period,
@@ -112,6 +116,7 @@ def run2(method,
                                task_id=task_id,
                                period=period)
     pdb.set_trace()
+    ### 过滤掉在此session 已经被选中的因子
     if not chosen_data.empty:
         formulas_in = chosen_data['formula']
         is_not_in_p2 = ~programs['formual'].isin(formulas_in)
@@ -157,7 +162,6 @@ def run3(method,
          task_id,
          filename='choose.csv',
          datasets=['recent']):
-    pdb.set_trace()
     ## 加载初选目录
     outputs = os.path.join("records", method, instruments, 'rulex',
                            str(task_id), "nxt1_ret_{}h".format(str(period)),
@@ -165,12 +169,12 @@ def run3(method,
     if not os.path.exists(outputs):
         os.makedirs(outputs)
 
+    ## 会把选中的特征全部读取处理进行绘图
     chosen_data = fetch_chosen(method=method,
                                instruments=instruments,
                                task_id=task_id,
                                period=period,
                                filename=filename)
-    pdb.set_trace()
     features = [
         eval(program.formula)._dependency
         for program in chosen_data.itertuples()
@@ -183,7 +187,7 @@ def run3(method,
                               features=features,
                               task_id=task_id,
                               period=period)
-    k_split = 2
+    k_split = 4
     expression_list = chosen_data['formula'].tolist()
     expression_list = [
         expression for expression in expression_list

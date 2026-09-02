@@ -360,6 +360,8 @@ def backtest_workflow(method, instruments, task_id, period, composite_method,
                    base_dir=dirs1,
                    output_dir=dirs2)
 
+    
+
 
 if __name__ == '__main__':
     variant = Tactix().start()
@@ -384,6 +386,7 @@ if __name__ == '__main__':
                          period=variant.period,
                          composite_id=variant.composite_id,
                          composite_method=variant.composite_method)
+        
     ## 上面过程调试信号方法，信号参数， 交易方法，交易参数 等确定后 设置到workflow 进行对比
     elif variant.form == 'wfs':  # wf 创建信号值
         auto_workflow(method=variant.method,
@@ -411,7 +414,7 @@ if __name__ == '__main__':
                           composite_id=variant.composite_id,
                           composite_method=variant.composite_method,
                           model_id=variant.composite_id)
-
+        
     elif variant.form == 'online':
         online_signal1(method=variant.method,
                        instruments=variant.instruments,

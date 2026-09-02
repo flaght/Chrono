@@ -13,81 +13,81 @@ from kdutils.tactix import Tactix
 from lib.bck001.engine import *
 from lib.bck001.common import *
 
-# signal_functions = {
-#     "band_signal": {
-#         "1001": {
-#             "roll_num": 0,
-#             "threshold": 0.05,
-#         },
-#         "1002": {
-#             "roll_num": 0,
-#             "threshold": 0.10,
-#         },
-#         "1003": {
-#             "roll_num": 0,
-#             "threshold": 0.15,
-#         },
-#         "1004": {
-#             "roll_num": 0,
-#             "threshold": 0.20,
-#         },
-#     },
-#     "gate_signal": {
-#         "1001": {
-#             "roll_num": 20,
-#             "threshold": 0.75,
-#         },
-#         "1002": {
-#             "roll_num": 24,
-#             "threshold": 0.80,
-#         },
-#         "1003": {
-#             "roll_num": 30,
-#             "threshold": 0.85,
-#         },
-#         "1004": {
-#             "roll_num": 40,
-#             "threshold": 0.90,
-#         },
-#     },
-#     "rollrank1_signal": {
-#         "1001": {
-#             "roll_num": 20,
-#             "threshold": 0.80,
-#         },
-#         "1002": {
-#             "roll_num": 24,
-#             "threshold": 0.85,
-#         },
-#         "1003": {
-#             "roll_num": 30,
-#             "threshold": 0.90,
-#         },
-#     },
-#     "rollrank2_signal": {
-#         "1001": {
-#             "roll_num": 20,
-#             "threshold": 0.75,
-#         },
-#         "1002": {
-#             "roll_num": 24,
-#             "threshold": 0.80,
-#         },
-#         "1003": {
-#             "roll_num": 30,
-#             "threshold": 0.85,
-#         },
-#     }
-# }
-
 signal_functions = {
-    "rollrank2_signal": {
+    "band_signal": {
+        "1001": {
+            "roll_num": 0,
+            "threshold": 0.05,
+        },
+        "1002": {
+            "roll_num": 0,
+            "threshold": 0.10,
+        },
+        "1003": {
+            "roll_num": 0,
+            "threshold": 0.15,
+        },
+        "1004": {
+            "roll_num": 0,
+            "threshold": 0.20,
+        },
+    },
+    "gate_signal": {
+        "1001": {
+            "roll_num": 20,
+            "threshold": 0.75,
+        },
         "1002": {
             "roll_num": 24,
             "threshold": 0.80,
-        }
+        },
+        "1003": {
+            "roll_num": 30,
+            "threshold": 0.85,
+        },
+        "1004": {
+            "roll_num": 40,
+            "threshold": 0.90,
+        },
+    },
+    "rollrank1_signal": {
+        "1001": {
+            "roll_num": 20,
+            "threshold": 0.80,
+        },
+        "1002": {
+            "roll_num": 24,
+            "threshold": 0.85,
+        },
+        "1003": {
+            "roll_num": 30,
+            "threshold": 0.90,
+        },
+    },
+    "rollrank2_signal": {
+        "1001": {
+            "roll_num": 20,
+            "threshold": 0.75,
+        },
+        "1002": {
+            "roll_num": 24,
+            "threshold": 0.80,
+        },
+        "1003": {
+            "roll_num": 30,
+            "threshold": 0.85,
+        },
     }
 }
+
+# signal_functions = {
+#     "rollrank2_signal": {
+#         "1002": {
+#             "roll_num": 24,
+#             "threshold": 0.80,
+#         }
+#     }
+# }
 
 
 def _workflow(data, factors_infos, instruments, model_id, period, params, name,

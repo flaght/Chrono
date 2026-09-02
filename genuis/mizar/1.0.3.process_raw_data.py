@@ -47,6 +47,7 @@ def run1(trade_date):
                                             trade_date.strftime("%Y"),
                                             trade_date.strftime("%Y%m"),
                                             trade_date.strftime("%Y%m%d")))
+    print(folder_path)
     
     for csv_file in folder_path.glob("*.csv"):
         print(csv_file)
@@ -70,11 +71,11 @@ def run1(trade_date):
                               end_date=trade_date,
                               symbols=symbols)
     results = pd.DataFrame(results)
-    # pdb.set_trace()
     basic_info = results.merge(basic_info, on=['symbol'])
     output_dirs = os.path.join(os.environ['BAR_FUT_DIRS'],
                                trade_date.strftime("%Y%m%d"))
     os.makedirs(output_dirs, exist_ok=True)
+    #basic_info = basic_info[basic_info['code'] == 'MA']
     _ = Parallel(n_jobs=128, verbose=1)(delayed(parallel_minute_bars)(
         symbol=row.symbol,
         name=row.name,
@@ -107,4 +108,4 @@ def start1(start_time, end_time):
 
 
 if __name__ == '__main__':
-    start1(start_time='2026-06-30', end_time='2026-06-30')
+    start1(start_time='2026-07-20', end_time='2026-07-28')

@@ -7,11 +7,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+os.environ['IMPLUSE_VERSION'] = 'all'
 from alphacopilot.api.calendars import advanceDateByCalendar
-from kdutils.ttimes import get_dates
+from kdutils.ttimes import get_dates, FIIXED_MAPPING
 from kdutils.macro import base_path
-from config.contract import INSTRUMENTS_CODES, INDEX_MAPPING
-from kdutils.data import fetch_main_market, fetch_local_market, fetch_local_market1
+from config.contract import INSTRUMENTS_CODES, INDEX_MAPPING, RETURN_NAME_MAPPING
+from kdutils.data import fetch_main_market, fetch_local_market, fetch_local_market1, fetch_trader_market1
 from kdutils.tactix import Tactix
 from lib.iux001 import fetch_data
 
@@ -121,6 +122,13 @@ def main(method, instruments, source):
                                      end_date=end_date,
                                      codes=[INSTRUMENTS_CODES[instruments]],
                                      forced_alignment=True)
+        elif source == 'trader':
+            data = fetch_trader_market1(begin_time=start_time,
+                                        end_time=end_date,
+                                        code=[INSTRUMENTS_CODES[instruments]
+                                              ][0],
+                                        adjusted_method='pcr')
+
         else:
             raise ValueError("source:{0}".format(source))
     pdb.set_trace()
@@ -133,7 +141,7 @@ def main(method, instruments, source):
                       end_date=end_date)
 
 
-def merge(method, instruments, source):
+def merge(method, instruments, source, split):
     base_dirs = os.path.join(base_path, method, instruments, 'factors')
     res = []
     for root, dirs, files in os.walk(base_dirs):
@@ -144,7 +152,15 @@ def merge(method, instruments, source):
                 factor_data = pd.read_feather(factor_file)
                 res.append(factor_data.set_index(['trade_time', 'code']))
     pdb.set_trace()
+    ##参考 加入覆盖率 太低的直接淘汰
     factors_data = pd.concat(res, axis=1).sort_index()
+    total_rows = len(factors_data)
+    coverage = factors_data.count() / total_rows
+    low_coverage = coverage[coverage < 0.9]
+    low_columns = low_coverage.index.tolist()
+    factors_data = factors_data.drop(low_columns, axis=1)
+    
+    ## 前值填充
     factors_data = factors_data.unstack().fillna(method='ffill')
     factors_data = factors_data.stack()
     ### 先剔除全部nan的列
@@ -165,11 +181,21 @@ def merge(method, instruments, source):
                                        begin_date=start_date,
                                        end_date=end_date,
                                        codes=[INSTRUMENTS_CODES[instruments]])
-        else:
+        elif source == 'bench':
             data = fetch_main_market(begin_date=start_date,
                                      end_date=end_date,
                                      codes=[INSTRUMENTS_CODES[instruments]],
                                      forced_alignment=True)
+        elif source == 'trader':
+            data = fetch_trader_market1(begin_time=start_date,
+                                        end_time=end_date,
+                                        code=[INSTRUMENTS_CODES[instruments]
+                                              ][0],
+                                        adjusted_method='pcr')
+
+        else:
+            raise ValueError("source:{0}".format(source))
+
     base_columns = [
         'close', 'high', 'low', 'open', 'value', 'volume', 'openint', 'vwap'
     ]
@@ -186,20 +212,29 @@ def merge(method, instruments, source):
     # factors_data = filter_date(total_data=factors_data,
     #                            start_exclude='2015-07-07 14:35:00',
     #                            end_exclude='2015-08-25 09:50:00')
-    pdb.set_trace()
-    times = factors_data['trade_time'].unique().tolist()
+    if split == 'scale':
+        times = factors_data['trade_time'].unique().tolist()
+        len1 = round(len(times) * 0.6)  # 60%部分
+        len2 = round(len(times) * 0.25)  # 25%部分
+        len3 = len(times) - len1 - len2
 
-    len1 = round(len(times) * 0.6)  # 60%部分
-    len2 = round(len(times) * 0.25)  # 25%部分
-    len3 = len(times) - len1 - len2
+        ## 训练集
 
-    ## 训练集
-
-    train_data = factors_data[factors_data['trade_time'].isin(times[:len1])]
-    val_data = factors_data[factors_data['trade_time'].isin(times[len1:len1 +
-                                                                  len2])]
-    test_data = factors_data[factors_data['trade_time'].isin(times[len1 +
-                                                                   len2:])]
+        train_data = factors_data[factors_data['trade_time'].isin(
+            times[:len1])]
+        val_data = factors_data[factors_data['trade_time'].isin(
+            times[len1:len1 + len2])]
+        test_data = factors_data[factors_data['trade_time'].isin(times[len1 +
+                                                                       len2:])]
+    elif split == 'fixed':
+        train_data = factors_data[factors_data['trade_time'] <=
+                                  FIIXED_MAPPING[method]['train_end']]
+        val_data = factors_data[
+            (factors_data['trade_time'] > FIIXED_MAPPING[method]['train_end'])
+            &
+            (factors_data['trade_time'] <= FIIXED_MAPPING[method]['val_end'])]
+        test_data = factors_data[(factors_data['trade_time']
+                                  > FIIXED_MAPPING[method]['val_end'])]
     ## 校验集
     ## 测试集
     ### 切割数据
@@ -241,7 +276,13 @@ def create_yields(data, horizon, offset=0):
     return df
 
 
-def fetch_returns(begin_date, end_date, codes, method, instruments, source):
+def fetch_returns(begin_date,
+                  end_date,
+                  codes,
+                  method,
+                  instruments,
+                  source,
+                  price_name='vwap'):
     res = []
     horizon_sets = [1, 2, 3, 5, 10, 15]
     pdb.set_trace()
@@ -257,14 +298,23 @@ def fetch_returns(begin_date, end_date, codes, method, instruments, source):
                 begin_date=begin_date,
                 end_date=end_date,
                 codes=[INSTRUMENTS_CODES[instruments]])
-        else:
+        elif source == 'bench':
             market_data = fetch_main_market(
                 begin_date=begin_date,
                 end_date=end_date,
                 codes=[INSTRUMENTS_CODES[instruments]],
                 forced_alignment=True)
+        elif source == 'trader':
+            market_data = fetch_trader_market1(
+                begin_time=begin_date,
+                end_time=end_date,
+                code=[INSTRUMENTS_CODES[instruments]][0],
+                adjusted_method='pcr')
+
+        else:
+            raise ValueError("source:{0}".format(source))
     pdb.set_trace()
-    chg_data = create_chg(market_data)
+    chg_data = create_chg(market_data, name=price_name)
     for horizon in horizon_sets:
         df = create_yields(data=chg_data.copy(), horizon=horizon)
         df.name = "nxt1_ret_{0}h".format(horizon)
@@ -288,7 +338,7 @@ def fetch_returns(begin_date, end_date, codes, method, instruments, source):
     return data1
 
 
-def returns(method, instruments, source):
+def returns(method, instruments, source, split):
     pdb.set_trace()
     start_date, end_date = get_dates(method=method)
     begin_date1 = advanceDateByCalendar("china.sse", start_date,
@@ -296,12 +346,15 @@ def returns(method, instruments, source):
     end_date1 = advanceDateByCalendar("china.sse", end_date,
                                       '5b').strftime('%Y-%m-%d')
 
-    returns_data = fetch_returns(begin_date=begin_date1,
-                                 end_date=end_date1,
-                                 codes=[INSTRUMENTS_CODES[instruments]],
-                                 method=method,
-                                 instruments=instruments,
-                                 source=source)
+    returns_data = fetch_returns(
+        begin_date=begin_date1,
+        end_date=end_date1,
+        codes=[INSTRUMENTS_CODES[instruments]],
+        method=method,
+        instruments=instruments,
+        source=source,
+        price_name=RETURN_NAME_MAPPING[INSTRUMENTS_CODES[instruments]])
+
     returns_data = returns_data.loc[start_date:end_date]
     returns_data = returns_data.reset_index()
 
@@ -309,22 +362,33 @@ def returns(method, instruments, source):
         returns_data['trade_time']).dt.strftime('%Y-%m-%d %H:%M:%S')
     returns_data = returns_data.sort_values(by=['trade_time', 'code'])
 
-    returns_data = filter_date(total_data=returns_data,
-                               start_exclude='2015-07-07 14:35:00',
-                               end_exclude='2015-08-25 09:50:00')
+    # returns_data = filter_date(total_data=returns_data,
+    #                            start_exclude='2015-07-07 14:35:00',
+    #                            end_exclude='2015-08-25 09:50:00')
 
-    times = returns_data['trade_time'].unique().tolist()
+    if split == 'scale':
+        times = returns_data['trade_time'].unique().tolist()
 
-    len1 = round(len(times) * 0.6)  # 60%部分
-    len2 = round(len(times) * 0.25)  # 25%部分
-    len3 = len(times) - len1 - len2
-    pdb.set_trace()
-    ## 训练集
-    train_data = returns_data[returns_data['trade_time'].isin(times[:len1])]
-    val_data = returns_data[returns_data['trade_time'].isin(times[len1:len1 +
-                                                                  len2])]
-    test_data = returns_data[returns_data['trade_time'].isin(times[len1 +
-                                                                   len2:])]
+        len1 = round(len(times) * 0.6)  # 60%部分
+        len2 = round(len(times) * 0.25)  # 25%部分
+        len3 = len(times) - len1 - len2
+        ## 训练集
+        train_data = returns_data[returns_data['trade_time'].isin(
+            times[:len1])]
+        val_data = returns_data[returns_data['trade_time'].isin(
+            times[len1:len1 + len2])]
+        test_data = returns_data[returns_data['trade_time'].isin(times[len1 +
+                                                                       len2:])]
+    else:
+        train_data = returns_data[returns_data['trade_time'] <=
+                                  FIIXED_MAPPING[method]['train_end']]
+        val_data = returns_data[
+            (returns_data['trade_time'] > FIIXED_MAPPING[method]['train_end'])
+            &
+            (returns_data['trade_time'] <= FIIXED_MAPPING[method]['val_end'])]
+        test_data = returns_data[(returns_data['trade_time']
+                                  > FIIXED_MAPPING[method]['val_end'])]
+
     ## 校验集
     ## 测试集
     ### 切割数据
@@ -340,7 +404,7 @@ def returns(method, instruments, source):
         os.path.join(target_dir, 'test_returns.feather'))
 
 
-def recent(method, instruments, source):
+def recent(method, instruments, split):
     pdb.set_trace()
     total_data = fetch_data(
         method=method,
@@ -348,8 +412,12 @@ def recent(method, instruments, source):
         task_id=INDEX_MAPPING[INSTRUMENTS_CODES[instruments]],
         datasets=['train', 'val'])
     max_date = total_data['trade_time'].max()
-    start_date = advanceDateByCalendar('china.sse', max_date,
+    if split == 'scale':
+        start_date = advanceDateByCalendar('china.sse', max_date,
                                        '-{0}b'.format(750))
+    elif split == 'fixed':
+        start_date = FIIXED_MAPPING[method]['recent_start']
+    pdb.set_trace()
     mask = (total_data['trade_time'] >= start_date) & (total_data['trade_time']
                                                        <= max_date)
     total_data = total_data[mask]
@@ -382,17 +450,18 @@ if __name__ == '__main__':
     elif variant.form == 'merge':
         merge(method=variant.method,
               instruments=variant.instruments,
-              source=variant.source)
+              source=variant.source,
+              split=variant.split)
     elif variant.form == 'returns':
         returns(method=variant.method,
                 instruments=variant.instruments,
-                source=variant.source)
-
+                source=variant.source,
+                split=variant.split)
     elif variant.form == 'recent':
         recent(method=variant.method,
                instruments=variant.instruments,
-               source=variant.source)
+               split=variant.split)
 
-#main(method='dicso2', instruments='rbb')
+# main(method='dicso2', instruments='rbb')
 #merge(method='dicso2', instruments='rbb')
 #returns(method='dicso2', instruments='rbb')

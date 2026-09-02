@@ -1,39 +1,17 @@
 ### 因子值及绩效跟踪
 import datetime, itertools
-from collections import namedtuple
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from ultron.tradingday import *
 from ultron.sentry.api import *
-from lumina.formual.impulse import Impulse
-from lumina.evolution.fusion.actuator import Actuator
+from kdutils.macro2 import *
 from lib.uvx import load_sirius_params
-from lib.cux003 import FactorEvaluate1
 from lib.attr001.ftd001 import *
+from lib.attr001.logic001 import *
 
 
-class FactorEvaluateTuple(
-        namedtuple('FactorEvaluateTuple',
-                   ('name', 'raw_factors', 'raw_returns', 'resample_data'))):
-    __slots__ = ()
-
-
-def clip_series_to_window(series_data, begin_time=None, end_time=None):
-    if begin_time is None and end_time is None:
-        return series_data
-
-    clipped = series_data.copy()
-    if not pd.api.types.is_datetime64_any_dtype(clipped.index):
-        clipped.index = pd.to_datetime(clipped.index, errors="coerce")
-
-    if begin_time is not None:
-        clipped = clipped.loc[clipped.index >= pd.Timestamp(begin_time)]
-    if end_time is not None:
-        end_time1 = advanceDateByCalendar("china.sse", end_time, "1b")
-        clipped = clipped.loc[clipped.index <= (pd.Timestamp(end_time1))]
-    return clipped
 
 
 def persist_evaluate_series(mongo_client,
@@ -75,41 +53,7 @@ def persist_evaluate_series(mongo_client,
                           category=category)
 
 
-def create_impulse(factors_infos, market_unstack):
-    dependencies = [
-        eval(formula['formula'])._dependency for formula in factors_infos
-    ]
-    dependencies = list(itertools.chain.from_iterable(dependencies))
-    factors_data1 = Impulse(dependencies).batch(data=market_unstack)
-    return factors_data1
 
-
-def evaluate(factors_infos,
-             normal_data,
-             horizon,
-             roll_win=15,
-             fee=0.0,
-             scale_method='raw'):
-    res = []
-    normal_data1 = normal_data.set_index(['trade_time', 'code'])
-    for factor in factors_infos:
-        factor_name = factor["formula"]
-        evaluate1 = FactorEvaluate1(factor_data=normal_data,
-                                    factor_name=factor_name,
-                                    ret_name="nxt1_ret",
-                                    roll_win=roll_win,
-                                    fee=fee,
-                                    scale_method=scale_method,
-                                    expression=factor_name,
-                                    resampling_win=horizon)
-        _ = evaluate1.run()
-        results = FactorEvaluateTuple(
-            name=factor_name,
-            raw_factors=normal_data1[factor_name].droplevel('code'),
-            raw_returns=normal_data1['nxt1_ret'].droplevel('code'),
-            resample_data=evaluate1.resample_data)
-        res.append(results)
-    return res
 
 
 def run1(market_data, trading_sessions, factors_infos, params, begin_pos=32):
@@ -141,6 +85,7 @@ def run1(market_data, trading_sessions, factors_infos, params, begin_pos=32):
 
     normal_data = normal_data[begin_pos:normal_data.shape[0] -
                               params['horizon'] + 1]
+    pdb.set_trace()
     eval_data = evaluate(factors_infos=factors_infos,
                          normal_data=normal_data,
                          horizon=params['horizon'])
@@ -153,7 +98,6 @@ def run(market_data, mongo_client, trading_sessions, factors_infos, params,
                         trading_sessions=trading_sessions,
                         factors_infos=factors_infos,
                         params=params)
-    pdb.set_trace()
     persist_evaluate_series(mongo_client=mongo_client,
                             eval_results=eval_results,
                             category=category,
@@ -184,23 +128,27 @@ def run_source(fetch_market_func, mongo_client, trading_sessions,
 
 
 def start1(task_id, instruments, adjusted_method='pcr'):
+    pdb.set_trace()
     mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
-    trading_sessions = (("21:00", "23:00"), ("09:00", "10:15"),
-                        ("10:30", "11:30"), ("13:30", "15:00"))
+    # trading_sessions = ()
+
+    trading_sessions = TRADING_TIME_MAPPING[INSTRUMENTS_CODES[instruments]]
+    # trading_sessions = (("21:00", "23:00"), ("09:00", "10:15"),
+    #                      ("10:30", "11:30"), ("13:30", "15:00"))
     adjusted_method = 'pcr'
-    begin_time = datetime.datetime(2026, 6, 1)
-    end_time = datetime.datetime(2026, 6, 30)
+    begin_time = datetime.datetime(2026, 1, 1)
+    end_time = datetime.datetime(2026, 7, 9)
     start_time = advanceDateByCalendar('china.sse', begin_time, '-1b')
 
     ###
     factors_infos, params = load_sirius_params(
         code=INSTRUMENTS_CODES[instruments], task_id=task_id)
     # factors_infos = [factors_infos[0]]
-
+    pdb.set_trace()
     source_configs = [
         #("bench", fetch_bench_data),
         ("research", fetch_research_data),
-        #("trader", fetch_trader_data),
+        ("trader", fetch_trader_data),
     ]
 
     for category, fetch_market_func in source_configs:

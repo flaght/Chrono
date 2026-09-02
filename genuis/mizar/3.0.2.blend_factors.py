@@ -174,8 +174,9 @@ def selected(method, instruments, task_id, period):
     }
     pdb.set_trace()
     for thr in thresholds:
-        selected_metrics[thr].to_csv(
-            os.path.join(dt_path, "{0}.csv".format(str(thr * 10))))
+        filename = os.path.join(dt_path, "{0}.csv".format(str(thr * 10)))
+        print(filename)
+        selected_metrics[thr].to_csv(filename)
 
 
 def create_evaluate(df, factor_names, pnl_ret_col, cost_rate, holding_period,

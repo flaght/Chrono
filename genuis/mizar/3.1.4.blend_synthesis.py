@@ -1,10 +1,11 @@
-import os, json, pdb, copy
+import os, json, pdb, copy, pdb
 import pandas as pd
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
+from kdutils.data import filter_invalid_periods
 from kdutils.macro2 import *
 from lib.uvx import *
 from kdutils.tactix import Tactix
@@ -144,7 +145,7 @@ def forecast_model(method, instruments, task_id, period, composite_method):
     basic_path = os.path.join(base_path, method, instruments, 'temp', 'model',
                               str(task_id), str(period), 'rl')
     dt_path = os.path.join(basic_path, 'blend', 'corr')
-    
+
     file_path = Path(dt_path)
     for csv_file in file_path.rglob('*.csv'):
         corr_data = pd.read_csv(csv_file, index_col=0)  ## 相关性过滤的因子组
@@ -212,6 +213,32 @@ def predict_model(method, instruments, task_id, period, composite_method):
         test_data1 = test_data[
             ['trade_time', 'code', 'nxt1_ret_{0}h'.format(period)] +
             corr_data['expression'].to_list()]
+
+        train_data1 = filter_invalid_periods(data=train_data1,
+                                             instruments=instruments,
+                                             time_name='trade_time')
+        val_data1 = filter_invalid_periods(data=val_data1,
+                                           instruments=instruments,
+                                           time_name='trade_time')
+        test_data1 = filter_invalid_periods(data=test_data1,
+                                            instruments=instruments,
+                                            time_name='trade_time')
+
+        # train_data1 = filter_invalid_periods(
+        #     data=train_data1,
+        #     invalid_periods=FILTER_YEAR_MAPPING[
+        #         INSTRUMENTS_CODES[instruments]])
+
+        # val_data1 = filter_invalid_periods(data=val_data1,
+        #                                    invalid_periods=FILTER_YEAR_MAPPING[
+        #                                        INSTRUMENTS_CODES[instruments]])
+
+        # test_data1 = filter_invalid_periods(
+        #     data=test_data1,
+        #     invalid_periods=FILTER_YEAR_MAPPING[
+        #         INSTRUMENTS_CODES[instruments]])
+
+        pdb.set_trace()
         if composite_method == 'equal_weight':
             equal_weight1(train_data=train_data1,
                           val_data=val_data1,
@@ -226,13 +253,13 @@ def predict_model(method, instruments, task_id, period, composite_method):
 if __name__ == '__main__':
     ### 等权 固定权重，波动率倒数加权 不需要训练模型，所以预测和评估放在一起。
     variant = Tactix().start()
-    if variant.form == "predict": ## 原始模式生成er
+    if variant.form == "predict":  ## 原始模式生成er
         predict_model(method=variant.method,
                       instruments=variant.instruments,
                       task_id=variant.task_id,
                       period=variant.period,
                       composite_method=variant.composite_method)
-    elif variant.form == "forecast": ## wf 模式生成er
+    elif variant.form == "forecast":  ## wf 模式生成er
         forecast_model(method=variant.method,
                        instruments=variant.instruments,
                        task_id=variant.task_id,

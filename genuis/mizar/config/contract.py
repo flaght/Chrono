@@ -1,5 +1,7 @@
 import toml, os, pdb
-contract_file = os.path.join(os.environ['LUMINA_CONFIG'], 'config/contract.toml')
+
+contract_file = os.path.join(os.environ['LUMINA_CONFIG'],
+                             'config/contract.toml')
 contract = toml.load(contract_file)
 
 CONT_MULTNUM_MAPPING = contract['CONT_MULTNUM']
@@ -12,6 +14,8 @@ THRESHOLD_MAPPING = contract['THRESHOLD']
 DATAKIND_MAPPING = contract['DATA_KIND']
 FILTER_YEAR_MAPPING = contract['FILTER_YEAR']
 COST_MODE_MAPPING = contract['COST_MODE']
+TRADING_TIME_MAPPING = contract['TRADING_TIME']
+RETURN_NAME_MAPPING = contract['RETURN_NAME']
 #METRICS_WINDOW_MAPPING = contract['METRICS_WINDOW']
 #CLOSE_TIME_MAPPING = contract['CLOSE_TIME']
 #INIT_CASH_MAPPING = contract['INIT_CASH']
