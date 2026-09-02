@@ -1,0 +1,26 @@
+experiment_setups:
+  "factors_hcb_basic":  # 这是配置集ID "1" 
+    method: ricso2
+    source: research
+    task_id: 134001
+    instruments: hcb
+    form: recent
+    split: fixed # 固定 scale 比例
+
+  "factors_hcb_scope":  # 2.2.1.scope_valid_factors.py
+    method: ricso2
+    task_id: 134001
+    instruments: hcb
+    session: 20260503
+    period: 5
+    form: "first"
+
+  "factors_hcb_compare":  # 2.2.2.compare_twin_factors.py
+    method: ricso2
+    task_id: 134001
+    instruments: hcb
+    session: 20260503
+    period: 5
+    form: recent
+    filename: choose.csv
+

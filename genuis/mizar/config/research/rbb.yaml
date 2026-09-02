@@ -1,0 +1,137 @@
+experiment_setups:
+  "factors_rbb_basic":  # 这是配置集ID "1" 
+    method: ricso2
+    source: research
+    task_id: 113001
+    instruments: rbb
+    form: recent
+    split: fixed # 固定 scale 比例
+
+  "factors_rbb_metrics":  # 这是配置集ID "1" 
+    method: ricso2
+    task_id: 113001
+    instruments: rbb
+    period: 5
+    form: returns
+
+  "factors_rbb_gentic":  # 2.1.2.gentic_motor_factors.py
+    method: ricso2
+    task_id: 113001
+    instruments: rbb
+    session: 20260605
+    period: 15
+    corr_threshold: 0
+    count: 600
+
+  "factors_rbb_scope":  # 2.2.1.scope_valid_factors_parallel.py # 
+    method: ricso2
+    task_id: 113001
+    instruments: rbb
+    session: 20260325
+    period: 5
+    form: "first"
+
+  "factors_rbb_compare":  # 2.2.2.compare_twin_factors.py
+    method: ricso2
+    task_id: 113001
+    instruments: rbb
+    session: 20260325
+    period: 5
+    form: recent
+    filename: choose.csv
+
+  "factors_mc_deform":  # 2.2.3.choose_deform_factors.py
+    method: ricso2
+    task_id: 113001
+    instruments: rbb
+    session: 20260428
+    period: 5
+    form: recent
+    filename: choose.csv
+
+  # "factors_rbb_deform":  # 2.2.3.choose_deform_factors.py
+  #   method: ricso2
+  #   task_id: 113001
+  #   instruments: rbb
+  #   session: 20260325
+  #   period: 5
+
+  "preprocess_rbb_data":  # 3.0.1.preprocess_data.py
+    method: ricso2
+    task_id: 113001
+    instruments: rbb
+    period: 5
+    form: prepare
+    name: pro
+
+  "blend_rbb_data": # 3.0.2.blend_factors.py
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    form: selected
+    
+  "blend_rbb_strategy": # 3.1.4.blend_synthesis.py
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    form: forecast
+    composite_method: equal_weight
+
+  "blend_rbb_eval": # 3.1.5.blend_signal_backtest.py
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    composite_method: "equal_weight"
+    composite_id: "7"
+    model_id: "2018806311332385"
+    form: "wfb"
+
+
+  "rbb_ct_strategy":
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    env_id: 10001
+    model_id: 1018806311332385
+    form: "backtest"
+
+  "rl_rbb_strategy": # 6.2.1.create_rl_strategy.py
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    model_id: "1018806311332385" #"7" #1018806311332385
+    form: "metrics"
+
+  "rl_rbb_eval": # 6.2.2.rl_signal_backtest.py
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    composite_method: "rl"
+    composite_id: "1018806311332385"
+    form: "backtest"
+
+  "positions_rbb_metrics": # 6.3.1.positions_metrics.py
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    backtest_id: "1085887308965346" #1013836755991964 #1013836755991964
+    composite_method: "rl" # "rl" #"equal_weight"
+    composite_id: "1018806311332385" #"7" #1018806311332385
+    signal_method: "erband_signal" #"rollrank2_signal" #"erband_signal"
+    signal_id: "1002_test" # 1002_test 
+    form: "metrics"
+
+  
+  "factors_rbb_basic1":
+    method: ticso1
+    source: trader
+    task_id: 113001
+    instruments: rbb
+    form: returns

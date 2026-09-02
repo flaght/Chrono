@@ -1,0 +1,80 @@
+RB:
+  "1029921127239410":
+    features: ## 保持和模型输入顺序一致
+      - formula: "MADecay(30,'oi039_1_2_1')"
+        direction: 1
+
+      - formula: "ADDED(EMA(15,'oi004_5_10_1'),MADiff(240,'oi004_1_2_1'))"
+        direction: -1
+    
+      - formula: "MA(10,'iv012_1_2_1')"
+        direction: 1
+    
+      - formula: "MDIFF(60,'iv012_2_3_1')"
+        direction: 1
+    
+      - formula: "MADiff(120,MOD('oi039_2_3_1','tc012_5_5_10_1'))"
+        direction: -1      
+
+    params:
+      softmax_temperature: 2.2
+      min_open_signal_abs: 0.15
+      logit_clip: 8.0
+      min_trade_advantage: 0.10
+      min_margin: 0.12
+      method: 'roll_zscore'
+      win: 15
+      model_path: 'records/tests/model/best_model'
+      horizon: 5
+
+  "1018806311332385":
+    features: ## 保持和模型输入顺序一致
+      - formula: "MDEMA(120,'tc004_1_1_2_0')"
+        direction: -1
+
+      - formula: "EMA(30,SIGMOID('iv012_2_3_1'))"
+        direction: -1
+
+      - formula: "EMA(5,'tc004_1_1_2_0')"
+        direction: -1
+
+      - formula: "WMA(10,'tv004_1_2_0')"
+        direction: -1
+
+      - formula: "EMA(5,MDIFF(15,'tv007_1_2_1'))"
+        direction: -1
+
+    params:
+      softmax_temperature: 4.0
+      min_open_signal_abs: 0.0
+      method: 'roll_zscore'
+      win: 15
+      model_path: '/workspace/worker/pj/Chrono/genuis/mizar/records/ricso2/rbb/temp/model/113001/5/rl/pro/1018806311332385/best_model'
+      horizon: 5
+      signal_method: 'erband_signal'
+      signal_params:
+        roll_num: 0
+        threshold: 0.35
+        upper: 0.85
+
+  "2018806311332385":
+    features: ## 保持和模型输入顺序一致
+      - formula: "MDEMA(120,'tc004_1_1_2_0')"
+        direction: -1
+
+      - formula: "MDPO(15,'close')"
+        direction: -1
+
+      - formula: "EMA(30,MDEMA(5,'iv012_2_3_1'))"
+        direction: -1
+    
+    params:
+      method: 'roll_zscore'
+      win: 15
+      horizon: 5
+      signal_method: 'rollrank2_signal'
+      signal_params:
+        roll_num: 24
+        threshold: 0.80
+
+
