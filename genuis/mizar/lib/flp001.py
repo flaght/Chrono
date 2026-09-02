@@ -1,4 +1,5 @@
 import os, re, pdb
+from html import escape, unescape
 from IPython.display import display, HTML
 from pathlib import Path
 import pandas as pd
@@ -26,6 +27,7 @@ STANDARD_SCHEMA = {
     'holding_profit': None
 }
 
+
 def parse_summary(file_path):
     """
     智能解析入口：根据路径自动选择 file1 或 file2 解析器
@@ -43,7 +45,7 @@ def parse_summary(file_path):
     # 按照你的需求：有 d 使用 parse_summary_file1，没有 d 使用 parse_summary_file2
     if has_d_dir:
         # print(f"检测到 d 目录，使用解析器 1 -> {path_obj}")
-        dt1 =  parse_summary_file1(file_path)
+        dt1 = parse_summary_file1(file_path)
         dt1['category'] = 'd'
     else:
         # print(f"未检测到 d 目录，使用解析器 2 -> {path_obj}")
@@ -81,11 +83,11 @@ def parse_summary_file1(file_path):
         for line in lines:
             line = line.strip()
             if not line or line.startswith("---"): continue
-            
+
             if line.startswith("Expression:"):
                 data['Expression'] = line.split(":", 1)[1].strip()
                 continue
-                
+
             if ":" in line:
                 key, value = line.split(":", 1)
                 key, value = key.strip(), value.strip()
@@ -99,7 +101,7 @@ def parse_summary_file1(file_path):
                     data[key] = value
     except Exception as e:
         print(f"Error parsing file {file_path}: {e}")
-        
+
     # --- 【关键修改点】：使用标准模板进行填充 ---
     # 先做映射
     mapped_data = {KEY_MAPPING.get(k, k): v for k, v in data.items()}
@@ -109,7 +111,7 @@ def parse_summary_file1(file_path):
     for k in final_data.keys():
         if k in mapped_data:
             final_data[k] = mapped_data[k]
-            
+
     return final_data
 
 
@@ -142,26 +144,26 @@ def parse_summary_file2(file_path):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
-            
+
         for line in lines:
             line = line.strip()
-            
-            if not line or line.startswith("---") or line.startswith("Metric"): 
+
+            if not line or line.startswith("---") or line.startswith("Metric"):
                 continue
-            
+
             if "|" in line:
                 parts = line.split("|")
                 if len(parts) >= 2:
                     key = parts[0].strip()
-                    value = parts[1].strip()  
-                    
+                    value = parts[1].strip()
+
             elif ":" in line:
                 parts = line.split(":", 1)
                 key = parts[0].strip()
                 value = parts[1].strip()
-                
+
             else:
-                continue 
+                continue
 
             try:
                 if value.endswith('%'):
@@ -171,30 +173,31 @@ def parse_summary_file2(file_path):
                 data[key] = clean_val
             except ValueError:
                 data[key] = value
-                
+
     except Exception as e:
         print(f"Error parsing file {file_path}: {e}")
-        
+
     # --- 【关键修改点】：使用标准模板进行填充 ---
     mapped_data = {KEY_MAPPING.get(k, k): v for k, v in data.items()}
     final_data = STANDARD_SCHEMA.copy()
-    
+
     # 额外逻辑：老格式有 Name 属性记录的是目录数字，新格式文件可能没有 Name 这行。
     # 我们可以从 file_path 也就是倒数第二级目录提取 Name 来保证一致性。
     import os
     parent_dir_name = os.path.basename(os.path.dirname(file_path))
     if 'Name' not in data and parent_dir_name.isdigit():
-        mapped_data['name'] = float(parent_dir_name) # 为了跟你图里的格式保持 float
-        
+        mapped_data['name'] = float(parent_dir_name)  # 为了跟你图里的格式保持 float
+
     for k in final_data.keys():
         if k in mapped_data:
             final_data[k] = mapped_data[k]
-            
+
     return final_data
 
 
 def load_data(method, task_id, instruments, period, session, category):
-    session_name = "d{0}".format(session) if category ==2 else "{0}".format(session) 
+    session_name = "d{0}".format(session) if category == 2 else "{0}".format(
+        session)
     file_path = os.path.join(base_path, method, instruments, 'rulex', task_id,
                              "nxt1_ret_{0}h".format(period),
                              "{0}".format(session_name))
@@ -207,66 +210,114 @@ def load_data(method, task_id, instruments, period, session, category):
     results = pd.DataFrame(res)
     return results
 
+
 def load_data2(method, task_id, instruments, period, filename="draft.csv"):
     res = []
     file_path = os.path.join(base_path, method, instruments, 'rulex', task_id,
                              "nxt1_ret_{0}h".format(period))
     draft_data = pd.read_csv(os.path.join(file_path, filename))
     draft_data['source'] = draft_data['source'].astype(int)
-    draft_data['factor_id'] = draft_data['formula'].apply(lambda x: create_id(generate_simple_id(x)))
+    draft_data['factor_id'] = draft_data['formula'].apply(
+        lambda x: create_id(generate_simple_id(x)))
     for row in draft_data.itertuples():
-        filename = os.path.join(file_path, "d{}".format(
-            row.source) if row.category=='d' else "{}".format(row.source),
-                                row.factor_id, "performance_summary.txt")
+        filename = os.path.join(
+            file_path, "d{}".format(row.source) if row.category == 'd' else
+            "{}".format(row.source), row.factor_id, "performance_summary.txt")
         data1 = parse_summary(filename)
         desired_order = [
-            'factor_id', 'formula', 'category', 'direction', 'source', 
-            'ic_mean', 'ann_sharpe', 'calmar', 'max_dd', 'avg_ret', 
-            'total_ret', 'win_rate', 'pl_ratio', 'turnover', 'factor_ac','plot']
-        
-        target_keys = ['avg_ret', 'ann_sharpe', 'max_dd', 'calmar', 
-                       'win_rate','pl_ratio','ic_mean', 'turnover',
-                       'factor_ac','total_ret']
+            'factor_id', 'formula', 'category', 'direction', 'source',
+            'ic_mean', 'ann_sharpe', 'calmar', 'max_dd', 'avg_ret',
+            'total_ret', 'win_rate', 'pl_ratio', 'turnover', 'factor_ac',
+            'plot'
+        ]
+
+        target_keys = [
+            'avg_ret', 'ann_sharpe', 'max_dd', 'calmar', 'win_rate',
+            'pl_ratio', 'ic_mean', 'turnover', 'factor_ac', 'total_ret'
+        ]
         extracted_data = {k: data1.get(k) for k in target_keys}
         extracted_data.update(row._asdict())
-        extracted_data["plot"] = os.path.join(file_path, "d{}".format(
-            row.source) if row.category=='d' else "{}".format(row.source),
-                                row.factor_id, "evaluation_plot.png")
+        extracted_data["plot"] = os.path.join(
+            file_path, "d{}".format(row.source) if row.category == 'd' else
+            "{}".format(row.source), row.factor_id, "evaluation_plot.png")
         ordered_data = {k: extracted_data.get(k) for k in desired_order}
         res.append(ordered_data)
     return pd.DataFrame(res)
-    
-    
-def load_data3(method, task_id, instruments, period, filename="draft.csv"):
+
+
+def load_data3(method,
+               task_id,
+               instruments,
+               period,
+               category=None,
+               filename="draft.csv"):
     res = []
     file_path = os.path.join(base_path, method, instruments, 'rulex', task_id,
                              "nxt1_ret_{0}h".format(period))
     draft_data = pd.read_csv(os.path.join(file_path, filename))
     draft_data['source'] = draft_data['source'].astype(int)
-    draft_data['factor_id'] = draft_data['formula'].apply(lambda x: create_id(generate_simple_id(x)))
+    draft_data['factor_id'] = draft_data['formula'].apply(
+        lambda x: create_id(generate_simple_id(x)))
+    if isinstance(category, str):
+        draft_data = draft_data[draft_data['category'] == category]
+    #print(draft_data)
     for row in draft_data.itertuples():
-        filename = os.path.join(file_path, "recent",
-                                row.factor_id, "performance_summary.txt")
+        filename = os.path.join(file_path, "recent", row.factor_id,
+                                "performance_summary.txt")
         data1 = parse_summary(filename)
         desired_order = [
-            'factor_id', 'formula', 'category', 'direction', 'source', 
-            'ic_mean', 'ann_sharpe', 'calmar', 'max_dd', 'avg_ret', 
-            'total_ret', 'win_rate', 'pl_ratio', 'turnover', 'factor_ac','plot']
-        
-        target_keys = ['avg_ret', 'ann_sharpe', 'max_dd', 'calmar', 
-                       'win_rate','pl_ratio','ic_mean', 'turnover',
-                       'factor_ac','total_ret']
+            'factor_id', 'formula', 'category', 'direction', 'source',
+            'ic_mean', 'ann_sharpe', 'calmar', 'max_dd', 'avg_ret',
+            'total_ret', 'win_rate', 'pl_ratio', 'turnover', 'factor_ac',
+            'plot'
+        ]
+
+        target_keys = [
+            'avg_ret', 'ann_sharpe', 'max_dd', 'calmar', 'win_rate',
+            'pl_ratio', 'ic_mean', 'turnover', 'factor_ac', 'total_ret'
+        ]
         extracted_data = {k: data1.get(k) for k in target_keys}
         extracted_data.update(row._asdict())
+
+        name = "comparison_plot.png" if extracted_data[
+            'category'] == 'p' else "evaluation_plot.png"
         extracted_data["plot"] = os.path.join(file_path, "recent",
-                                row.factor_id, "evaluation_plot.png")
+                                              row.factor_id, name)
         ordered_data = {k: extracted_data.get(k) for k in desired_order}
         res.append(ordered_data)
     return pd.DataFrame(res)
+
 
 def make_clickable(val):
     return f'<a target="_blank" href="{val}">{val}</a>'
 
 
+def extract_href(value):
+    """兼容纯路径和已经生成的 HTML 超链接。"""
+    text = str(value)
+
+    match = re.search(r'''href=["']([^"']+)["']''', text)
+    if match:
+        return unescape(match.group(1))
+
+    return unescape(text)
+
+
 def to_html(results):
-    return display(HTML(results.to_html(escape=False)))
+    data = results.copy()
+
+    data["url"] = data.apply(
+        lambda row:
+        (f'<a href="{escape(extract_href(row["plot"]), quote=True)}">'
+         f'{escape(str(row["factor_id"]))}</a>'),
+        axis=1,
+    )
+    if 'source' in data.columns and 'direction' in data.columns:
+        data = data[[
+            "url", "direction", "formula", "source", "plot", "factor_id"
+        ]]
+    else:
+        data = data[["url", "formula", "plot", "factor_id"]]
+
+    return display(HTML(data.to_html(escape=False, index=False)))
+    #return display(HTML(results.to_html(escape=False)))

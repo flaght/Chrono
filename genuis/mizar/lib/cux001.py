@@ -1,10 +1,12 @@
 import pdb
-import os,hashlib
+import os, hashlib
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates  #
 import seaborn as sns
+from xml.dom import minidom
+from xml.etree import ElementTree as ET
 '''
 scale_method: str = 'roll_min_max':
 作用: 指定对因子进行放缩的方法。这是一个字符串，它有以下几种可选值，并且都严格遵守“无未来数据”原则：
@@ -14,6 +16,7 @@ scale_method: str = 'roll_min_max':
 'ew_zscore': 基于指数加权移动平均 (EWM) 的 Z-score 放缩，对近期数据赋予更高权重。
 'train_const': 使用前 roll_win 个样本的均值和标准差作为固定参数来放缩整个时间序列的因子。这意味着在初始窗口之后，放缩参数是常量，不再滚动变化。
 '''
+
 
 def generate_simple_id(formula: str) -> str:
     # 1. 移除空格并转为小写
@@ -132,7 +135,8 @@ class FactorEvaluate1(object):
         self.resample_data['ic'] = self.resample_data[self.ret_name].rolling(
             window=self.roll_win,
             min_periods=5).corr(self.resample_data[self.factor_name])
-        total_ic = self.resample_data[self.ret_name].corr(self.resample_data[self.factor_name])
+        total_ic = self.resample_data[self.ret_name].corr(
+            self.resample_data[self.factor_name])
         self.resample_data['cumsum_ic'] = self.resample_data['ic'].cumsum()
         ic_mean = self.resample_data['ic'].mean()
         ic_std = self.resample_data['ic'].std()
@@ -160,24 +164,27 @@ class FactorEvaluate1(object):
             self.fee * self.resample_data['turnover']
         )  # 计算每期的净收益，即从总收益中减去交易费用。费用是换手率乘以设定的 fee。
 
-        self.resample_data['nav'] = (1 + self.resample_data['net_ret']).cumprod(
+        self.resample_data['nav'] = (
+            1 + self.resample_data['net_ret']
+        ).cumprod(
         )  #  计算净值曲线（Net Asset Value）。这是 (1 + 净收益) 的累积乘积，代表了投资组合的模拟价值随时间的变化。
-        
+
         ## 1. 计算回测跨越的年数
-        delta_days = (self.resample_data.index[-1] - self.resample_data.index[0]).days
+        delta_days = (self.resample_data.index[-1] -
+                      self.resample_data.index[0]).days
         years = delta_days / 365
-        if years <= 0: years = 1e-6 # 防止除零
-        
+        if years <= 0: years = 1e-6  # 防止除零
+
         # -------- 基础统计 --------
         total_ret = self.resample_data['nav'].iloc[-1] - 1  # 累计收益 整个回测期间的累计收益。
 
         avg_ret = self.resample_data['net_ret'].mean()  # 平均每次交易收益
-        
-        ann_ret = (1 + total_ret) ** (1 / years) - 1 # 计算年化
-        
 
-        max_dd = (self.resample_data['nav'] / self.resample_data['nav'].cummax() -
-                  1).min()  # 找到历史最高净值，然后计算当前净值相对历史最高点的最大下跌百分比。
+        ann_ret = (1 + total_ret)**(1 / years) - 1  # 计算年化
+
+        max_dd = (
+            self.resample_data['nav'] / self.resample_data['nav'].cummax() -
+            1).min()  # 找到历史最高净值，然后计算当前净值相对历史最高点的最大下跌百分比。
 
         calmar = ann_ret / abs(max_dd) if max_dd != 0 else np.nan  # 卡玛比率
 
@@ -197,9 +204,10 @@ class FactorEvaluate1(object):
                     > 0).mean()  # 胜率，即净收益为正的周期所占的比例。
 
         profit_sum = self.resample_data.loc[self.resample_data['net_ret'] > 0,
-                                          'net_ret'].sum()
-        loss_sum = np.abs(self.resample_data.loc[self.resample_data['net_ret'] < 0,
-                                               'net_ret']).sum()
+                                            'net_ret'].sum()
+        loss_sum = np.abs(
+            self.resample_data.loc[self.resample_data['net_ret'] < 0,
+                                   'net_ret']).sum()
         profit_ratio = profit_sum / loss_sum if loss_sum != 0 else np.inf  #  盈亏比。正收益的绝对值之和除以负收益的绝对值之和。衡量盈利时的平均盈利幅度与亏损时的平均亏损幅度之比。
 
         return {
@@ -214,12 +222,11 @@ class FactorEvaluate1(object):
             'profit_ratio': profit_ratio
         }
 
-
     def cal_returns(self):
         """计算多空收益情况"""
         direction = np.sign(self.resample_data['f_scaled'].values)
         long_returns = self.resample_data['net_ret'][direction > 0]
-        short_returns =  self.resample_data['net_ret'][direction < 0]
+        short_returns = self.resample_data['net_ret'][direction < 0]
         long_sum_returns = long_avg_returns = long_win_ratio = 0.0
         short_sum_returns = short_avg_returns = short_win_ratio = 0.0
 
@@ -229,7 +236,6 @@ class FactorEvaluate1(object):
             long_avg_returns = long_returns.mean()
             long_win_ratio = (long_returns > 0).mean()
 
-
         short_count = len(short_returns)
         if short_count > 0:
             short_sum_returns = short_returns.sum()
@@ -237,24 +243,35 @@ class FactorEvaluate1(object):
             short_win_ratio = (short_returns > 0).mean()
 
         return {
-            "long_count":long_count,
-            "long_sum_returns":long_sum_returns,
-            "long_avg_returns":long_avg_returns,
-            "long_win_ratio":long_win_ratio,
-            "short_count":short_count,
-            "short_sum_returns":short_sum_returns,
-            "short_avg_returns":short_avg_returns,
-            "short_win_ratio":short_win_ratio
+            "long_count": long_count,
+            "long_sum_returns": long_sum_returns,
+            "long_avg_returns": long_avg_returns,
+            "long_win_ratio": long_win_ratio,
+            "short_count": short_count,
+            "short_sum_returns": short_sum_returns,
+            "short_avg_returns": short_avg_returns,
+            "short_win_ratio": short_win_ratio
         }
-
-
-
 
     def _cal_autocorr(self):
         """计算因子和收益率的滞后1期自相关性。"""
         factor_ac = self.resample_data[self.factor_name].autocorr(lag=1)
         ret_ac = self.resample_data[self.ret_name].autocorr(lag=1)
         return {'factor_autocorr': factor_ac, 'ret_autocorr': ret_ac}
+
+    def _cal_distribution(self):
+        coverage = self.resample_data[self.factor_name].notna().mean()
+        mean = self.resample_data[self.factor_name].mean()
+        std = self.resample_data[self.factor_name].std()
+        skew = self.resample_data[self.factor_name].skew()
+        kurtosis = self.resample_data[self.factor_name].kurt()
+        return {
+            'factor_coverage': coverage,
+            'factor_mean': mean,
+            'factor_std': std,
+            'factor_skew': skew,
+            'factor_kurtosis': kurtosis
+        }
 
     def _check_warnings(self):
         """检查关键指标并打印警告。"""
@@ -323,10 +340,12 @@ class FactorEvaluate1(object):
             }
         pnl_stats = self.cal_pnl()
         autocorr_stats = self._cal_autocorr()  # 计算自相关性
+        distribution_stats = self._cal_distribution()  # 因子分布
 
         # 合并所有统计数据
         pnl_stats.update(ic_stats)
         pnl_stats.update(autocorr_stats)
+        pnl_stats.update(distribution_stats)
 
         self.stats = pnl_stats
         if is_check:
@@ -367,7 +386,7 @@ class FactorEvaluate1(object):
         if self.stats is None:
             raise RuntimeError(
                 "Please run the 'run()' method before plotting.")
-        
+
         def set_sequential_xticks(ax, series, num_ticks=7):
             """
             为一个使用整数索引绘图的坐标轴设置日期标签。
@@ -396,7 +415,8 @@ class FactorEvaluate1(object):
         # 1. 净值曲线 (NAV)
         ax1 = axes[0, 0]
         nav_data = self.resample_data['nav'].dropna()
-        gross_ret_data = (1 + self.resample_data['gross_ret']).cumprod().dropna()
+        gross_ret_data = (1 +
+                          self.resample_data['gross_ret']).cumprod().dropna()
 
         # 使用 use_index=False 来忽略时间轴，绘制连续序列
         nav_data.plot(ax=ax1,
@@ -449,8 +469,7 @@ class FactorEvaluate1(object):
             f"{'Factor Autocorr':<20}: {self.stats['factor_autocorr']:.4f}\n"  # 新增
             f"{'Return Autocorr':<20}: {self.stats['ret_autocorr']:.4f}\n"  # 新增
             f"{'Roll Window':<20}: {self.roll_win}\n"
-            f"{'Resampling Window':<20}: {self.resampling_win}\n"
-        )
+            f"{'Resampling Window':<20}: {self.resampling_win}\n")
         report_parts.append(performance_metrics)
         stats_text = "\n".join(report_parts)
 
@@ -507,8 +526,8 @@ class FactorEvaluate1(object):
         # 5. 每日收益率与回撤
         ax5 = axes[2, 0]
         drawdown_data = (
-            (self.resample_data['nav'] / self.resample_data['nav'].cummax() - 1) *
-            100).dropna()
+            (self.resample_data['nav'] / self.resample_data['nav'].cummax() -
+             1) * 100).dropna()
 
         drawdown_data.plot(ax=ax5, color='red', alpha=0.8, use_index=False)
         # fill_between 需要 numpy 数组
@@ -550,6 +569,131 @@ class FactorEvaluate1(object):
         plt.show()
         self.figure = fig
 
+    def generate_xml(self, start_time, end_time):
+
+        def add_text(parent, tag, value, **attributes):
+            element = ET.SubElement(
+                parent, tag, {
+                    key: str(item)
+                    for key, item in attributes.items() if item is not None
+                })
+            if value is None:
+                element.set('status', 'missing')
+            else:
+                element.text = str(value)
+            return element
+
+        def add_metric(parent, tag, value, description, unit='ratio'):
+            element = ET.SubElement(parent, tag, {
+                'description': description,
+                'unit': unit,
+            })
+            try:
+                numeric_value = float(value)
+            except (TypeError, ValueError):
+                numeric_value = np.nan
+            if np.isfinite(numeric_value):
+                element.text = format(numeric_value, '.12g')
+            else:
+                element.set('status', 'missing')
+            return element
+
+        root = ET.Element('factor_evaluation', {
+            'schema_version': '1.0.0',
+            'purpose': 'factor_screening',
+        })
+
+        identity = ET.SubElement(root, 'identity')
+        add_text(identity, 'name', self.name)
+        add_text(identity, 'expression', self.expression)
+        add_text(identity, 'factor_field', self.factor_name)
+        add_text(identity, 'forward_return_field', self.ret_name)
+
+        evaluation = ET.SubElement(root, 'evaluation_config')
+        add_text(evaluation, 'start_time', start_time)
+        add_text(evaluation, 'end_time', end_time)
+        add_text(evaluation, 'rolling_window', self.roll_win, unit='period')
+        add_text(evaluation,
+                 'resampling_window',
+                 self.resampling_win,
+                 unit='minute')
+
+        add_text(evaluation, 'scale_method', self.scale_method)
+        add_text(evaluation,
+                 'annualization_factor',
+                 self.annualization_factor,
+                 unit='trading_days_per_year')
+        add_text(evaluation, 'return_basis', 'gross_return_before_costs')
+
+        direction = ET.SubElement(root, 'direction_adjustment')
+        direction1 = np.sign(self.stats['ic_mean'])
+        add_text(direction,
+                 'applied',
+                 str(bool(direction1)).lower(),
+                 unit='boolean')
+        add_text(
+            direction, 'rule',
+            'invert f_scaled when pre_adjustment rolling IC mean is negative')
+
+        metrics = ET.SubElement(root, 'metrics', {
+            'basis': 'gross_return_before_costs',
+        })
+        add_metric(metrics, 'average_return', self.stats['avg_ret'], '平均收益',
+                   'decimal_return')
+        add_metric(metrics, 'total_return', self.stats['total_ret'], '累计成本前收益',
+                   'decimal_return')
+        add_metric(metrics, 'annualized_sharpe', self.stats['sharpe2'], '年化夏普',
+                   'ratio')
+        add_metric(metrics, 'maximum_drawdown', self.stats['max_dd'], '最大回撤',
+                   'decimal_return')
+        add_metric(metrics, 'calmar_ratio', self.stats['calmar'], '卡玛',
+                   'ratio')
+        add_metric(metrics, 'win_rate', self.stats['win_rate'], '胜率',
+                   'decimal_ratio')
+        add_metric(metrics, 'profit_loss_ratio', self.stats['profit_ratio'],
+                   '盈亏比', 'ratio')
+        add_metric(metrics, 'turnover', self.stats['turnover'], '平均换手率',
+                   'turnover')
+
+        characteristics = ET.SubElement(root, 'factor_characteristics', {
+            'ic_scope': 'time_series',
+        })
+        effective_ic = ET.SubElement(characteristics, 'effective_ic', {
+            'description': '方向调整后实际用于收益计算的因子IC',
+        })
+        add_metric(effective_ic, 'total_ic', self.stats['total_ic'], '全样本IC',
+                   'correlation')
+        add_metric(effective_ic, 'total_ic', self.stats['ic_mean'], '滚动IC平均值',
+                   'ic_mean')
+        add_metric(effective_ic, 'ic_std', self.stats.get('ic_std'), '滚动IC标准差',
+                   'correlation')
+        add_metric(effective_ic, 'ic_ir', self.stats.get('ic_ir'), '滚动ICIR',
+                   'correlation')
+
+        add_metric(characteristics, 'factor_autocorrelation',
+                   self.stats.get('factor_autocorr'), '原始因子一阶自相关',
+                   'correlation')
+        add_metric(characteristics, 'return_autocorrelation',
+                   self.stats.get('ret_autocorr'), '目标收益一阶自相关', 'correlation')
+
+        distribution = ET.SubElement(root, 'factor_distribution')
+        add_metric(distribution, 'coverage', self.stats.get('factor_coverage'),
+                   '有效因子值覆盖率', 'decimal_ratio')
+        add_metric(distribution, 'mean', self.stats.get('factor_mean'),
+                   '方向调整后因子均值', 'factor_value')
+        add_metric(distribution, 'std', self.stats.get('factor_std'),
+                   '方向调整后因子标准差', 'factor_value')
+        add_metric(distribution, 'skew', self.stats.get('factor_skew'),
+                   '方向调整后因子偏度', 'ratio')
+        add_metric(distribution, 'kurtosis', self.stats.get('factor_kurtosis'),
+                   '方向调整后因子超额峰度', 'ratio')
+
+        rough_xml = ET.tostring(root, encoding='utf-8')
+        xml_text = minidom.parseString(rough_xml).toprettyxml(
+            indent='  ', encoding='utf-8').decode('utf-8')
+
+        return xml_text
+
     def save_results(self, base_output_dir: str):
         """
         保存所有结果，包括性能摘要、时间序列数据和图表。
@@ -564,7 +708,7 @@ class FactorEvaluate1(object):
             )
 
         # 直接使用 base_output_dir，不创建子目录
-        output_dir = os.path.join(base_output_dir,str(self.name))
+        output_dir = os.path.join(base_output_dir, str(self.name))
         os.makedirs(output_dir, exist_ok=True)
         print(f"Saving results to: {output_dir}")
 
@@ -595,10 +739,29 @@ class FactorEvaluate1(object):
         # 3. 保存图表
         image_path = os.path.join(output_dir, "evaluation_plot.png")
         self.figure.savefig(image_path, dpi=150)
-        
+
+        # 4. 保存xml
+        xml_path = os.path.join(output_dir, "evaluation.xml")
+        xml_text = self.generate_xml(
+            self.resample_data['nav'].index[0].isoformat(),
+            self.resample_data['nav'].index[-1].isoformat(),
+        )
+        with open(xml_path, 'w', encoding='utf-8') as file:
+            file.write(xml_text)
+
         ##单独保存
         image_path1 = os.path.join(base_output_dir, "plot")
         os.makedirs(image_path1, exist_ok=True)
-        self.figure.savefig(os.path.join(image_path1, "{0}.png".format(self.name)), dpi=150)
+        self.figure.savefig(os.path.join(image_path1,
+                                         "{0}.png".format(self.name)),
+                            dpi=150)
         plt.close(self.figure)
+
+        xml_path1 = os.path.join(base_output_dir, "xml")
+        os.makedirs(xml_path1, exist_ok=True)
+        xml_name1 = os.path.join(xml_path1, "{0}.xml".format(self.name))
+        with open(xml_name1, 'w', encoding='utf-8') as file:
+            file.write(xml_text)
+
         print(f"Evaluation plot saved to: {image_path}")
+        print(f"Evaluation xml saved to: {xml_path}")

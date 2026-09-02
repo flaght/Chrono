@@ -71,13 +71,16 @@ class FactorComparator:
                    ('Ann Sharpe Ratio', 'sharpe2', '.2f'),
                    ('Max Drawdown', 'max_dd', '.2%'),
                    ('Calmar Ratio', 'calmar', '.2f'),
-                   ('IC Mean', 'ic_mean', '.4f'), ('ICIR', 'ic_ir', '.4f'),
+                   ('IC Mean', 'ic_mean', '.4f'),
+                   ('Total IC', 'total_ic', '.4f'), ('ICIR', 'ic_ir', '.4f'),
                    ('Mean Turnover', 'turnover', '.4f'),
                    ('Factor Autocorr', 'factor_autocorr', '.4f'),
                    ('Return Autocorr', 'ret_autocorr', '.4f')]
         # 从 eval_left 获取 roll_win 和 resampling_win
         if self.eval_left.roll_win != self.eval_right.roll_win or self.eval_left.resampling_win != self.eval_right.resampling_win:
-            raise ValueError("Roll win and resampling win must be the same for both left and right evaluation objects.")
+            raise ValueError(
+                "Roll win and resampling win must be the same for both left and right evaluation objects."
+            )
         roll_win = self.eval_left.roll_win
         resampling_win = self.eval_left.resampling_win
         ret_name = self.eval_left.ret_name
@@ -102,18 +105,19 @@ class FactorComparator:
         fig, axes = plt.subplots(3, 2, figsize=(20, 18))
         # 从 eval_left 获取 roll_win 和 resampling_win（两个评估对象应该使用相同的参数）
         if self.eval_left.roll_win != self.eval_right.roll_win or self.eval_left.resampling_win != self.eval_right.resampling_win:
-            raise ValueError("Roll win and resampling win must be the same for both left and right evaluation objects.")
+            raise ValueError(
+                "Roll win and resampling win must be the same for both left and right evaluation objects."
+            )
         fig.suptitle(
             f"Factor Comparison: {self.left_name} vs. {self.right_name}\nExpression: {self.expression}\nName: {self.name}",
             fontsize=18)
 
         ax1 = axes[0, 0]
         self.eval_left.resample_data['nav'].dropna().plot(ax=ax1,
-                                                        label=self.left_name,
-                                                        color='blue')
-        self.eval_right.resample_data['nav'].dropna().plot(ax=ax1,
-                                                         label=self.right_name,
-                                                         color='orange')
+                                                          label=self.left_name,
+                                                          color='blue')
+        self.eval_right.resample_data['nav'].dropna().plot(
+            ax=ax1, label=self.right_name, color='orange')
         ax1.set_title("Net Asset Value (NAV) Comparison")
         ax1.legend()
         ax1.grid(True)
@@ -131,11 +135,11 @@ class FactorComparator:
 
         ax3 = axes[1, 0]
         self.eval_left.resample_data['cumsum_ic'].plot(ax=ax3,
-                                                     label=self.left_name,
-                                                     color='blue')
+                                                       label=self.left_name,
+                                                       color='blue')
         self.eval_right.resample_data['cumsum_ic'].plot(ax=ax3,
-                                                      label=self.right_name,
-                                                      color='orange')
+                                                        label=self.right_name,
+                                                        color='orange')
         ax3.set_title("Cumulative IC Comparison")
         ax3.legend()
         ax3.grid(True)
@@ -273,8 +277,8 @@ def calc_all1(expression, total_data1, period):
     factor_data1 = calc_expression(expression=expression,
                                    total_data=total_data2)
     dt = merging_data1(factor_data=factor_data1,
-                          returns_data=total_data1,
-                          period=period)
+                       returns_data=total_data1,
+                       period=period)
     evaluate1 = FactorEvaluate1(factor_data=dt,
                                 factor_name='transformed',
                                 ret_name='nxt1_ret_{0}h'.format(period),
