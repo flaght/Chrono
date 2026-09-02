@@ -5,18 +5,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-sys.path.insert(0, os.path.abspath('../'))
+# sys.path.insert(0, os.path.abspath('../'))
 
 from plugin.atlex.factorx import Factorx
 
 
+def create_time(begin_time, end_time, freq='1T'):
+    return pd.date_range(start=begin_time, end=end_time, freq=freq)
 
 def main():
     symbol = 'rb2510'
     trade_time = pd.to_datetime('2025-04-21 15:00:00')
-    factorx = Factorx(symbol=symbol, n_job=4)
-    factorx.impluse_run(trade_time=trade_time)
-
-
+    factorx = Factorx(symbol=symbol, n_job=1, impulse=['i013','i003'])
+    factorx.impluse_run(trade_time=trade_time)    
 
 main()
