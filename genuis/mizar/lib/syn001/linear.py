@@ -39,6 +39,7 @@ def composit_equal1(data,
         resampling_win=period,
         name=name if isinstance(name, str) else expression)
     _ = evaluate1.run()
+    pdb.set_trace()
     return data1, evaluate1
 
 

@@ -41,7 +41,11 @@ def load_config(file_name, config_id):
 class Tactix(object):
     ### yaml配置文件
     def yaml(self, args):
-        yaml_config = load_config(args.config_file, args.config_id)
+        filename = os.path.join('config', 'research', args.config_file)
+        if not os.path.exists(filename):
+            filename = args.config_file
+        print("load file:{0}".format(filename))
+        yaml_config = load_config(filename, args.config_id)
         if not yaml_config:
             raise ValueError(
                 f"load {args.config_id} config from {args.config_file} failed")
@@ -71,16 +75,17 @@ class Tactix(object):
     def params(self):
         parser = argparse.ArgumentParser(description='Train a model')
 
-        parser.add_argument('--config_file',
-                            type=str,
-                            default=None,  # 或者给一个默认值 'configs.yaml'
-                            help='Path to the YAML configuration file.')
+        parser.add_argument(
+            '--config_file',
+            type=str,
+            default=None,  # 或者给一个默认值 'configs.yaml'
+            help='Path to the YAML configuration file.')
 
-        parser.add_argument('--config_id',
-                            type=str,
-                            default=None,
-                            help='ID of the configuration setup to use from the YAML file.')
-        
+        parser.add_argument(
+            '--config_id',
+            type=str,
+            default=None,
+            help='ID of the configuration setup to use from the YAML file.')
 
         parser.add_argument('--method',
                             type=str,
@@ -98,7 +103,6 @@ class Tactix(object):
                             help='code or instruments')
 
         parser.add_argument('--period', type=int, default=1, help='period')
-
 
         return parser
 

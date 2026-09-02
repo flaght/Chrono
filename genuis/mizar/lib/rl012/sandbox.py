@@ -374,21 +374,22 @@ def empyricals(daily_stats=None, initial_capital=50000, period='daily'):
         empyrical.max_drawdown(returns=returns),
         'calmar_ratio':
         empyrical.calmar_ratio(returns=returns, period=period)
-    }
+    }, cum_return
 
 
 def empyrical_metrics(daily_stats=None, initial_capital=50000, period='daily'):
     metrics1 = metrics(daily_stats=daily_stats,
                        initial_capital=initial_capital)
-    metrics2 = empyricals(daily_stats=daily_stats,
+    metrics2, cum_return2 = empyricals(daily_stats=daily_stats,
                           initial_capital=initial_capital,
                           period=period)
     return {
-        'total_pnl':
-        metrics1['total_pnl'],
-        'annual_return':metrics2['annual_return'],
-        'annual_volatility':metrics2['annual_volatility'],
-        'sharpe_ratio':metrics2['sharpe_ratio'],
-        'calmar_ratio':metrics2['calmar_ratio'],
-        'max_drawdown':metrics2['max_drawdown']
-    }
+        'total_pnl': metrics1['total_pnl'],
+        'annual_return': metrics2['annual_return'],
+        'annual_volatility': metrics2['annual_volatility'],
+        'sharpe_ratio': metrics2['sharpe_ratio'],
+        'calmar_ratio': metrics2['calmar_ratio'],
+        'max_drawdown': metrics2['max_drawdown'],
+        'long_trades': daily_stats['long_trades'].mean(),
+        'short_trades': daily_stats['short_trades'].mean()
+    }, cum_return2

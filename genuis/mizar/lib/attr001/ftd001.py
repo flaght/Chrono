@@ -2,6 +2,7 @@ import pdb, os
 import numpy as np
 import pandas as pd
 from typing import Any
+import datetime
 from pymongo import UpdateOne
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FixedLocator
@@ -25,6 +26,10 @@ def fetch_bench_data(instruments,
                                     method=adjusted_method,
                                     keep_symbol=True,
                                     forced_alignment=forced_alignment)
+    pdb.set_trace()
+    ## 处理vwap 复权因子
+    market_data['vwap'] = market_data['vwap'] * market_data['pcr_cumfactor']
+
     market_data = market_data.set_index(['trade_time', 'code'])
 
     prev_close = market_data.groupby(level='code')['close'].shift(1)
@@ -51,12 +56,6 @@ def fetch_research_data(instruments,
                                       keep_symbol=True)
 
     market_data = market_data.set_index(['trade_time', 'code'])
-
-    prev_close = market_data.groupby(level='code')['close'].shift(1)
-
-    # np.log 在遇到 NaN 时会安全返回 NaN
-    market_data['chg'] = np.log(market_data['close'] / prev_close)
-
     return market_data
 
 
@@ -86,6 +85,22 @@ def fetch_trader_data(instruments,
     # market_data.index = pd.MultiIndex.from_arrays([shifted_times, codes],
     #                                               names=['trade_time', 'code'])
 
+    return market_data
+
+
+## 提取交易共享数据
+def fetch_quant_data(instruments,
+                     begin_time,
+                     end_time,
+                     adjusted_method='pcr',
+                     **kwargs):
+    market_data = fetch_local_market1(base_path=os.environ['TRADE_FUT_DIRS'],
+                                      begin_date=begin_time,
+                                      end_date=end_time,
+                                      codes=[INSTRUMENTS_CODES[instruments]],
+                                      method=adjusted_method,
+                                      keep_symbol=True)
+    market_data = market_data.set_index(['trade_time', 'code'])
     return market_data
 
 
@@ -150,8 +165,11 @@ def fetch_netout_metrics(mongo_client,
 
 
 ## 更新收益率
-def update_returns_series(mongo_client, series_data, table_name, category,
-                          code):
+def update_returns_series(mongo_client,
+                          series_data,
+                          table_name,
+                          code,
+                          category=None):
     if series_data is None or series_data.empty:
         print(f"⚠️ 表 [{table_name}] 接收到的数据为空，跳过存储。")
         return
@@ -170,11 +188,9 @@ def update_returns_series(mongo_client, series_data, table_name, category,
         if pd.isna(val):
             continue
 
-        filter_query = {
-            'trade_time': t_time,
-            'category': category,
-            'code': code
-        }
+        filter_query = {'trade_time': t_time, 'code': code}
+        if isinstance(category, str):
+            filter_query['category'] = category
         # 要更新或插入的具体数据
         update_data = {
             '$set': {
@@ -193,7 +209,11 @@ def update_returns_series(mongo_client, series_data, table_name, category,
 
 
 ## 更新预测值
-def update_netout_series1(mongo_client, series_data, table_name, category, name='value'):
+def update_netout_series1(mongo_client,
+                          series_data,
+                          table_name,
+                          category,
+                          name='value'):
     """
     将包含多列信息的 DataFrame 极速 Upsert 到 MongoDB。
     要求 df_data 必须包含: ['trade_time', 'symbol', 'value', 'code', 'task_id']
@@ -232,15 +252,10 @@ def update_netout_series1(mongo_client, series_data, table_name, category, name=
             'symbol': row.symbol
         }
         # 要更新或插入的具体数据
-        set1 = {
-                name: float(getattr(row, name)),
-                'signal': int(row.signal)
-            }
+        set1 = {name: float(getattr(row, name)), 'signal': int(row.signal)}
         if 'value' not in set1:
             set1['value'] = row.value
-        update_data = {
-            '$set': set1
-        }
+        update_data = {'$set': set1}
 
         operations.append(UpdateOne(filter_query, update_data, upsert=True))
 
@@ -253,8 +268,12 @@ def update_netout_series1(mongo_client, series_data, table_name, category, name=
 
 
 ## 更新绩效数据
-def update_evaluate_series(mongo_client, series_data, table_name, factor_name,
-                           category, code):
+def update_evaluate_series(mongo_client,
+                           series_data,
+                           table_name,
+                           factor_name,
+                           code,
+                           category=None):
 
     db = mongo_client['neutron']
     if pd.api.types.is_datetime64_any_dtype(series_data.index):
@@ -271,9 +290,11 @@ def update_evaluate_series(mongo_client, series_data, table_name, factor_name,
         filter_query = {
             'trade_time': t_time,
             'name': factor_name,
-            'category': category,
+            #'category': category,
             'code': code
         }
+        if isinstance(category, str):
+            filter_query['category'] = category
         # 要更新或插入的具体数据
         update_data = {
             '$set': {
@@ -334,6 +355,154 @@ def update_netout_series2(mongo_client, df_data, table_name, unique_keys):
             print(f"❌ 存储到 [{table_name}] 时发生错误: {e}")
 
 
+## 更新实盘因子
+def update_factor_infos(mongo_client, factor_infos, table_name, code):
+
+    db = mongo_client["neutron"]
+    collection = db[table_name]
+
+    update_time = datetime.datetime.now()
+
+    delete_filter = {"code": code}
+
+    delete_result = collection.delete_many(delete_filter)
+    operations = []
+
+    for _, row in factor_infos.iterrows():
+
+        doc = {
+            "code": code,
+            "formula": row["formula"],
+            "direction": int(row["direction"]),
+            "source": str(row["source"]),
+            "category": row.get("category", None),
+            "update_time": update_time
+        }
+
+        operations.append(InsertOne(doc))
+
+    if operations:
+
+        collection.bulk_write(operations,
+                              ordered=False,
+                              bypass_document_validation=True)
+
+    print(f"""✅ 更新因子配置完成
+          code : {code}
+            删除旧配置 : {delete_result.deleted_count}
+            新增因子数 : {len(operations)}""")
+
+
+def delete_dataset(mongo_client,
+                   table_name,
+                   code=None,
+                   name=None,
+                   extra_filter=None):
+    """
+    extra_filter 自定义补充条件
+    """
+    db = mongo_client["neutron"]
+    collection = db[table_name]
+    delete_filter = {}
+    if isinstance(code, str):
+        delete_filter["code"] = code
+    if isinstance(name, str):
+        delete_filter["name"] = name
+    if extra_filter:
+        delete_filter.update(extra_filter)
+    result = collection.delete_many(delete_filter)
+    return result.deleted_count
+
+
+def insert_full_series(mongo_client,
+                       series_data,
+                       table_name,
+                       factor_name,
+                       code,
+                       category=None,
+                       batch_size=10000):
+    db = mongo_client['neutron']
+    collection = db[table_name]
+
+    series = series_data.dropna()
+
+    if pd.api.types.is_datetime64_any_dtype(series.index):
+        times = series.index.to_pydatetime()
+    else:
+        times = pd.to_datetime(series.index).to_pydatetime()
+
+    docs = []
+    inserted_count = 0
+
+    for t_time, val in zip(times, series.values):
+        doc = {
+            'trade_time': t_time,
+            "name": factor_name,
+            "code": code,
+            "value": float(val),
+        }
+
+        if isinstance(category, str):
+            doc["category"] = category
+
+        docs.append(doc)
+
+        if len(docs) >= batch_size:
+            result = collection.insert_many(docs, ordered=False)
+            inserted_count += len(result.inserted_ids)
+            docs.clear()
+
+    if docs:
+        result = collection.insert_many(docs, ordered=False)
+        inserted_count += len(result.inserted_ids)
+
+    print(f"✅ 全量插入 {inserted_count} 条数据至表: [{table_name}]")
+    return inserted_count
+
+
+def insert_full_dataframe(mongo_client, df_data, table_name, batch_size=10000):
+    if df_data is None or df_data.empty:
+        print(f"⚠️ 表 [{table_name}] 接收到的数据为空，跳过存储。")
+        return 0
+
+    db = mongo_client['neutron']
+    collection = db[table_name]
+
+    df = df_data.copy()
+
+    docs = []
+    inserted_count = 0
+
+    for row in df.itertuples(index=False):
+        row_dict = row._asdict()
+
+        clean_doc = {}
+        for key, value in row_dict.items():
+            if pd.isna(value):
+                continue
+
+            if isinstance(value, np.generic):
+                value = value.item()
+
+            clean_doc[key] = value
+
+        docs.append(clean_doc)
+
+        if len(docs) >= batch_size:
+            result = collection.insert_many(docs, ordered=False)
+            inserted_count += len(result.inserted_ids)
+            docs.clear()
+
+    if docs:
+        result = collection.insert_many(docs, ordered=False)
+        inserted_count += len(result.inserted_ids)
+
+    print(f"✅ 全量插入 {inserted_count} 条数据至表: [{table_name}]")
+    return inserted_count
+
+
+## 更新当前因子
+
 ## -------------> 数据计算
 
 
@@ -382,7 +551,8 @@ def market_data_format(market_data,
                        ]):
     res = {}
     for col in cols:
-        res[col] = market_data[col].unstack()
+        if col in market_data.keys():
+            res[col] = market_data[col].unstack()
     return res
 
 
@@ -395,7 +565,7 @@ def filter_trading_time(
     prepared = data.reset_index()
     hhmm = prepared["trade_time"].dt.strftime("%H:%M")
 
-    if not trading_sessions:
+    if len(trading_sessions) == 0:
         filtered = prepared.copy()
     else:
         session_mask = pd.Series(False, index=prepared.index)

@@ -218,7 +218,7 @@ def metrics_composite_signal(method, instruments, task_id, period,
     dirs1 = os.path.join(base_path1, "signal", "proto", composite_method,
                          str(composite_id))
     file_path = Path(dirs1)
-    
+
     for feat_file in file_path.rglob('*.feather'):
         signal_data = pd.read_feather(feat_file)
         name = feat_file.parts[-1].split('.')[0]
@@ -247,13 +247,12 @@ def backtest_composite_signal(method, instruments, task_id, period,
     base_path1 = os.path.join(base_path, method, instruments, 'temp', 'model',
                               str(task_id), str(period), 'rl')
     dirs1 = os.path.join(base_path1, "signal", "proto", composite_method,
-                         str(composite_id)) ## 信号值
+                         str(composite_id))  ## 信号值
 
     min_time = None
     max_time = None
     res = []
     file_path = Path(dirs1)
-    pdb.set_trace()
     for feat_file in file_path.rglob('*.feather'):
         print(feat_file)
         signal_data = pd.read_feather(feat_file)
@@ -268,7 +267,6 @@ def backtest_composite_signal(method, instruments, task_id, period,
         ) if max_time is None else max(signal_data['trade_time'].max(),
                                        max_time)
         res.append((name, parts, signal_data))
-    pdb.set_trace()
     market_data = load_market_data(instruments=instruments,
                                    begin_time=min_time,
                                    end_time=max_time,
@@ -279,7 +277,7 @@ def backtest_composite_signal(method, instruments, task_id, period,
     basic_path = os.path.join(base_path, method, instruments, 'temp', 'model',
                               str(task_id), str(period), 'rl', 'backtest',
                               "proto", composite_method,
-                              Params.create_tag(params)) # 保存回测路劲
+                              Params.create_tag(params))  # 保存回测路劲
 
     os.makedirs(basic_path, exist_ok=True)
     config_path = os.path.join(basic_path, "config.json")
