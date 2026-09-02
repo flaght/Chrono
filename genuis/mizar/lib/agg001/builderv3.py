@@ -1,5 +1,6 @@
+import pdb
 import datetime as dt
-import re,pdb
+import re
 import pandas as pd
 from dataclasses import dataclass, asdict
 
@@ -44,7 +45,7 @@ class BarBuilder:
     def __init__(self,
                  multiplier: int,
                  drop_first_partial_bar: bool = True) -> None:
-        self.multiplier = float(multiplier)
+        self.multiplier = multiplier
         self.drop_first_partial_bar = drop_first_partial_bar
         self.current_minute = None
         self.current_bar = None
@@ -62,6 +63,7 @@ class BarBuilder:
             return
 
         if minute_bucket != self.current_minute:
+            pdb.set_trace()
             self._flush_current_bar()
             self.current_minute = minute_bucket
             self.current_bar = self._new_bar(tick)
@@ -114,17 +116,10 @@ class BarBuilder:
         else:
             volume = max(0.0, self.current_bar["end_volume"] - start_volume)
             value = max(0.0, self.current_bar["end_turnover"] - start_turnover)
-
+        pdb.set_trace()
         minute_dt = self.current_bar["minute"]
         close_price = self.current_bar["close"]
-        vwap = _calculate_vwap(
-            value=value,
-            volume=volume,
-            multiplier=self.multiplier,
-            close_price=close_price,
-            low_price=self.current_bar["low"],
-            high_price=self.current_bar["high"],
-        )
+        vwap = value / volume / self.multiplier if volume > 0 else close_price
 
         bar = BarData(
             vt_symbol=self.current_bar["vt_symbol"],
@@ -145,35 +140,6 @@ class BarBuilder:
         self.result_bars.append(asdict(bar))
         self.has_emitted_bar = True
         self.current_bar = None
-
-
-def _calculate_vwap(
-    value: float,
-    volume: float,
-    multiplier: float,
-    close_price: float,
-    low_price: float,
-    high_price: float,
-) -> float:
-    if volume <= 0:
-        return close_price
-
-    raw_vwap = value / volume
-    scaled_vwap = raw_vwap / multiplier if multiplier else raw_vwap
-
-    low_bound = min(low_price, high_price)
-    high_bound = max(low_price, high_price)
-    raw_in_range = low_bound <= raw_vwap <= high_bound
-    scaled_in_range = low_bound <= scaled_vwap <= high_bound
-
-    if raw_in_range and not scaled_in_range:
-        return raw_vwap
-    if scaled_in_range and not raw_in_range:
-        return scaled_vwap
-
-    raw_distance = abs(raw_vwap - close_price)
-    scaled_distance = abs(scaled_vwap - close_price)
-    return raw_vwap if raw_distance <= scaled_distance else scaled_vwap
 
 
 def _previous_trading_date(trading_date: dt.date) -> dt.date:
@@ -277,7 +243,11 @@ def minute_bars(csv_path: str,
                 overnight_session_end: str = "04:00:00",
                 drop_first=True) -> pd.DataFrame:
     try:
+        #csv_path = "/workspace/data/fut_tick/7050707549_-/2026/202606/20260601/SA609_20260601.csv"
+        #csv_path = "/workspace/data/fut_tick/7050707549_-/2026/202606/20260601/ag2702_20260601.csv"
+        csv_path = "/workspace/data/fut_tick/7050707549_-/2026/202606/20260602/rb2610_20260602.csv"
         #csv_path = "/workspace/data/fut_tick/7050707549_-/2026/202606/20260630/MA611_20260630.csv"
+        pdb.set_trace()
         df = pd.read_csv(csv_path)
     except pd.errors.EmptyDataError:
         print(f"[ERROR] 遭遇空文件，跳过读取: {csv_path}")
