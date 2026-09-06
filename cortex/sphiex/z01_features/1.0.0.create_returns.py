@@ -101,5 +101,5 @@ def create_returns(method):
 
 
 if __name__ == '__main__':
-    method = 'train0'
+    method = 'test0'
     create_returns(method=method)

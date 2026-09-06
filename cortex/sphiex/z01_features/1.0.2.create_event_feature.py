@@ -42,6 +42,7 @@ async def create_reduce_event(method):
     file_path = Path(map_dirs)
     res = []
     for feat_file in file_path.rglob('*.feather'):
+        print(feat_file.stem)
         if begin_date <= feat_file.stem <= end_date:
             ed = pd.read_feather(feat_file)
             ed['date'] = feat_file.stem
@@ -99,8 +100,8 @@ def create_data(method):
 
 if __name__ == '__main__':
     method = 'train0'
-    #create_data(method=method)
-    #asyncio.run(create_map_event(method=method))
-    #asyncio.run(create_reduce_event(method=method))
+    create_data(method=method)
+    asyncio.run(create_map_event(method=method))
+    asyncio.run(create_reduce_event(method=method))
     asyncio.run(create_event_feature(method=method))
     # agg_data()
