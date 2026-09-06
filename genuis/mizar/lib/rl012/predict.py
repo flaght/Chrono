@@ -100,6 +100,7 @@ def predict_test_set(
         config_path=config_path,
         deterministic=deterministic,
     )
+    pdb.set_trace()
     print(f"开始预测，测试集大小: {len(test_df)}")
     signals_df = generator.predict_signals(test_df)
     print(f"预测完成，生成 {len(signals_df)} 条记录")
