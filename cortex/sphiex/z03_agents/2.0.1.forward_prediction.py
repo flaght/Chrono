@@ -75,12 +75,12 @@ async def generate_with_semaphore(agent_instance,
 
 def load_data(method):
     predict_data = pd.read_feather(
-        os.path.join("records", "normal", str(method), "predict_data.feather"))
+        os.path.join("records", "normal", str(method), "train_predict_data.feather"))
     regime_data = pd.read_feather(
-        os.path.join("records", "normal", str(method), "regime_data.feather"))
+        os.path.join("records", "normal", str(method), "train_regime_data.feather"))
     textuals_data = pd.read_feather(
         os.path.join("records", "normal", str(method),
-                     "textuals_data.feather"))
+                     "train_textuals_data.feather"))
     # returns_data = pd.read_feather(
     #     os.path.join("records", "basic", str(method), "returns_data.feather"))
     predict_data['trade_date'] = pd.to_datetime(predict_data['trade_date'])
@@ -130,6 +130,7 @@ async def predict(method, period, lookback=3, is_refresh=False):
         regime_data['trade_date'], textuals_data['trade_date'])
     dates = [d.strftime('%Y-%m-%d') for d in dates]
     dates.sort()
+    pdb.set_trace()
     #dates = dates[0:lookback + 2]
     ticker = "000852"
     name = '中证1000指数 (000852.SH / IM)'
