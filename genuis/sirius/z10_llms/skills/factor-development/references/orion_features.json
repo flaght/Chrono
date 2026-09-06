@@ -1,0 +1,27 @@
+{
+  "id": "orion_factor_input_fields",
+  "version": "1.0.0",
+  "timeframe": "configured_bar_period",
+  "features": {
+    "open": {"dtype": "float64", "description": "本周期开盘价", "unit": "price", "source": "market.open", "availability": "bar_close", "nullable": true},
+    "high": {"dtype": "float64", "description": "本周期最高价", "unit": "price", "source": "market.high", "availability": "bar_close", "nullable": true},
+    "low": {"dtype": "float64", "description": "本周期最低价", "unit": "price", "source": "market.low", "availability": "bar_close", "nullable": true},
+    "close": {"dtype": "float64", "description": "本周期收盘价", "unit": "price", "source": "market.close", "availability": "bar_close", "nullable": true},
+    "volume": {"dtype": "float64", "description": "本周期成交量", "unit": "quantity", "source": "market.volume", "availability": "bar_close", "nullable": true},
+    "value": {"dtype": "float64", "description": "本周期成交额", "unit": "notional", "source": "market.value", "availability": "bar_close", "nullable": true},
+    "openint": {"dtype": "float64", "description": "本周期末持仓量", "unit": "contracts", "source": "futures.openint", "availability": "bar_close", "nullable": true},
+    "future_open": {"dtype": "float64", "description": "已对齐期货开盘价", "unit": "price", "source": "prepared.future.open", "availability": "bar_close", "nullable": true},
+    "future_high": {"dtype": "float64", "description": "已对齐期货最高价", "unit": "price", "source": "prepared.future.high", "availability": "bar_close", "nullable": true},
+    "future_low": {"dtype": "float64", "description": "已对齐期货最低价", "unit": "price", "source": "prepared.future.low", "availability": "bar_close", "nullable": true},
+    "future_close": {"dtype": "float64", "description": "已对齐期货收盘价", "unit": "price", "source": "prepared.future.close", "availability": "bar_close", "nullable": true},
+    "future_volume": {"dtype": "float64", "description": "已对齐期货成交量", "unit": "quantity", "source": "prepared.future.volume", "availability": "bar_close", "nullable": true},
+    "future_value": {"dtype": "float64", "description": "已对齐期货成交额", "unit": "notional", "source": "prepared.future.value", "availability": "bar_close", "nullable": true},
+    "future_openint": {"dtype": "float64", "description": "已对齐期货持仓量", "unit": "contracts", "source": "prepared.future.openint", "availability": "bar_close", "nullable": true},
+    "spot_open": {"dtype": "float64", "description": "已对齐现货开盘价", "unit": "price", "source": "prepared.spot.open", "availability": "bar_close", "nullable": true},
+    "spot_high": {"dtype": "float64", "description": "已对齐现货最高价", "unit": "price", "source": "prepared.spot.high", "availability": "bar_close", "nullable": true},
+    "spot_low": {"dtype": "float64", "description": "已对齐现货最低价", "unit": "price", "source": "prepared.spot.low", "availability": "bar_close", "nullable": true},
+    "spot_close": {"dtype": "float64", "description": "已对齐现货收盘价", "unit": "price", "source": "prepared.spot.close", "availability": "bar_close", "nullable": true},
+    "spot_volume": {"dtype": "float64", "description": "已对齐现货成交量", "unit": "quantity", "source": "prepared.spot.volume", "availability": "bar_close", "nullable": true},
+    "spot_value": {"dtype": "float64", "description": "已对齐现货成交额", "unit": "notional", "source": "prepared.spot.value", "availability": "bar_close", "nullable": true}
+  }
+}

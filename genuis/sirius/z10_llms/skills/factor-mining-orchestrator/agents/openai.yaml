@@ -1,0 +1,4 @@
+interface:
+  display_name: "因子挖掘总控"
+  short_description: "编排因子研究、代码开发、人工审核验证与确定性评估流程"
+  default_prompt: "请编排一次可审计、可恢复的因子挖掘流程。"
