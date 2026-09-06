@@ -160,7 +160,6 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
                      default_value):
     fee = 0.000003
     min_ic_threshold = 0.001  # 全周期IC至少要大于1%
-
     try:
         returns = total_data[['trade_time', 'code', 'nxt1_ret']]
         if 'trade_time' not in factor_data.columns:
@@ -233,9 +232,11 @@ def callback_fitness(factor_data, total_data, factor_sets, custom_params,
     if data['transformed'].std() < 1e-8:
         return 0.0
     '''
-    ic, _ = stats.spearmanr(data['transformed'], data['nxt1_ret'])
-    if not np.isfinite(ic):
-        return 0.0
+    # ic, _ = stats.spearmanr(data['transformed'], data['nxt1_ret'])
+    # if not np.isfinite(ic):
+    #     return 0.0
+    
+    ic = stats_df['ic_mean']
     '''
     if abs(ic) < min_ic_threshold:
         return 0.0  # 预测能力太弱，直接淘汰
