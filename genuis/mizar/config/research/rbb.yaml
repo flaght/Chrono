@@ -135,3 +135,12 @@ experiment_setups:
     task_id: 113001
     instruments: rbb
     form: returns
+
+  "factors_rbb_gentic_micro":
+    method: ricso2
+    task_id: 113002
+    instruments: rbb
+    session: 20260905
+    period: 5
+    corr_threshold: 0
+    count: 0

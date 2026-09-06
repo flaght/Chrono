@@ -2,6 +2,8 @@ import toml, os, pdb
 
 contract_file = os.path.join(os.environ['LUMINA_CONFIG'],
                              'config/contract.toml')
+print(os.environ['LUMINA_CONFIG'])
+print(contract_file)
 contract = toml.load(contract_file)
 
 CONT_MULTNUM_MAPPING = contract['CONT_MULTNUM']
