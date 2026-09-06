@@ -77,7 +77,7 @@ def load_factors(method,
 
 
 def fetch_data1(method, instruments, datasets, features, task_id, period):
-    pdb.set_trace()
+    
     total_data = fetch_data(method=method,
                             instruments=instruments,
                             task_id=task_id,
@@ -106,7 +106,6 @@ def parellel_run(programs, method, left_symbol, right_symbol, dataset,
                  features, task_id, period, outputs):
     outputs1 = os.path.join(outputs, dataset)
     os.makedirs(outputs1, exist_ok=True)
-    pdb.set_trace()
     left_data = fetch_data1(method=method,
                             instruments=left_symbol,
                             datasets=[dataset],
@@ -139,7 +138,7 @@ def run2(method,
          task_id,
          session,
          datasets=['train', 'val']):
-    pdb.set_trace()
+    
     left_symbol = instruments
     right_symbol = leg_mappping[instruments][0]
 
@@ -261,7 +260,7 @@ def run4(method, instruments, period, task_id, filename='cohort_pro.csv'):
     outputs = os.path.join("records", method, left_symbol, 'rulex',
                            str(task_id), "nxt1_ret_{}h".format(str(period)),
                            "splits")
-    pdb.set_trace()
+    
     if not os.path.exists(outputs):
         os.makedirs(outputs)
 
@@ -278,7 +277,7 @@ def run4(method, instruments, period, task_id, filename='cohort_pro.csv'):
         eval(program.formula)._dependency
         for program in chosen_data.itertuples()
     ]
-    pdb.set_trace()
+    
     features = list(itertools.chain.from_iterable(features))
     features = list(set(features))
 
