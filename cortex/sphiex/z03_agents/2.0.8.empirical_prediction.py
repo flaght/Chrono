@@ -13,7 +13,6 @@ from lib.agt001 import create_agent
 from lib.pdb001 import PromptDataBuilder
 from lib.amr001 import MARLMemoryCoordinator
 
-
 # 中文类型映射字典，增强可读性
 FEATURE_TYPE_MAP = {
     "domestic_macro": "国内宏观",
@@ -23,6 +22,11 @@ FEATURE_TYPE_MAP = {
     "industry_trend": "行业趋势",
     "market_sentiment": "市场情绪"
 }
+
+
+def create_file(save_path, trade_date, ticker):
+    file_path = Path(save_path) / f"{trade_date}_{ticker}.json"
+    return file_path
 
 
 def save_prediction_snapshot(trade_date, ticker, name, holding_period,
@@ -52,7 +56,8 @@ def save_prediction_snapshot(trade_date, ticker, name, holding_period,
         "reviewer_result": ""
     }
     Path(save_path).mkdir(parents=True, exist_ok=True)
-    file_path = Path(save_path) / f"{trade_date}_{ticker}.json"
+    # file_path = Path(save_path) / f"{trade_date}_{ticker}.json"
+    file_path = create_file(save_path, trade_date, ticker)
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(snapshot, f, ensure_ascii=False, indent=2)
 
@@ -65,6 +70,7 @@ async def generate_with_semaphore(agent_instance,
                                   human_message,
                                   params_dict,
                                   schema_cls,
+                                  forward_return,
                                   key_name='events'):
     async with semaphore:
         print(f"[{agent_instance.name}] 获取到并发许可，开始极速发散推演...")
@@ -79,7 +85,8 @@ async def generate_with_semaphore(agent_instance,
             return {
                 "output": output,
                 "status": 0,
-                "input": params_dict
+                "input": params_dict,
+                "forward_return": forward_return
             }
         except Exception as e:
             print(f"❌ [{agent_instance.name}] 生成期间发生错误: {e}")
@@ -89,17 +96,25 @@ async def generate_with_semaphore(agent_instance,
 def load_data(method, period):
     ### 需要进行标准化处理
     predict_data = pd.read_feather(
-        os.path.join("records", "normal", str(method), "predict_data.feather"))
+        os.path.join("records", "normal", str(method),
+                     "test_predict_data.feather"))
     regime_data = pd.read_feather(
-        os.path.join("records", "normal", str(method), "regime_data.feather"))
+        os.path.join("records", "normal", str(method),
+                     "test_regime_data.feather"))
     textuals_data = pd.read_feather(
         os.path.join("records", "normal", str(method),
-                     "textuals_data.feather"))
+                     "test_textuals_data.feather"))
+    returns_data = pd.read_feather(
+        os.path.join("records", "normal", str(method),
+                     "test_returns_data.feather"))
+    returns_data = returns_data[[
+        'trade_date', 'code', "nxt1_ret_{0}h".format(period)
+    ]]
 
     predict_data['trade_date'] = pd.to_datetime(predict_data['trade_date'])
     regime_data['trade_date'] = pd.to_datetime(regime_data['trade_date'])
     textuals_data['trade_date'] = pd.to_datetime(textuals_data['trade_date'])
-    return predict_data, regime_data, textuals_data
+    return predict_data, regime_data, textuals_data, returns_data
 
 
 def format_textual_events_timeline(events_data,
@@ -164,16 +179,29 @@ async def create_predict_agent():
     return agent, thoughts1, thoughts_name
 
 
-async def run(method, period, lookback):
+async def run(method, period, lookback, is_refresh=False):
+
+    async def run_task(tasks):
+        batch_results = await asyncio.gather(*tasks)
+        for result in batch_results:
+            save_prediction_snapshot(trade_date=result['output']['trade_time'],
+                                     ticker=ticker,
+                                     name=name,
+                                     holding_period=holding_period,
+                                     input_data_dict=result['input'],
+                                     prediction_output=result['output'],
+                                     forward_return=result['forward_return'],
+                                     save_path=save_path)
+
     ticker = "000852"
     name = '中证1000指数 (000852.SH / IM)'
     holding_period = "T+1开盘 ~ T+{}开盘".format(period + 1)
     semaphore = asyncio.Semaphore(4)
     tasks = []
     storage_path = os.path.join(base_path, "brain", method, str(period))
-    save_path = os.path.join(base_path, "enhanced", str(method), str(period))
+    save_path = os.path.join(base_path, "outofsam", str(method), str(period))
     os.makedirs(storage_path, exist_ok=True)
-    predict_data, regime_data, textuals_data = await asyncio.to_thread(
+    predict_data, regime_data, textuals_data, returns_data = await asyncio.to_thread(
         load_data, method=method, period=period)
 
     predict_agent, predict_thoughts, predict_thoughts_name = await create_predict_agent(
@@ -204,9 +232,15 @@ async def run(method, period, lookback):
     for index, date in enumerate(dates):
         if index < lookback:
             continue
-        pdb.set_trace()
         end_date = date
         start_date = dates[index - lookback]
+
+        filename = create_file(save_path=save_path,
+                               trade_date=end_date,
+                               ticker=ticker)
+        if (os.path.exists(filename) and not is_refresh):
+            continue
+
         pdata = predict_data[(predict_data['trade_date'] >= start_date)
                              & (predict_data['trade_date'] <= end_date)]
         rdata = regime_data[(regime_data['trade_date'] >= start_date)
@@ -214,10 +248,16 @@ async def run(method, period, lookback):
         tdata = textuals_data[(textuals_data['trade_date'] >= start_date)
                               & (textuals_data['trade_date'] <= end_date)]
 
+        pdata = pdata.sort_values(by=['trade_date'],
+                                  ascending=True).tail(lookback + 1)
+        rdata = rdata.sort_values(by=['trade_date'],
+                                  ascending=True).tail(lookback + 1)
+
         p_martix = pdata[p_cols].values
         r_martix = rdata[r_cols].values
         textual_events = format_textual_events_timeline(tdata)
-        
+        forward_return = returns_data[returns_data['trade_date'] == end_date][
+            'nxt1_ret_{0}h'.format(period)].values[0]
 
         ## 经验检索
         memories_str = coordinator.retrieve_experience(
@@ -225,8 +265,10 @@ async def run(method, period, lookback):
             regime_matrix=r_martix,
             predict_matrix=p_martix,
             textual_events=textual_events,
-            active_predictive_whitelist={})
-        pdb.set_trace()
+            active_predictive_whitelist={
+                "main_flow_ratio", "comp_breadth_pos_20", "price_ret_5d",
+                "lower_shadow_ratio"
+            })
         predictive_str = PromptDataBuilder.build_predictive_signals(pdata)
         regime_str = PromptDataBuilder.build_regime_features(rdata)
         textual_str = PromptDataBuilder.build_textual_events(tdata)
@@ -255,20 +297,28 @@ async def run(method, period, lookback):
                                     semaphore=semaphore,
                                     human_message=prompt,
                                     params_dict=params,
+                                    forward_return=forward_return,
                                     schema_cls=TraderPredictionResult))
-    batch_results = await asyncio.gather(*tasks)
-    for result in batch_results:
-        save_prediction_snapshot(trade_date=result['output']['trade_time'],
-                                 ticker=ticker,
-                                 name=name,
-                                 holding_period=holding_period,
-                                 input_data_dict=result['input'],
-                                 prediction_output=result['output'],
-                                 forward_return=result['forward_return'],
-                                 save_path=save_path)
+
+        if len(tasks) >= 1:
+            await run_task(tasks)
+            tasks = []
+
+    if len(tasks) > 0:
+        await run_task(tasks)
+    # batch_results = await asyncio.gather(*tasks)
+    # for result in batch_results:
+    #     save_prediction_snapshot(trade_date=result['output']['trade_time'],
+    #                              ticker=ticker,
+    #                              name=name,
+    #                              holding_period=holding_period,
+    #                              input_data_dict=result['input'],
+    #                              prediction_output=result['output'],
+    #                              forward_return=result['forward_return'],
+    #                              save_path=save_path)
 
 
 if __name__ == '__main__':
-    method = 'test0'
+    method = 'train0'
     period = 3
     asyncio.run(run(method=method, period=3, lookback=3))

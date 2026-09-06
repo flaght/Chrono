@@ -1,3 +1,4 @@
+### 创建记忆池
 import pdb, itertools, os, toml, asyncio, math, json
 import pandas as pd
 from pathlib import Path
@@ -18,7 +19,8 @@ FEATURE_TYPE_MAP = {
 }
 
 
-def format_textual_events_timeline(events_data, current_trade_date=None) -> str:
+def format_textual_events_timeline(events_data,
+                                   current_trade_date=None) -> str:
     base_line = "【重大事件】"
     if events_data is None or (isinstance(
             events_data, pd.DataFrame) and events_data.empty) or (isinstance(
@@ -96,14 +98,17 @@ def load_data(method, period):
 def load_data(method, period):
     ### 需要进行标准化处理
     predict_data = pd.read_feather(
-        os.path.join("records", "normal", str(method), "predict_data.feather"))
+        os.path.join("records", "normal", str(method),
+                     "train_predict_data.feather"))
     regime_data = pd.read_feather(
-        os.path.join("records", "normal", str(method), "regime_data.feather"))
+        os.path.join("records", "normal", str(method),
+                     "train_regime_data.feather"))
     textuals_data = pd.read_feather(
         os.path.join("records", "normal", str(method),
-                     "textuals_data.feather"))
+                     "train_textuals_data.feather"))
     returns_data = pd.read_feather(
-        os.path.join("records", "normal", str(method), "returns_data.feather"))
+        os.path.join("records", "normal", str(method),
+                     "train_returns_data.feather"))
     returns_data = returns_data[[
         'trade_date', 'code', "nxt1_ret_{0}h".format(period)
     ]]
@@ -124,7 +129,7 @@ async def run(method, period, lookback):
         regime_data['trade_date'], textuals_data['trade_date'])
     dates = [d.strftime('%Y-%m-%d') for d in dates]
     dates.sort()
-    dates = dates[0:lookback + 5]
+    dates = dates  #[0:lookback + 5]
 
     p_cols = [
         f for f in predict_data.columns if not f in ['trade_date', 'code']
@@ -153,22 +158,27 @@ async def run(method, period, lookback):
                              & (predict_data['trade_date'] <= end_date)]
         rdata = regime_data[(regime_data['trade_date'] >= start_date)
                             & (regime_data['trade_date'] <= end_date)]
-        tdata = textuals_data[(textuals_data['trade_date'] >= end_date)
+        tdata = textuals_data[(textuals_data['trade_date'] >= start_date)
                               & (textuals_data['trade_date'] <= end_date)]
+
+        pdata = pdata.sort_values(by=['trade_date'],
+                                  ascending=True).tail(lookback + 1)
+        rdata = rdata.sort_values(by=['trade_date'],
+                                  ascending=True).tail(lookback + 1)
 
         p_martix = pdata[p_cols].values
         r_martix = rdata[r_cols].values
-        
+
         #textual_events = tdata['summary'].tolist()
         textual_events = format_textual_events_timeline(tdata)
         review_dict = snapshot_dict[date]['trader_attribution']
 
         coordinator.store_experience(code=ticker,
-                                          trade_time=date,
-                                          regime_matrix=r_martix,
-                                          predict_matrix=p_martix,
-                                          textual_events=textual_events,
-                                          review_dict=review_dict)
+                                     trade_time=date,
+                                     regime_matrix=r_martix,
+                                     predict_matrix=p_martix,
+                                     textual_events=textual_events,
+                                     review_dict=review_dict)
 
     # predict_data, regime_data, textuals_data, _ = await asyncio.to_thread(
     #     load_data, method=method, period=period)
@@ -181,6 +191,6 @@ async def run(method, period, lookback):
 
 
 if __name__ == '__main__':
-    method = 'test0'
+    method = 'train0'
     period = 3
     asyncio.run(run(method=method, period=3, lookback=3))
