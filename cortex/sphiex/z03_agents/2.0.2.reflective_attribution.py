@@ -14,6 +14,12 @@ from lib.pdb001 import PromptDataBuilder
 from features.text.mode import CaseMemoryReviewResult
 
 
+## 统一文件命名 路径+ 文件名
+def create_file(save_path, trade_date, ticker):
+    file_path = Path(save_path) / f"{trade_date}_{ticker}.json"
+    return file_path
+
+
 def save_attribution_snapshot(trade_date, ticker, name, holding_period,
                               attribution_output, save_path):
     snapshot = {
@@ -26,7 +32,7 @@ def save_attribution_snapshot(trade_date, ticker, name, holding_period,
         "trader_attribution": attribution_output
     }
     Path(save_path).mkdir(parents=True, exist_ok=True)
-    file_path = Path(save_path) / f"{trade_date}_{ticker}.json"
+    file_path = create_file(save_path, trade_date, ticker)
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(snapshot, f, ensure_ascii=False, indent=2)
 
@@ -36,14 +42,14 @@ def save_attribution_snapshot(trade_date, ticker, name, holding_period,
 def load_data(method, period):
     ### 需要进行标准化处理
     predict_data = pd.read_feather(
-        os.path.join("records", "normal", str(method), "predict_data.feather"))
+        os.path.join("records", "normal", str(method), "train_predict_data.feather"))
     regime_data = pd.read_feather(
-        os.path.join("records", "normal", str(method), "regime_data.feather"))
+        os.path.join("records", "normal", str(method), "train_regime_data.feather"))
     textuals_data = pd.read_feather(
         os.path.join("records", "normal", str(method),
                      "textuals_data.feather"))
     returns_data = pd.read_feather(
-        os.path.join("records", "normal", str(method), "returns_data.feather"))
+        os.path.join("records", "normal", str(method), "train_returns_data.feather"))
     returns_data = returns_data[[
         'trade_date', 'code', "nxt1_ret_{0}h".format(period)
     ]]
@@ -166,6 +172,7 @@ async def generate_with_semaphore(agent_instance,
 
 async def create_train_agent():
     llm_name = 'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+    #llm_name = 'ollama_1001'
     vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
     persona_name = 'quant_fusion_trader_10001'
     thoughts_name = 'fusion_reviewer_user_100001'
@@ -182,14 +189,25 @@ async def create_train_agent():
     return agent, thoughts1, thoughts_name
 
 
-async def train(method, period, lookback=3):
+async def train(method, period, lookback=3, is_refresh=False):
+
+    async def run_task(tasks):
+        batch_results = await asyncio.gather(*tasks)
+        for result in batch_results:
+            save_attribution_snapshot(
+                trade_date=result['output']['trade_time'],
+                ticker=ticker,
+                name=name,
+                holding_period=holding_period,
+                attribution_output=result['output'],
+                save_path=save_path)
 
     snapshot_dict = load_foward(method=method, period=period)
     predict_data, regime_data, textuals_data, returns_data = await asyncio.to_thread(
         load_data, method=method, period=period)
     train_agent, train_thoughts, train_thoughts_name = await create_train_agent(
     )
-
+    pdb.set_trace()
     ## 日期交集
     dates = set(predict_data['trade_date']).intersection(
         regime_data['trade_date'], textuals_data['trade_date'])
@@ -211,6 +229,13 @@ async def train(method, period, lookback=3):
             continue
         end_date = date
         start_date = dates[index - lookback]
+
+        filename = create_file(save_path=save_path,
+                               trade_date=end_date,
+                               ticker=ticker)
+        if (os.path.exists(filename) and not is_refresh):
+            continue
+
         pdata = predict_data[(predict_data['trade_date'] >= start_date)
                              & (predict_data['trade_date'] <= end_date)]
         rdata = regime_data[(regime_data['trade_date'] >= start_date)
@@ -221,7 +246,7 @@ async def train(method, period, lookback=3):
         predictive_str = PromptDataBuilder.build_predictive_signals(pdata)
         regime_str = PromptDataBuilder.build_regime_features(rdata)
         textual_str = PromptDataBuilder.build_textual_events(tdata)
-        
+
         fwd_ret_val = returns_data[returns_data['trade_date'] == end_date][
             'nxt1_ret_{0}h'.format(period)].values[0]
         params = build_reviewer_params(
@@ -253,17 +278,23 @@ async def train(method, period, lookback=3):
                                     human_message=prompt,
                                     params_dict=params,
                                     schema_cls=CaseMemoryReviewResult))
+        if len(tasks) >= 1:
+            await run_task(tasks)
+            tasks = []
 
-    batch_results = await asyncio.gather(*tasks)
-    for result in batch_results:
-        save_attribution_snapshot(trade_date=result['output']['trade_time'],
-                                  ticker=ticker,
-                                  name=name,
-                                  holding_period=holding_period,
-                                  attribution_output=result['output'],
-                                  save_path=save_path)
+    if len(tasks) > 0:
+        await run_task(tasks)
+
+    # batch_results = await asyncio.gather(*tasks)
+    # for result in batch_results:
+    #     save_attribution_snapshot(trade_date=result['output']['trade_time'],
+    #                               ticker=ticker,
+    #                               name=name,
+    #                               holding_period=holding_period,
+    #                               attribution_output=result['output'],
+    #                               save_path=save_path)
 
 
 if __name__ == '__main__':
-    method = 'test0'
+    method = 'train0'
     asyncio.run(train(method=method, period=3, lookback=3))
