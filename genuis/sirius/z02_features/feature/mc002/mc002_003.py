@@ -16,7 +16,7 @@ import polars as pl
 from feature.utils.preprocess import preprocess_ticks
 
 # 因子核心计算表达式
-EXPR = pl.col("_rel_spread").mean().alias("mc002_003")
+EXPR = pl.col("_rel_spread").mean().fill_null(0.0).alias("mc002_003")
 
 
 def calculate(df_lazy: pl.LazyFrame) -> pl.LazyFrame:
