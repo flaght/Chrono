@@ -11,11 +11,11 @@ def create_factors(method, instruments):
     start_date, end_date = get_dates(method)
     tick_data = fetch_tick_data(base_path=base_path,
                                 begin_date=start_date,
-                                end_date=end_date, codes=['RB'])
+                                end_date=end_date, codes=['HC'])
     output_path = os.path.join(base_path, method, instruments, 'basic')
     os.makedirs(output_path, exist_ok=True)
     tick_data.reset_index(drop=True).to_feather(os.path.join(output_path, 'tick_data.feather'))
 
 
 if __name__ == '__main__':
-    create_factors(method='ricso2', instruments='rbb')
+    create_factors(method='ricso2', instruments='hcb')

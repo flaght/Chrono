@@ -13,7 +13,7 @@ def start1(method):
     start_date, end_date = get_dates(method)
     process_tick_data(base_path=os.environ['TICK_FUT_DIRS'],
                       begin_date=start_date, end_date=end_date,
-                      codes=['RB'],
+                      codes=['HC'],
                       output_path=output_path)
 
 

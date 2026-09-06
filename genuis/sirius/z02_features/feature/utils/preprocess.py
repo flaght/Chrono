@@ -78,17 +78,33 @@ def preprocess_ticks(df_lazy: pl.LazyFrame) -> pl.LazyFrame:
     )
 
     if "AskPrice1" in schema_names and "BidPrice1" in schema_names:
+        # 有效买卖双边报价判定: 排除涨跌停板单边无挂单 (0.0) 或倒挂脏数据
+        valid_quotes = (
+            (pl.col("AskPrice1") > 0)
+            & (pl.col("BidPrice1") > 0)
+            & (pl.col("AskPrice1") >= pl.col("BidPrice1"))
+        )
         res = res.with_columns([
-            (pl.col("AskPrice1") - pl.col("BidPrice1")).alias("_spread"),
-            ((pl.col("AskPrice1") + pl.col("BidPrice1")) / 2.0).alias("_mid_price"),
+            pl.when(valid_quotes)
+            .then(pl.col("AskPrice1") - pl.col("BidPrice1"))
+            .otherwise(None)
+            .alias("_spread"),
+            pl.when(valid_quotes)
+            .then((pl.col("AskPrice1") + pl.col("BidPrice1")) / 2.0)
+            .when(pl.col("AskPrice1") > 0)
+            .then(pl.col("AskPrice1"))
+            .when(pl.col("BidPrice1") > 0)
+            .then(pl.col("BidPrice1"))
+            .otherwise(pl.col("LastPrice"))
+            .alias("_mid_price"),
             pl.when((pl.col("LastPrice") > 0) & (pl.col("_prev_last") > 0))
             .then((pl.col("LastPrice") / pl.col("_prev_last")).log())
             .otherwise(0.0)
             .alias("_log_ret"),
         ]).with_columns([
-            pl.when(pl.col("_mid_price") > 0)
+            pl.when(valid_quotes & (pl.col("_mid_price") > 0))
             .then(pl.col("_spread") / pl.col("_mid_price"))
-            .otherwise(0.0)
+            .otherwise(None)
             .alias("_rel_spread"),
             pl.col("_log_ret").pow(2).alias("_sq_log_ret"),
             pl.col("_log_ret").abs().alias("_abs_log_ret"),
@@ -129,8 +145,8 @@ def preprocess_ticks(df_lazy: pl.LazyFrame) -> pl.LazyFrame:
             (
                 (pl.col("BidVolume1") - pl.col("_prev_bid_v")) - (pl.col("AskVolume1") - pl.col("_prev_ask_v"))
             ).fill_null(0.0).alias("_voi"),
-            pl.when(pl.col("BidPrice1") < pl.col("_prev_bid")).then(pl.col("_prev_bid_v")).otherwise(0.0).fill_null(0.0).alias("_bid_depletion"),
-            pl.when(pl.col("AskPrice1") > pl.col("_prev_ask")).then(pl.col("_prev_ask_v")).otherwise(0.0).fill_null(0.0).alias("_ask_depletion"),
+            pl.when((pl.col("BidPrice1") < pl.col("_prev_bid")) & (pl.col("BidPrice1") > 0) & (pl.col("_prev_bid") > 0)).then(pl.col("_prev_bid_v")).otherwise(0.0).fill_null(0.0).alias("_bid_depletion"),
+            pl.when((pl.col("AskPrice1") > pl.col("_prev_ask")) & (pl.col("AskPrice1") > 0) & (pl.col("_prev_ask") > 0)).then(pl.col("_prev_ask_v")).otherwise(0.0).fill_null(0.0).alias("_ask_depletion"),
             pl.when(pl.col("_delta_v") > 0).then(pl.col("_delta_m") / pl.col("_delta_v")).otherwise(pl.col("LastPrice")).fill_null(0.0).alias("_tick_vwap"),
         ])
 
