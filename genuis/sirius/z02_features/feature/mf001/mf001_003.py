@@ -16,7 +16,13 @@ import polars as pl
 from feature.utils.preprocess import preprocess_ticks
 
 # 因子核心计算表达式
-EXPR = ((pl.col("OpenInterest").last() - pl.col("OpenInterest").first()) / (pl.col("_delta_v").sum() + 1e-7)).alias("mf001_003")
+EXPR = (
+    pl.when(pl.col("_delta_v").sum() > 0)
+    .then((pl.col("OpenInterest").last() - pl.col("OpenInterest").first()) / pl.col("_delta_v").sum())
+    .otherwise(0.0)
+    .clip(-1.0, 1.0)
+    .alias("mf001_003")
+)
 
 
 def calculate(df_lazy: pl.LazyFrame) -> pl.LazyFrame:
