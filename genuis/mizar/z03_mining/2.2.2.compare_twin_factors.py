@@ -77,6 +77,7 @@ def load_factors(method,
 
 
 def fetch_data1(method, instruments, datasets, features, task_id, period):
+    pdb.set_trace()
     total_data = fetch_data(method=method,
                             instruments=instruments,
                             task_id=task_id,
@@ -90,6 +91,7 @@ def fetch_data1(method, instruments, datasets, features, task_id, period):
                             ['nxt1_ret_{}h'.format(period)]]
     return total_data
 
+
 def fetch_chosen(method, instruments, task_id, period, filename="choose.csv"):
 
     filename = os.path.join(base_path, method, instruments, "rulex",
@@ -98,7 +100,37 @@ def fetch_chosen(method, instruments, task_id, period, filename="choose.csv"):
     print(filename)
     return pd.read_csv(filename) if os.path.exists(
         filename) else pd.DataFrame()
-    
+
+
+def parellel_run(programs, method, left_symbol, right_symbol, dataset,
+                 features, task_id, period, outputs):
+    outputs1 = os.path.join(outputs, dataset)
+    os.makedirs(outputs1, exist_ok=True)
+    pdb.set_trace()
+    left_data = fetch_data1(method=method,
+                            instruments=left_symbol,
+                            datasets=[dataset],
+                            features=features,
+                            task_id=task_id,
+                            period=period)
+
+    right_data = fetch_data1(method=method,
+                             instruments=right_symbol,
+                             datasets=[dataset],
+                             features=features,
+                             task_id=task_id,
+                             period=period)
+    k_split = 4
+    expression_list = programs['formula'].tolist()
+    process_list = split_k(k_split, expression_list)
+    res = create_parellel(process_list=process_list,
+                          callback=run_evalute,
+                          period=period,
+                          left_data=left_data,
+                          right_data=right_data,
+                          left_symbol=left_symbol,
+                          right_symbol=right_symbol,
+                          outputs=outputs1)
 
 
 def run2(method,
@@ -160,42 +192,40 @@ def run2(method,
                           outputs=outputs)
 
 
-
 def run3(method,
          instruments,
          period,
          task_id,
          filename='choose.csv',
          datasets=['recent']):
-    pdb.set_trace()
     left_symbol = instruments
     right_symbol = leg_mappping[instruments][0]
-    
+
     ## 加载初选目录
     outputs = os.path.join("records", method, instruments, 'rulex',
                            str(task_id), "nxt1_ret_{}h".format(str(period)),
                            "recent")
     if not os.path.exists(outputs):
         os.makedirs(outputs)
-        
 
-     ## 会把选中的特征全部读取处理进行绘图
+    ## 会把选中的特征全部读取处理进行绘图
     chosen_data = fetch_chosen(method=method,
                                instruments=instruments,
                                task_id=task_id,
                                period=period,
                                filename=filename)
-        
+
     ## 筛选为P的
-    chosen_data = chosen_data[chosen_data['category']=='p']
+    if not chosen_data.empty:
+        chosen_data = chosen_data[chosen_data['category'] == 'p']
     features = [
         eval(program.formula)._dependency
         for program in chosen_data.itertuples()
     ]
-    
+
     features = list(itertools.chain.from_iterable(features))
     features = list(set(features))
-    
+
     left_data = fetch_data1(method=method,
                             instruments=left_symbol,
                             datasets=datasets,
@@ -209,8 +239,7 @@ def run3(method,
                              features=features,
                              task_id=task_id,
                              period=period)
-        
-        
+
     k_split = 4
     expression_list = chosen_data['formula'].tolist()
     process_list = split_k(k_split, expression_list)
@@ -223,8 +252,48 @@ def run3(method,
                           right_symbol=right_symbol,
                           outputs=outputs)
 
-    
-    
+
+def run4(method, instruments, period, task_id, filename='cohort_pro.csv'):
+
+    left_symbol = instruments
+    right_symbol = leg_mappping[instruments][0]
+
+    outputs = os.path.join("records", method, left_symbol, 'rulex',
+                           str(task_id), "nxt1_ret_{}h".format(str(period)),
+                           "splits")
+    pdb.set_trace()
+    if not os.path.exists(outputs):
+        os.makedirs(outputs)
+
+    ## 加载选择中的因子
+    chosen_data = fetch_chosen(method=method,
+                               instruments=instruments,
+                               task_id=task_id,
+                               period=period,
+                               filename=filename)
+    ## 筛选为P的
+    if not chosen_data.empty:
+        chosen_data = chosen_data[chosen_data['category'] == 'p']
+    features = [
+        eval(program.formula)._dependency
+        for program in chosen_data.itertuples()
+    ]
+    pdb.set_trace()
+    features = list(itertools.chain.from_iterable(features))
+    features = list(set(features))
+
+    for dataset in ['train', 'val', 'recent']:
+        parellel_run(programs=chosen_data,
+                     method=method,
+                     left_symbol=left_symbol,
+                     right_symbol=right_symbol,
+                     dataset=dataset,
+                     features=features,
+                     task_id=task_id,
+                     period=period,
+                     outputs=outputs)
+
+
 if __name__ == '__main__':
     '''
     parser = argparse.ArgumentParser(description='Train a model')
@@ -265,9 +334,15 @@ if __name__ == '__main__':
              period=variant.period,
              task_id=variant.task_id,
              session=variant.session)
-    if variant.form == 'recent':
+    elif variant.form == 'recent':
         run3(method=variant.method,
              instruments=variant.instruments,
              period=variant.period,
              task_id=variant.task_id,
              filename=variant.filename)
+
+    elif variant.form == 'splits':
+        run4(method=variant.method,
+             instruments=variant.instruments,
+             period=variant.period,
+             task_id=variant.task_id)
