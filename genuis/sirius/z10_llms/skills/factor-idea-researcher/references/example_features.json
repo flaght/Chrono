@@ -1,0 +1,47 @@
+{
+  "id": "crypto_1h_ohlcv",
+  "version": "1.0",
+  "timeframe": "1h",
+  "features": {
+    "open": {
+      "dtype": "float64",
+      "description": "K-line open price",
+      "unit": "quote_currency",
+      "source": "kline.open",
+      "availability": "bar_close",
+      "nullable": false
+    },
+    "high": {
+      "dtype": "float64",
+      "description": "K-line high price",
+      "unit": "quote_currency",
+      "source": "kline.high",
+      "availability": "bar_close",
+      "nullable": false
+    },
+    "low": {
+      "dtype": "float64",
+      "description": "K-line low price",
+      "unit": "quote_currency",
+      "source": "kline.low",
+      "availability": "bar_close",
+      "nullable": false
+    },
+    "close": {
+      "dtype": "float64",
+      "description": "K-line close price",
+      "unit": "quote_currency",
+      "source": "kline.close",
+      "availability": "bar_close",
+      "nullable": false
+    },
+    "volume": {
+      "dtype": "float64",
+      "description": "Base-asset trading volume",
+      "unit": "base_asset",
+      "source": "kline.volume",
+      "availability": "bar_close",
+      "nullable": false
+    }
+  }
+}

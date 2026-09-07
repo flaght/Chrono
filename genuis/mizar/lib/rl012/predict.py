@@ -57,7 +57,7 @@ class SignalGenerator:
         while True:
             current_step = env.current_step
             action, _ = self.model.predict(obs, deterministic=self.deterministic)
-            
+            print(obs, action)
             obs_next, reward_scaled, done, _ = env.step(action)
             
             row_hist = env.history[-1] if env.history else {}

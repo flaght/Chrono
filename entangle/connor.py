@@ -96,11 +96,16 @@ class Conor(object):
         data['datetime'] = data['datetime'].strftime('%Y-%m-%d %H:%M:%S')
 
         cache_bar = self.bars[event.data.symbol]
-
+        
         tick = event.data
         tick_time = datetime.datetime.strptime(tick.datetime,
                                                '%Y-%m-%d %H:%M:%S')
         tickMinute = tick_time.minute
+        
+        if not hasattr(cache_bar, 'prev_total_volume'):
+            cache_bar.prev_total_volume = tick.volume
+            cache_bar.prev_total_turnover = tick.turnover
+            
         if (tickMinute != cache_bar.minute):  # or tickMinute == 0:
             if cache_bar.bar:
                 ## 存储
@@ -108,17 +113,31 @@ class Conor(object):
                     "tickMinute:{0} cache_bar.minute:{1} tickMinute:{2} bar:{3}"
                     .format(tickMinute, cache_bar.minute, tickMinute,
                             cache_bar.bar.__dict__))
-                data = cache_bar.bar.__dict__
+                data = cache_bar.bar.__dict__.copy()
                 print(data)
+                
+                current_total_vol = data['volume']
+                current_total_turnover = data['value']
+                
+                data['volume'] = max(0, current_total_vol - cache_bar.prev_total_volume)
+                data['value'] = max(0, current_total_turnover - cache_bar.prev_total_turnover)
+                
                 ## vwap
                 current_time = datetime.datetime.strptime(
                     cache_bar.bar.datetime, '%Y-%m-%d %H:%M:%S')
-                data['vwap'] = data['value'] / data['volume'] / int(
-                    CONT_MULTNUM_MAPPING[SYMBOL_CONTRANCT_MAPPING[
-                        data['symbol']]]) if data['volume'] != 0.0 else 0
-                self.update_bar(data=data, table_name='market_bar')
+                if data['volume'] != 0.0:
+                    data['vwap'] = data['value'] / data['volume'] / int(
+                        CONT_MULTNUM_MAPPING[SYMBOL_CONTRANCT_MAPPING[data['symbol']]]) 
+                else:
+                    data['vwap'] = data['close'] # 防除0报错
+                    
+                self.update_bar(data=data, table_name=MARKET_BAR_TABLE)
+                
                 for qubit in self.qubits:
                     qubit.run(symbol=data['symbol'], trade_time=current_time)
+                    
+                cache_bar.prev_total_volume = current_total_vol
+                cache_bar.prev_total_turnover = current_total_turnover
 
             bar = BarData()
             bar.vt_symbol = tick.vt_symbol
@@ -131,6 +150,8 @@ class Conor(object):
             bar.date = tick_time.date().strftime('%Y-%m-%d')
             bar.time = tick_time.time().strftime('%H:%M:%S')
             bar.datetime = tick.datetime
+            
+            
             bar.volume = tick.volume
             bar.value = tick.turnover
             bar.value1 = tick.last_price * tick.volume
@@ -145,9 +166,11 @@ class Conor(object):
             bar.high = max(bar.high, tick.last_price)
             bar.low = min(bar.low, tick.last_price)
             bar.close = tick.last_price
-            bar.volume += tick.volume
-            bar.value += tick.turnover
-            bar.value1 += tick.last_price * tick.volume
+            
+            
+            bar.volume = tick.volume
+            bar.value = tick.turnover
+            bar.value1 = tick.last_price * tick.volume
             bar.open_interest = tick.open_interest
 
         self.bars[event.data.symbol] = cache_bar

@@ -5,16 +5,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from connor import Conor
-from plugin.atlex.engine import Engine as AtlexEngine
-from plugin.phecda.engine import Engine as PhecdaEngine
+from toolix.plugins import load_plugin_dynamically
+# from plugin.atlex.engine import Engine as AtlexEngine
+# # from plugin.phecda.engine import Engine as PhecdaEngine
 
 
 def main():
-    codes = ['IF', 'M', 'IM', 'RB', 'AU']
+    # codes = ['IF', 'M', 'IM', 'RB', 'AU']
+    codes = ['RB']
     setproctitle.setproctitle("entangle")
-    atlex_qubit = AtlexEngine(codes=codes)
-    chaos_qubit = PhecdaEngine(codes=['IM'])
-    qubits = [atlex_qubit,chaos_qubit]
+    # atlex_qubit = AtlexEngine(codes=codes)
+    #chaos_qubit = PhecdaEngine(codes=codes)
+    #qubits = [atlex_qubit,chaos_qubit]
+    qubits = load_plugin_dynamically(plugin_names=['atlex'], codes=codes)
     conor = Conor(name='ctp', codes=codes, qubits=qubits)
     conor.start(
         account_id=os.environ['CTP_ACCOUNT_ID'],

@@ -6,6 +6,7 @@ from pymongo import InsertOne, DeleteOne
 from kdutil.mongodb import MongoDBManager
 from toolix.macro.contract import MAIN_CONTRACT_MAPPING
 from chaosmind.timing.virgo0001.workflow import WorkFlow
+from toolix.macro.contract import *
 
 
 class Signalor(object):
@@ -59,7 +60,7 @@ class Signalor(object):
                                  **params)
 
     def fetch_impluse(self, features, max_window, end_time):
-        rt = self._mongo_client['neutron']['impluse_factors'].find({
+        rt = self._mongo_client['neutron'][RAW_FACTORS_TABLE].find({
             'symbol':
             self.symbol,
             "name": {

@@ -74,6 +74,7 @@ def build_factors(method,
                   period,
                   name,
                   datasets=['train', 'val', 'test']):
+    pdb.set_trace()
     if name in ['draft']:
         expressions = fetch_draft_factors(method=method,
                                           instruments=instruments,
@@ -127,7 +128,6 @@ def build_factors(method,
     bad_counts = bad_values_mask.sum()
     problematic_columns = bad_counts[bad_counts > 0]
     '''
-    pdb.set_trace()
     dirs = os.path.join(base_path, method, instruments, 'temp', "model",
                         str(task_id), str(period))
     if not os.path.exists(dirs):

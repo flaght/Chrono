@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "research": {
+    "execution": "python",
+    "idea": "持仓量快速增长但价格动量衰减可能预示反转"
+  },
+  "development": {
+    "execution": "python",
+    "factor_name": "tf001"
+  },
+  "evaluation": {
+    "evaluation_type": "time_series",
+    "return_column": "nxt1_ret_5h"
+  }
+}

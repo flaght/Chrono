@@ -36,6 +36,10 @@ class BarData(object):
         self.volume = 0.0
         self.value = 0.0
         self.open_interest = 0.0
+        
+        self.prev_total_volume = 0.0
+        self.prev_total_volume = 0.0
+        
 
 class CacheBar(object):
 
