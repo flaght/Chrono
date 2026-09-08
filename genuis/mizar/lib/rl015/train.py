@@ -2,6 +2,7 @@ import os, json, gym, pdb, copy
 import time
 import numpy as np
 import pandas as pd
+import torch as th
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -43,10 +44,9 @@ class EvaluationProgressWrapper(gym.Wrapper):
         if self.completed == 0:
             self.started = self.last_report = time.monotonic()
             self.code = self.env.active_code
-            self.total = (self.env.episode_end_offset_exclusive -
-                          self.env.episode_start_offset)
-            print(f"[VAL_ASSET_START] code={self.code} total={self.total}",
-                  flush=True)
+            self.total = (self.env.episode_end_offset_exclusive
+                          - self.env.episode_start_offset)
+            print(f"[VAL_ASSET_START] code={self.code} total={self.total}", flush=True)
         result = self.env.step(action)
         self.completed += 1
         now = time.monotonic()
@@ -56,12 +56,10 @@ class EvaluationProgressWrapper(gym.Wrapper):
             speed = self.completed / max(elapsed, 1e-9)
             eta = max(0, self.total - self.completed) / speed
             label = "VAL_ASSET_END" if done else "VAL_PROGRESS"
-            print(
-                f"[{label}] code={self.code} rows={self.completed}/{self.total} "
-                f"({100 * self.completed / max(1, self.total):.1f}%) "
-                f"elapsed={elapsed:.1f}s speed={speed:.1f} rows/s "
-                f"asset_eta={eta:.1f}s",
-                flush=True)
+            print(f"[{label}] code={self.code} rows={self.completed}/{self.total} "
+                  f"({100 * self.completed / max(1, self.total):.1f}%) "
+                  f"elapsed={elapsed:.1f}s speed={speed:.1f} rows/s "
+                  f"asset_eta={eta:.1f}s", flush=True)
             self.last_report = now
         return result
 
@@ -81,10 +79,8 @@ class QuickValidationCallback(BaseCallback):
         group_id = self.env.select_next_group()
         started = time.monotonic()
         rewards = []
-        print(
-            f"[EVAL_START] kind=QUICK group={group_id} monitor_only=True "
-            f"train_step={self.num_timesteps} episodes={len(self.env.fixed_windows)}",
-            flush=True)
+        print(f"[EVAL_START] kind=QUICK group={group_id} monitor_only=True "
+              f"train_step={self.num_timesteps} episodes={len(self.env.fixed_windows)}", flush=True)
         # predict可能把policy切到eval模式；验证后恢复进入前的训练状态。
         was_training = self.model.policy.training
         try:
@@ -98,24 +94,16 @@ class QuickValidationCallback(BaseCallback):
                 rewards.append(score)
             mean_reward = float(np.mean(rewards))
             elapsed = time.monotonic() - started
-            record = dict(train_step=self.num_timesteps,
-                          group_id=group_id,
-                          mean_step_reward=mean_reward,
-                          windows=len(rewards),
-                          elapsed_seconds=elapsed)
+            record = dict(train_step=self.num_timesteps, group_id=group_id,
+                          mean_step_reward=mean_reward, windows=len(rewards), elapsed_seconds=elapsed)
             with open(self.log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            self.logger.record(f"quick_eval/group_{group_id}/mean_step_reward",
-                               mean_reward)
+            self.logger.record(f"quick_eval/group_{group_id}/mean_step_reward", mean_reward)
             self.logger.dump(self.num_timesteps)
-            print(
-                f"[EVAL_END] kind=QUICK group={group_id} mean_step_reward={mean_reward:.6f} "
-                f"elapsed={elapsed:.1f}s",
-                flush=True)
+            print(f"[EVAL_END] kind=QUICK group={group_id} mean_step_reward={mean_reward:.6f} "
+                  f"elapsed={elapsed:.1f}s", flush=True)
         except Exception:
-            print(
-                f"[EVAL_ERROR] kind=QUICK elapsed={time.monotonic()-started:.1f}s",
-                flush=True)
+            print(f"[EVAL_ERROR] kind=QUICK elapsed={time.monotonic()-started:.1f}s", flush=True)
             raise
         finally:
             self.model.policy.set_training_mode(was_training)
@@ -124,7 +112,6 @@ class QuickValidationCallback(BaseCallback):
 
 class MeanStepRewardWrapper(gym.Wrapper):
     """完整品种episode累计后得到该品种平均每步奖励，品种之间等权。"""
-
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
         length = self.env.episode_end_offset_exclusive - self.env.episode_start_offset
@@ -133,7 +120,6 @@ class MeanStepRewardWrapper(gym.Wrapper):
 
 class _QuickEvaluationLogger:
     """隔离EvalCallback默认的eval/*指标，避免不同组混入完整验证曲线。"""
-
     def __init__(self, logger, group_id):
         self._logger, self._group_id = logger, group_id
 
@@ -155,8 +141,7 @@ class ProgressEvalCallback(EvalCallback):
         # 实际logger由下方setter保存，快速验证读取时才加分组前缀。
         logger = self._callback_logger
         if hasattr(self, "fixed_window_env"):
-            return _QuickEvaluationLogger(
-                logger, self.fixed_window_env.active_group + 1)
+            return _QuickEvaluationLogger(logger, self.fixed_window_env.active_group + 1)
         return logger
 
     @logger.setter
@@ -174,29 +159,22 @@ class ProgressEvalCallback(EvalCallback):
         if hasattr(self, "fixed_window_env"):
             group_id = self.fixed_window_env.select_next_group()
             kind = f"QUICK group={group_id} monitor_only=True"
-        print(
-            f"[EVAL_START] kind={kind} train_step={self.num_timesteps} "
-            f"episodes={self.n_eval_episodes}（验证期间训练步数不增长）",
-            flush=True)
+        print(f"[EVAL_START] kind={kind} train_step={self.num_timesteps} "
+              f"episodes={self.n_eval_episodes}（验证期间训练步数不增长）", flush=True)
         try:
             result = super()._on_step()
         except Exception:
-            print(f"[EVAL_ERROR] elapsed={time.monotonic() - started:.1f}s",
-                  flush=True)
+            print(f"[EVAL_ERROR] elapsed={time.monotonic() - started:.1f}s", flush=True)
             raise
         if group_id is not None:
             # 快速验证独立日志带group_id，不与完整验证或其他组混作选择依据。
-            record = dict(train_step=self.num_timesteps,
-                          group_id=group_id,
+            record = dict(train_step=self.num_timesteps, group_id=group_id,
                           mean_step_reward=float(self.last_mean_reward))
             with open(self.group_log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            self.logger.record(f"quick_eval/group_{group_id}/mean_step_reward",
-                               self.last_mean_reward)
-        print(
-            f"[EVAL_END] kind={kind} train_step={self.num_timesteps} "
-            f"elapsed={time.monotonic() - started:.1f}s",
-            flush=True)
+            self.logger.record(f"quick_eval/group_{group_id}/mean_step_reward", self.last_mean_reward)
+        print(f"[EVAL_END] kind={kind} train_step={self.num_timesteps} "
+              f"elapsed={time.monotonic() - started:.1f}s", flush=True)
         return result
 
 
@@ -216,11 +194,10 @@ class TrainingMetricsCallback(BaseCallback):
         if now - self._last_progress_time >= 15.0:
             phase = ("经验收集" if self.num_timesteps < self.model.learning_starts
                      else "网络训练")
-            print(
-                f"[TRAIN_PROGRESS] step={self.num_timesteps} phase={phase} "
-                f"delta_steps={self.num_timesteps - self._last_progress_step} "
-                f"elapsed={now - self._last_progress_time:.1f}s（含期间验证耗时）",
-                flush=True)
+            print(f"[TRAIN_PROGRESS] step={self.num_timesteps} phase={phase} "
+                  f"delta_steps={self.num_timesteps - self._last_progress_step} "
+                  f"elapsed={now - self._last_progress_time:.1f}s（含期间验证耗时）",
+                  flush=True)
             self._last_progress_time = now
             self._last_progress_step = self.num_timesteps
         if "episode" in self.locals.get("infos", [{}])[0]:
@@ -419,57 +396,35 @@ def train_model(train_df: pd.DataFrame,
         env_config=env_config,
         signal_config=signal_config,
     )
-
-    print(
-        "[MODEL_INPUT] "
-        f"observation_space={train_env.observation_space.shape} "
-        f"use_tcn={train_env.use_tcn} "
-        f"lookback={train_env.lookback} "
-        f"n_features={len(features)}",
-        flush=True,
-    )
-
+    
     # 【多资产修改 11：尺度传递】先创建训练环境，取出各品种收益标准差，
     # 再传入验证环境。下方 config.json 保存此 env_config，预测时原样复用。
     # 若调用方已提供 ret_scale_by_code，训练环境会优先使用提供的尺度。
     # 标准化尺度只能从训练集估计；验证和测试沿用该尺度。
-
+    
     env_config = dict(env_config)
     env_config["ret_scale_by_code"] = dict(train_env.ret_scale_by_code)
     print(f"按品种训练集收益标准差: {env_config['ret_scale_by_code']}")
 
     # 【训练流程补齐】验证复用训练尺度，不在验证集重新估计。
     fixed_env = FixedWindowValidationEnv(
-        df=_sanitize_dataframe(val_df, features),
-        features=features,
-        config={
-            "env_config": dict(env_config, mode="val"),
-            "signal_config": signal_config
-        },
-        window_steps=val_window_steps,
-        windows_per_asset=val_windows_per_asset,
+        df=_sanitize_dataframe(val_df, features), features=features,
+        config={"env_config": dict(env_config, mode="val"), "signal_config": signal_config},
+        window_steps=val_window_steps, windows_per_asset=val_windows_per_asset,
     )
     # 窗口方案下episode数由实际固定窗口数决定，不再由品种数决定。
     eval_n_episodes = len(fixed_env.fixed_windows)
-    with open(os.path.join(log_dir, "validation_windows.json"),
-              "w",
-              encoding="utf-8") as f:
+    with open(os.path.join(log_dir, "validation_windows.json"), "w", encoding="utf-8") as f:
         json.dump(fixed_env.window_records(), f, ensure_ascii=False, indent=2)
-    print(
-        f"[VAL_FIXED] groups=4 windows_per_group={eval_n_episodes} steps_per_window={val_window_steps} "
-        f"total_rows={eval_n_episodes * val_window_steps} metric=mean_step_reward",
-        flush=True)
+    print(f"[VAL_FIXED] groups=4 windows_per_group={eval_n_episodes} steps_per_window={val_window_steps} "
+          f"total_rows={eval_n_episodes * val_window_steps} metric=mean_step_reward", flush=True)
     train_env = Monitor(ResetFixWrapper(train_env),
                         filename=os.path.join(log_dir, "train_monitor.csv"))
-    full_selection_env = create_env(df=val_df,
-                                    mode="val",
-                                    features=features,
-                                    env_config=env_config,
-                                    signal_config=signal_config)
+    full_selection_env = create_env(df=val_df, mode="val", features=features,
+                                    env_config=env_config, signal_config=signal_config)
     full_eval_episodes = full_selection_env.n_assets
-    val_env = Monitor(MeanStepRewardWrapper(
-        EvaluationProgressWrapper(ResetFixWrapper(full_selection_env))),
-                      filename=os.path.join(log_dir, "val_monitor.csv"))
+    val_env = Monitor(MeanStepRewardWrapper(EvaluationProgressWrapper(
+        ResetFixWrapper(full_selection_env))), filename=os.path.join(log_dir, "val_monitor.csv"))
 
     sac_config_clean = copy.deepcopy(_sanitize_sac_config(sac_config))
     # 单步预测标签已经包含未来五分钟收益，不需要再折扣累加后续标签。
@@ -482,67 +437,59 @@ def train_model(train_df: pd.DataFrame,
         sac_config_clean["policy_kwargs"] = policy_kwargs
 
     model = SAC(
-        policy="MlpPolicy",
-        env=train_env,
-        tensorboard_log=tensorboard_dir,
-        verbose=verbose,
-        seed=env_config.get("seed"),
-        **sac_config_clean,
+        policy="MlpPolicy", env=train_env, tensorboard_log=tensorboard_dir,
+        verbose=verbose, seed=env_config.get("seed"), **sac_config_clean,
+    )
+    # set_random_seed() 为复现默认关闭了 CuDNN autotune；本任务输入形状固定，
+    # CUDA 下允许 CuDNN 选择更快卷积实现。代价是同种子不保证逐位一致。
+    if model.device.type == "cuda":
+        th.backends.cudnn.deterministic = False
+        th.backends.cudnn.benchmark = True
+    print(
+        "[SAC_RUNTIME] "
+        f"device={model.device} batch_size={model.batch_size} "
+        f"train_freq={model.train_freq} gradient_steps={model.gradient_steps} "
+        f"learning_starts={model.learning_starts} gamma={model.gamma} "
+        f"cudnn_deterministic={th.backends.cudnn.deterministic} "
+        f"cudnn_benchmark={th.backends.cudnn.benchmark}",
+        flush=True,
     )
     quick_callback = QuickValidationCallback(
-        fixed_env,
-        eval_freq=eval_freq,
+        fixed_env, eval_freq=eval_freq,
         log_path=os.path.join(log_dir, "quick_validation.jsonl"),
     )
     eval_callback = ProgressEvalCallback(
-        val_env,
-        best_model_save_path=os.path.join(model_dir, "best_model"),
-        log_path=os.path.join(log_dir, "eval"),
-        n_eval_episodes=full_eval_episodes,
-        eval_freq=full_eval_freq,
-        deterministic=True,
-        render=False,
-        verbose=verbose,
+        val_env, best_model_save_path=os.path.join(model_dir, "best_model"),
+        log_path=os.path.join(log_dir, "eval"), n_eval_episodes=full_eval_episodes,
+        eval_freq=full_eval_freq, deterministic=True, render=False, verbose=verbose,
     )
     callbacks = [quick_callback, eval_callback]
     if enable_early_stop:
-        callbacks.append(
-            EarlyStopOnNoImprovement(
-                eval_callback=eval_callback,
-                max_no_improvement_evals=early_stop_patience_evals,
-                min_evals=early_stop_min_evals,
-                min_delta=early_stop_min_delta,
-                start_timesteps=early_stop_start_timesteps,
-                verbose=verbose,
-            ))
-    callbacks.append(
-        CheckpointCallback(
-            save_freq=save_freq,
-            save_path=os.path.join(model_dir, "checkpoints"),
-            name_prefix="sac_model",
-            verbose=verbose,
+        callbacks.append(EarlyStopOnNoImprovement(
+            eval_callback=eval_callback,
+            max_no_improvement_evals=early_stop_patience_evals,
+            min_evals=early_stop_min_evals, min_delta=early_stop_min_delta,
+            start_timesteps=early_stop_start_timesteps, verbose=verbose,
         ))
+    callbacks.append(CheckpointCallback(
+        save_freq=save_freq, save_path=os.path.join(model_dir, "checkpoints"),
+        name_prefix="sac_model", verbose=verbose,
+    ))
     metrics_callback = TrainingMetricsCallback(verbose=verbose)
     callbacks.append(metrics_callback)
 
     # JSON 只记录网络类的名称；真正的类及网络权重由 SAC.save 保存，
     # SignalGenerator 使用 SAC.load 恢复，不把 JSON 中的字符串当作类调用。
     config_info = {
-        "env_config": env_config,
-        "sac_config": sac_config_clean,
-        "signal_config": signal_config,
-        "features": features,
-        "total_timesteps": total_timesteps,
-        "eval_n_episodes": eval_n_episodes,
-        "validation": {
-            "window_steps": val_window_steps,
-            "groups": 4,
-            "quick_eval_freq": eval_freq,
-            "full_eval_freq": full_eval_freq,
-            "selection_source": "full_validation_only",
-            "requested_windows_per_asset": val_windows_per_asset,
-            "metric": "mean_step_reward"
-        },
+        "env_config": env_config, "sac_config": sac_config_clean,
+        "signal_config": signal_config, "features": features,
+        "total_timesteps": total_timesteps, "eval_n_episodes": eval_n_episodes,
+        "validation": {"window_steps": val_window_steps,
+                       "groups": 4, "quick_eval_freq": eval_freq,
+                       "full_eval_freq": full_eval_freq,
+                       "selection_source": "full_validation_only",
+                       "requested_windows_per_asset": val_windows_per_asset,
+                       "metric": "mean_step_reward"},
         "early_stop": {
             "enabled": bool(enable_early_stop),
             "patience_evals": int(early_stop_patience_evals),
@@ -550,8 +497,7 @@ def train_model(train_df: pd.DataFrame,
             "min_delta": float(early_stop_min_delta),
             "start_timesteps": int(early_stop_start_timesteps),
         },
-        "train_size": len(train_df),
-        "val_size": len(val_df),
+        "train_size": len(train_df), "val_size": len(val_df),
         "training_date": datetime.now().isoformat(),
     }
 
@@ -565,17 +511,9 @@ def train_model(train_df: pd.DataFrame,
     # 训练前保存，最佳模型/中途检查点也能找到对应的收益尺度和输入配置。
     config_path = os.path.join(output_dir, "config.json")
     with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config_info,
-                  f,
-                  indent=2,
-                  ensure_ascii=False,
-                  default=json_default)
-    print(
-        f"开始训练，总步数: {total_timesteps}，快速验证间隔: {eval_freq}，完整验证间隔: {full_eval_freq}"
-    )
-    model.learn(total_timesteps=total_timesteps,
-                callback=callbacks,
-                log_interval=4)
+        json.dump(config_info, f, indent=2, ensure_ascii=False, default=json_default)
+    print(f"开始训练，总步数: {total_timesteps}，快速验证间隔: {eval_freq}，完整验证间隔: {full_eval_freq}")
+    model.learn(total_timesteps=total_timesteps, callback=callbacks, log_interval=4)
     final_model_path = os.path.join(model_dir, "final_model")
     model.save(final_model_path)
     # 仅训练结束时完整复核；不使用测试集，也不据此再次训练或替换最佳模型。
@@ -586,13 +524,9 @@ def train_model(train_df: pd.DataFrame,
     else:
         print("[FULL_VAL] 未生成最佳模型（可能尚未触发评估），明确复核final模型", flush=True)
         review_model, reviewed_kind = model, "final"
-    full_env = EvaluationProgressWrapper(
-        ResetFixWrapper(
-            create_env(df=val_df,
-                       mode="val",
-                       features=features,
-                       env_config=env_config,
-                       signal_config=signal_config)))
+    full_env = EvaluationProgressWrapper(ResetFixWrapper(create_env(
+        df=val_df, mode="val", features=features, env_config=env_config,
+        signal_config=signal_config)))
     full_results = []
     print(f"[FULL_VAL_START] model={reviewed_kind} 训练结束完整复核", flush=True)
     for _ in range(full_env.env.n_assets):
@@ -604,34 +538,22 @@ def train_model(train_df: pd.DataFrame,
             obs, reward, done, _ = full_env.step(action)
             reward_sum += float(reward)
             count += 1
-        full_results.append(
-            dict(code=code, rows=count, mean_step_reward=reward_sum / count))
+        full_results.append(dict(code=code, rows=count, mean_step_reward=reward_sum / count))
     full_path = os.path.join(log_dir, "full_validation.json")
     with open(full_path, "w", encoding="utf-8") as f:
-        json.dump(dict(
-            model=reviewed_kind,
-            assets=full_results,
-            mean_step_reward=float(
-                np.mean([r["mean_step_reward"] for r in full_results]))),
-                  f,
-                  ensure_ascii=False,
-                  indent=2)
+        json.dump(dict(model=reviewed_kind, assets=full_results,
+                       mean_step_reward=float(np.mean([r["mean_step_reward"] for r in full_results]))),
+                  f, ensure_ascii=False, indent=2)
     full_env.close()
     print(f"[FULL_VAL_END] {full_path}", flush=True)
     if metrics_callback.training_metrics:
-        with open(os.path.join(log_dir, "training_metrics.json"),
-                  "w",
-                  encoding="utf-8") as f:
-            json.dump(metrics_callback.training_metrics,
-                      f,
-                      indent=2,
-                      ensure_ascii=False)
+        with open(os.path.join(log_dir, "training_metrics.json"), "w", encoding="utf-8") as f:
+            json.dump(metrics_callback.training_metrics, f, indent=2, ensure_ascii=False)
     print(f"最终模型已保存到: {final_model_path}")
     training_info = {
         "model_path": final_model_path,
         "best_model_path": os.path.join(model_dir, "best_model", "best_model"),
-        "config_path": config_path,
-        "log_dir": log_dir,
+        "config_path": config_path, "log_dir": log_dir,
         "tensorboard_dir": tensorboard_dir,
         "training_metrics": metrics_callback.training_metrics,
         "full_validation_path": full_path,
