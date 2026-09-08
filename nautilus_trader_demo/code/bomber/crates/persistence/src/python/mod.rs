@@ -1,0 +1,70 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+//! Python bindings from [PyO3](https://pyo3.rs).
+
+#![expect(
+    clippy::missing_errors_doc,
+    reason = "errors documented on underlying Rust methods"
+)]
+
+pub mod backend;
+pub mod catalog;
+pub mod feather;
+pub mod wranglers;
+
+use nautilus_model::data::ensure_rust_extractor_registered;
+use nautilus_serialization::arrow::custom::ensure_custom_data_registered;
+use pyo3::prelude::*;
+
+/// Loaded as `bomber_pyo3.persistence`.
+///
+/// # Errors
+///
+/// Returns a `PyErr` if registering any module components fails.
+#[pymodule]
+pub fn persistence(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    ensure_custom_data_registered::<crate::test_data::RustTestCustomData>();
+    ensure_custom_data_registered::<crate::test_data::MacroYieldCurveData>();
+    ensure_custom_data_registered::<crate::test_data::RustTestParamsCustomData>();
+    ensure_custom_data_registered::<crate::test_data::RustTestPriceMapCustomData>();
+    ensure_custom_data_registered::<crate::test_data::RustTestTypedMapCustomData>();
+    let _result = ensure_rust_extractor_registered::<crate::test_data::RustTestCustomData>();
+    let _result = ensure_rust_extractor_registered::<crate::test_data::MacroYieldCurveData>();
+    let _result = ensure_rust_extractor_registered::<crate::test_data::RustTestParamsCustomData>();
+    let _result =
+        ensure_rust_extractor_registered::<crate::test_data::RustTestPriceMapCustomData>();
+    let _result =
+        ensure_rust_extractor_registered::<crate::test_data::RustTestTypedMapCustomData>();
+
+    // Test/example types (RustTestCustomData, MacroYieldCurveData) are exposed so Python tests
+    // and examples can use them; they are not gated behind cfg(test) to keep the extension build simple.
+    m.add_class::<crate::backend::session::DataBackendSession>()?;
+    m.add_class::<crate::backend::session::DataQueryResult>()?;
+    m.add_class::<backend::session::NautilusDataType>()?;
+    m.add_class::<catalog::PyParquetDataCatalog>()?;
+    m.add_class::<feather::PyStreamingFeatherWriter>()?;
+    m.add_class::<wranglers::bar::BarDataWrangler>()?;
+    m.add_class::<wranglers::delta::OrderBookDeltaDataWrangler>()?;
+    m.add_class::<wranglers::depth::OrderBookDepth10DataWrangler>()?;
+    m.add_class::<wranglers::quote::QuoteTickDataWrangler>()?;
+    m.add_class::<wranglers::trade::TradeTickDataWrangler>()?;
+    m.add_class::<crate::test_data::RustTestCustomData>()?;
+    m.add_class::<crate::test_data::MacroYieldCurveData>()?;
+    m.add_class::<crate::test_data::RustTestParamsCustomData>()?;
+    m.add_class::<crate::test_data::RustTestPriceMapCustomData>()?;
+    m.add_class::<crate::test_data::RustTestTypedMapCustomData>()?;
+    Ok(())
+}

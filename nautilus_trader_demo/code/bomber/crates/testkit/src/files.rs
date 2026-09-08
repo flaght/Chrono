@@ -1,0 +1,1148 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+use std::{
+    cmp,
+    ffi::OsString,
+    fmt::Display,
+    fs::{File, OpenOptions, remove_file},
+    io::{BufReader, BufWriter, Read, copy},
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
+use aws_lc_rs::digest::{self, Context};
+use nautilus_core::hex;
+use nautilus_network::retry::RetryConfig;
+use rand::{RngExt, rng};
+use reqwest::blocking::Client;
+use serde_json::Value;
+
+static LARGE_CHECKSUMS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn lock_large_checksums() -> anyhow::Result<std::sync::MutexGuard<'static, ()>> {
+    LARGE_CHECKSUMS_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Failed to lock checksums file access: {e}"))
+}
+
+#[derive(Debug)]
+enum DownloadError {
+    Retryable(String),
+    NonRetryable(String),
+}
+
+impl Display for DownloadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Retryable(msg) => write!(f, "Retryable error: {msg}"),
+            Self::NonRetryable(msg) => write!(f, "Non-retryable error: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for DownloadError {}
+
+fn execute_with_retry_blocking<T, E, F>(
+    config: &RetryConfig,
+    mut op: F,
+    should_retry: impl Fn(&E) -> bool,
+) -> Result<T, E>
+where
+    E: std::error::Error,
+    F: FnMut() -> Result<T, E>,
+{
+    let start = Instant::now();
+    let mut delay = Duration::from_millis(config.initial_delay_ms);
+
+    for attempt in 0..=config.max_retries {
+        if attempt > 0 && !config.immediate_first {
+            let jitter = rng().random_range(0..=config.jitter_ms);
+            let sleep_for = delay + Duration::from_millis(jitter);
+            sleep(sleep_for);
+            delay = cmp::min(
+                next_retry_delay(delay, config.backoff_factor),
+                Duration::from_millis(config.max_delay_ms),
+            );
+        }
+
+        if let Some(max_total) = config.max_elapsed_ms
+            && start.elapsed() >= Duration::from_millis(max_total)
+        {
+            break;
+        }
+
+        match op() {
+            Ok(v) => return Ok(v),
+            Err(e) if attempt < config.max_retries && should_retry(&e) => {}
+            Err(e) => return Err(e),
+        }
+    }
+
+    op()
+}
+
+fn next_retry_delay(delay: Duration, backoff_factor: f64) -> Duration {
+    let next = delay.as_secs_f64() * backoff_factor;
+    if next.is_nan() || next.is_sign_negative() {
+        return Duration::ZERO;
+    }
+
+    Duration::try_from_secs_f64(next).unwrap_or(Duration::MAX)
+}
+
+/// Ensures that a file exists at the specified path by downloading it if necessary.
+///
+/// If the file already exists, it checks the integrity of the file using a SHA-256 checksum
+/// from the optional `checksums` file. If the checksum is valid, the function exits early. If
+/// the checksum is invalid or missing, the function updates the checksums file with the correct
+/// hash for the existing file without redownloading it.
+///
+/// If the file does not exist, it downloads the file from the specified `url` and updates the
+/// checksums file (if provided) with the calculated SHA-256 checksum of the downloaded file.
+///
+/// The `timeout_secs` parameter specifies the timeout in seconds for the HTTP request.
+/// If `None` is provided, a default timeout of 30 seconds will be used.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The HTTP request cannot be sent or returns a non-success status code.
+/// - Any I/O operation fails during file creation, reading, or writing.
+/// - Checksum verification or JSON parsing fails.
+pub fn ensure_file_exists_or_download_http(
+    filepath: &Path,
+    url: &str,
+    checksums: Option<&Path>,
+    timeout_secs: Option<u64>,
+) -> anyhow::Result<()> {
+    ensure_file_exists_or_download_http_with_config(
+        filepath,
+        url,
+        checksums,
+        timeout_secs.unwrap_or(30),
+        None,
+        None,
+    )
+}
+
+/// Ensures that a file exists at the specified path by downloading it if necessary, with a custom timeout.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The HTTP request cannot be sent or returns a non-success status code after retries.
+/// - Any I/O operation fails during file creation, reading, or writing.
+/// - Checksum verification or JSON parsing fails.
+pub fn ensure_file_exists_or_download_http_with_timeout(
+    filepath: &Path,
+    url: &str,
+    checksums: Option<&Path>,
+    timeout_secs: u64,
+) -> anyhow::Result<()> {
+    ensure_file_exists_or_download_http_with_config(
+        filepath,
+        url,
+        checksums,
+        timeout_secs,
+        None,
+        None,
+    )
+}
+
+/// Ensures that a file exists at the specified path by downloading it if necessary,
+/// with custom timeout, retry config, and initial jitter delay.
+///
+/// # Parameters
+///
+/// - `filepath`: The path where the file should exist.
+/// - `url`: The URL to download from if the file doesn't exist.
+/// - `checksums`: Optional path to checksums file for verification.
+/// - `timeout_secs`: Timeout in seconds for HTTP requests.
+/// - `retry_config`: Optional custom retry configuration (uses sensible defaults if None).
+/// - `initial_jitter_ms`: Optional initial jitter delay in milliseconds before download (defaults to 100-600ms if None).
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The HTTP request cannot be sent or returns a non-success status code after retries.
+/// - Any I/O operation fails during file creation, reading, or writing.
+/// - Checksum verification or JSON parsing fails.
+pub fn ensure_file_exists_or_download_http_with_config(
+    filepath: &Path,
+    url: &str,
+    checksums: Option<&Path>,
+    timeout_secs: u64,
+    retry_config: Option<RetryConfig>,
+    initial_jitter_ms: Option<u64>,
+) -> anyhow::Result<()> {
+    // Local/cached file path: accept the file if it exists, updating the
+    // checksum record when it differs (e.g. after local regeneration).
+    // This is intentionally lenient — download verification below is strict.
+    if filepath.exists() {
+        println!("File already exists (local/cached): {}", filepath.display());
+
+        if let Some(checksums_file) = checksums {
+            let _guard = lock_large_checksums()?;
+
+            if verify_sha256_checksum(filepath, checksums_file)? {
+                println!("Checksum verified");
+                return Ok(());
+            }
+
+            let new_checksum = calculate_sha256(filepath)?;
+            println!("Updating checksum for local file: {new_checksum}");
+            update_sha256_checksums(filepath, checksums_file, &new_checksum)?;
+            return Ok(());
+        }
+        return Ok(());
+    }
+
+    // Add a small random delay to avoid bursting the remote server when
+    // many downloads start concurrently. Can be disabled by passing Some(0).
+    if let Some(jitter_ms) = initial_jitter_ms {
+        if jitter_ms > 0 {
+            sleep(Duration::from_millis(jitter_ms));
+        }
+    } else {
+        let jitter_delay = {
+            let mut r = rng();
+            Duration::from_millis(r.random_range(100..=600))
+        };
+        sleep(jitter_delay);
+    }
+
+    download_file(filepath, url, timeout_secs, retry_config.clone())?;
+
+    // Verify checksum after download, retry once on mismatch (corrupt download)
+    if let Some(checksums_file) = checksums {
+        let guard = lock_large_checksums()?;
+
+        if !verify_sha256_checksum(filepath, checksums_file)? {
+            let actual = calculate_sha256(filepath)?;
+            println!("Checksum mismatch after download (calculated {actual}), retrying...");
+            remove_file(filepath)?;
+            drop(guard);
+
+            download_file(filepath, url, timeout_secs, retry_config)?;
+
+            let _guard = lock_large_checksums()?;
+
+            if !verify_sha256_checksum(filepath, checksums_file)? {
+                let actual = calculate_sha256(filepath)?;
+                remove_file(filepath)?;
+                anyhow::bail!(
+                    "Checksum mismatch after retry for {} (calculated {actual})",
+                    filepath.file_name().unwrap_or_default().display(),
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn download_file(
+    filepath: &Path,
+    url: &str,
+    timeout_secs: u64,
+    retry_config: Option<RetryConfig>,
+) -> anyhow::Result<()> {
+    // Validate HTTPS for security in production builds,
+    // HTTP is intentionally allowed in test builds for local test servers (127.0.0.1),
+    // CodeQL flags this as "non-https-url" but it's a deliberate design choice for testkit.
+    #[cfg(not(test))]
+    if !url.starts_with("https://") {
+        anyhow::bail!("URL must use HTTPS protocol for security: {url}");
+    }
+
+    println!("Downloading file from {url} to {}", filepath.display());
+
+    if let Some(parent) = filepath.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()?;
+
+    let cfg = if let Some(config) = retry_config {
+        config
+    } else {
+        // Default production config
+        let max_retries = 5u32;
+        let op_timeout_ms = timeout_secs.saturating_mul(1000);
+        // Make the provided timeout a hard ceiling for total elapsed time.
+        // Split it across attempts (at least 1000 ms per attempt) and cap total at op_timeout_ms.
+        let per_attempt_ms = std::cmp::max(1000u64, op_timeout_ms / (u64::from(max_retries) + 1));
+        RetryConfig {
+            max_retries,
+            initial_delay_ms: 1_000,
+            max_delay_ms: 10_000,
+            backoff_factor: 2.0,
+            jitter_ms: 1_000,
+            operation_timeout_ms: Some(per_attempt_ms),
+            immediate_first: false,
+            max_elapsed_ms: Some(op_timeout_ms),
+        }
+    };
+
+    let partial_path = partial_path_for(filepath);
+
+    let op = || -> Result<(), DownloadError> {
+        // Discard any leftover partial from a prior attempt before writing
+        let _ = remove_file(&partial_path);
+
+        match client.get(url).send() {
+            Ok(mut response) => {
+                let status = response.status();
+                if status.is_success() {
+                    let mut out = File::create(&partial_path)
+                        .map_err(|e| DownloadError::NonRetryable(e.to_string()))?;
+                    // Stream body to a sibling .partial path so a truncated copy never reaches the final filepath,
+                    // body-stream errors (TCP reset, chunked-encoding decode, premature EOF) are typically transient,
+                    // so surface them as Retryable.
+                    if let Err(e) = copy(&mut response, &mut out) {
+                        drop(out);
+                        let _ = remove_file(&partial_path);
+                        return Err(DownloadError::Retryable(format!("body stream error: {e}")));
+                    }
+                    drop(out);
+
+                    if let Err(e) = std::fs::rename(&partial_path, filepath) {
+                        let _ = remove_file(&partial_path);
+                        return Err(DownloadError::NonRetryable(format!(
+                            "rename {} -> {} failed: {e}",
+                            partial_path.display(),
+                            filepath.display(),
+                        )));
+                    }
+                    println!("File downloaded to {}", filepath.display());
+                    Ok(())
+                } else if status.is_server_error()
+                    || status.as_u16() == 429
+                    || status.as_u16() == 408
+                {
+                    println!("HTTP error {status}, retrying...");
+                    Err(DownloadError::Retryable(format!("HTTP {status}")))
+                } else {
+                    // Preserve existing error text used by tests
+                    Err(DownloadError::NonRetryable(format!(
+                        "Client error: HTTP {status}"
+                    )))
+                }
+            }
+            Err(e) => {
+                println!("Request failed: {e}");
+                Err(DownloadError::Retryable(e.to_string()))
+            }
+        }
+    };
+
+    let should_retry = |e: &DownloadError| matches!(e, DownloadError::Retryable(_));
+
+    execute_with_retry_blocking(&cfg, op, should_retry).map_err(|e| anyhow::anyhow!(e.to_string()))
+}
+
+fn partial_path_for(filepath: &Path) -> PathBuf {
+    // Suffix with pid + nanos so the staging path is unique per invocation,
+    // preventing collision with a real user file or another concurrent downloader.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let mut p: OsString = filepath.as_os_str().to_owned();
+    p.push(format!(".partial.{}.{}", std::process::id(), nanos));
+    PathBuf::from(p)
+}
+
+fn calculate_sha256(filepath: &Path) -> anyhow::Result<String> {
+    let mut file = File::open(filepath)?;
+    let mut ctx = Context::new(&digest::SHA256);
+    let mut buffer = [0u8; 4096];
+
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        ctx.update(&buffer[..count]);
+    }
+
+    let digest = ctx.finish();
+    Ok(hex::encode(digest.as_ref()))
+}
+
+fn verify_sha256_checksum(filepath: &Path, checksums: &Path) -> anyhow::Result<bool> {
+    let file = File::open(checksums)?;
+    let reader = BufReader::new(file);
+    let checksums: Value = serde_json::from_reader(reader)?;
+
+    let filename = filepath.file_name().unwrap().to_str().unwrap();
+    if let Some(expected_checksum) = checksums.get(filename) {
+        let expected_checksum_str = expected_checksum.as_str().unwrap();
+        let expected_hash = expected_checksum_str
+            .strip_prefix("sha256:")
+            .unwrap_or(expected_checksum_str);
+        let calculated_checksum = calculate_sha256(filepath)?;
+        if expected_hash == calculated_checksum {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn update_sha256_checksums(
+    filepath: &Path,
+    checksums_file: &Path,
+    new_checksum: &str,
+) -> anyhow::Result<()> {
+    let checksums: Value = if checksums_file.exists() {
+        let file = File::open(checksums_file)?;
+        let reader = BufReader::new(file);
+        serde_json::from_reader(reader)?
+    } else {
+        serde_json::json!({})
+    };
+
+    let mut checksums_map = checksums.as_object().unwrap().clone();
+
+    // Add or update the checksum
+    let filename = filepath.file_name().unwrap().to_str().unwrap().to_string();
+    let prefixed_checksum = format!("sha256:{new_checksum}");
+    checksums_map.insert(filename, Value::String(prefixed_checksum));
+
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(checksums_file)?;
+    let writer = BufWriter::new(file);
+    serde_json::to_writer_pretty(writer, &serde_json::Value::Object(checksums_map))?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        io::{BufWriter, Write},
+        net::SocketAddr,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
+
+    use axum::{Router, http::StatusCode, routing::get, serve};
+    use rstest::*;
+    use serde_json::{json, to_writer};
+    use tempfile::TempDir;
+    use tokio::{
+        net::TcpListener,
+        task,
+        time::{Duration, sleep},
+    };
+
+    use super::*;
+
+    /// Creates a fast, deterministic retry config for tests.
+    /// Uses very short delays to make tests run quickly without introducing flakiness.
+    fn test_retry_config() -> RetryConfig {
+        RetryConfig {
+            max_retries: 5,
+            initial_delay_ms: 10,
+            max_delay_ms: 50,
+            backoff_factor: 2.0,
+            jitter_ms: 5,
+            operation_timeout_ms: Some(500),
+            immediate_first: false,
+            max_elapsed_ms: Some(2000),
+        }
+    }
+
+    #[rstest]
+    #[case::nan(f64::NAN, Duration::ZERO)]
+    #[case::negative(-1.0, Duration::ZERO)]
+    #[case::infinite(f64::INFINITY, Duration::MAX)]
+    #[case::normal(2.0, Duration::from_millis(20))]
+    fn next_retry_delay_handles_edge_factors(
+        #[case] backoff_factor: f64,
+        #[case] expected: Duration,
+    ) {
+        let delay = Duration::from_millis(10);
+
+        assert_eq!(next_retry_delay(delay, backoff_factor), expected);
+    }
+
+    async fn setup_test_server(
+        server_content: Option<String>,
+        status_code: StatusCode,
+    ) -> SocketAddr {
+        let server_content = Arc::new(server_content);
+        let server_content_clone = server_content.clone();
+        let app = Router::new().route(
+            "/testfile.txt",
+            get(move || {
+                let server_content = server_content_clone.clone();
+                async move {
+                    let response_body = match &*server_content {
+                        Some(content) => content.clone(),
+                        None => "File not found".to_string(),
+                    };
+                    (status_code, response_body)
+                }
+            }),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = serve(listener, app);
+
+        task::spawn(async move {
+            if let Err(e) = server.await {
+                eprintln!("server error: {e}");
+            }
+        });
+
+        sleep(Duration::from_millis(100)).await;
+
+        addr
+    }
+
+    #[tokio::test]
+    async fn test_file_already_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("testfile.txt");
+        fs::write(&file_path, "Existing file content").unwrap();
+
+        let url = "http://example.com/testfile.txt".to_string();
+        let result = ensure_file_exists_or_download_http(&file_path, &url, None, Some(5));
+
+        assert!(result.is_ok());
+        let content = fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content, "Existing file content");
+    }
+
+    #[tokio::test]
+    async fn test_download_file_success() {
+        let temp_dir = TempDir::new().unwrap();
+        let filepath = temp_dir.path().join("testfile.txt");
+        let filepath_clone = filepath.clone();
+
+        let server_content = "Server file content".to_string();
+        let status_code = StatusCode::OK;
+        let addr = setup_test_server(Some(server_content.clone()), status_code).await;
+        let url = format!("http://{addr}/testfile.txt");
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &filepath_clone,
+                &url,
+                None,
+                5,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_ok());
+        let content = fs::read_to_string(&filepath).unwrap();
+        assert_eq!(content, server_content);
+    }
+
+    #[tokio::test]
+    async fn test_download_file_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("testfile.txt");
+
+        let server_content = None;
+        let status_code = StatusCode::NOT_FOUND;
+        let addr = setup_test_server(server_content, status_code).await;
+        let url = format!("http://{addr}/testfile.txt");
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &file_path,
+                &url,
+                None,
+                1,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("Client error: HTTP"),
+            "Unexpected error message: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_network_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("testfile.txt");
+
+        // Use an unreachable address to simulate a network error
+        let url = "http://127.0.0.1:0/testfile.txt".to_string();
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &file_path,
+                &url,
+                None,
+                2,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("error"),
+            "Unexpected error message: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_retry_then_success_on_500() {
+        let temp_dir = TempDir::new().unwrap();
+        let filepath = temp_dir.path().join("testfile.txt");
+        let filepath_clone = filepath.clone();
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let app = Router::new().route(
+            "/testfile.txt",
+            get(move || {
+                let c = counter_clone.clone();
+                async move {
+                    let n = c.fetch_add(1, Ordering::SeqCst);
+                    if n < 2 {
+                        (StatusCode::INTERNAL_SERVER_ERROR, "temporary error")
+                    } else {
+                        (StatusCode::OK, "eventual success")
+                    }
+                }
+            }),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = serve(listener, app);
+        task::spawn(async move {
+            let _ = server.await;
+        });
+        sleep(Duration::from_millis(100)).await;
+
+        let url = format!("http://{addr}/testfile.txt");
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &filepath_clone,
+                &url,
+                None,
+                5,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(&filepath).unwrap();
+        assert_eq!(content, "eventual success");
+        assert!(counter.load(Ordering::SeqCst) >= 2);
+    }
+
+    #[tokio::test]
+    async fn test_retry_then_success_on_429() {
+        let temp_dir = TempDir::new().unwrap();
+        let filepath = temp_dir.path().join("testfile.txt");
+        let filepath_clone = filepath.clone();
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let app = Router::new().route(
+            "/testfile.txt",
+            get(move || {
+                let c = counter_clone.clone();
+                async move {
+                    let n = c.fetch_add(1, Ordering::SeqCst);
+                    if n < 1 {
+                        (StatusCode::TOO_MANY_REQUESTS, "rate limited")
+                    } else {
+                        (StatusCode::OK, "ok after retry")
+                    }
+                }
+            }),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = serve(listener, app);
+        task::spawn(async move {
+            let _ = server.await;
+        });
+        sleep(Duration::from_millis(100)).await;
+
+        let url = format!("http://{addr}/testfile.txt");
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &filepath_clone,
+                &url,
+                None,
+                5,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(&filepath).unwrap();
+        assert_eq!(content, "ok after retry");
+        assert!(counter.load(Ordering::SeqCst) >= 2);
+    }
+
+    #[tokio::test]
+    async fn test_no_retry_on_404() {
+        let temp_dir = TempDir::new().unwrap();
+        let filepath = temp_dir.path().join("testfile.txt");
+        let filepath_clone = filepath.clone();
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let app = Router::new().route(
+            "/testfile.txt",
+            get(move || {
+                let c = counter_clone.clone();
+                async move {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    (StatusCode::NOT_FOUND, "missing")
+                }
+            }),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = serve(listener, app);
+        task::spawn(async move {
+            let _ = server.await;
+        });
+        sleep(Duration::from_millis(100)).await;
+
+        let url = format!("http://{addr}/testfile.txt");
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &filepath_clone,
+                &url,
+                None,
+                5,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_err());
+        assert_eq!(counter.load(Ordering::SeqCst), 1, "should not retry on 404");
+    }
+
+    #[tokio::test]
+    async fn test_checksum_mismatch_retry_then_success() {
+        let temp_dir = TempDir::new().unwrap();
+        let filepath = temp_dir.path().join("testfile.txt");
+        let filepath_clone = filepath.clone();
+
+        let good_content = "correct content";
+        let good_checksum = calculate_sha256_bytes(good_content.as_bytes());
+
+        let checksums_path = temp_dir.path().join("checksums.json");
+        let checksums_data = json!({
+            "testfile.txt": format!("sha256:{good_checksum}")
+        });
+        let checksums_file = File::create(&checksums_path).unwrap();
+        to_writer(BufWriter::new(checksums_file), &checksums_data).unwrap();
+        let checksums_clone = checksums_path.clone();
+
+        // First request returns corrupt data, second returns correct data
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let app = Router::new().route(
+            "/testfile.txt",
+            get(move || {
+                let c = counter_clone.clone();
+                async move {
+                    let n = c.fetch_add(1, Ordering::SeqCst);
+                    if n == 0 {
+                        (StatusCode::OK, "corrupt data")
+                    } else {
+                        (StatusCode::OK, "correct content")
+                    }
+                }
+            }),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = serve(listener, app);
+        task::spawn(async move {
+            let _ = server.await;
+        });
+        sleep(Duration::from_millis(100)).await;
+
+        let url = format!("http://{addr}/testfile.txt");
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &filepath_clone,
+                &url,
+                Some(&checksums_clone),
+                5,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_ok());
+        let content = fs::read_to_string(&filepath).unwrap();
+        assert_eq!(content, good_content);
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_checksum_mismatch_retry_then_fail() {
+        let temp_dir = TempDir::new().unwrap();
+        let filepath = temp_dir.path().join("testfile.txt");
+        let filepath_clone = filepath.clone();
+
+        // Checksum for content that the server will never return
+        let checksums_path = temp_dir.path().join("checksums.json");
+        let checksums_data = json!({
+            "testfile.txt": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        });
+        let checksums_file = File::create(&checksums_path).unwrap();
+        to_writer(BufWriter::new(checksums_file), &checksums_data).unwrap();
+        let checksums_clone = checksums_path.clone();
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let app = Router::new().route(
+            "/testfile.txt",
+            get(move || {
+                let c = counter_clone.clone();
+                async move {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    (StatusCode::OK, "always wrong content")
+                }
+            }),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = serve(listener, app);
+        task::spawn(async move {
+            let _ = server.await;
+        });
+        sleep(Duration::from_millis(100)).await;
+
+        let url = format!("http://{addr}/testfile.txt");
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &filepath_clone,
+                &url,
+                Some(&checksums_clone),
+                5,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("Checksum mismatch after retry"));
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            2,
+            "should download exactly twice"
+        );
+        assert!(!filepath.exists(), "corrupt file should be cleaned up");
+    }
+
+    /// First call overstates Content-Length to fail reqwest mid-stream; subsequent calls succeed.
+    async fn truncated_then_full_server(good_body: &'static str) -> (SocketAddr, Arc<AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        task::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    break;
+                };
+                let counter = counter_clone.clone();
+
+                task::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let _ = sock.read(&mut buf).await;
+                    let n = counter.fetch_add(1, Ordering::SeqCst);
+
+                    if n == 0 {
+                        let resp = b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort";
+                        let _ = sock.write_all(resp).await;
+                    } else {
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            good_body.len(),
+                            good_body,
+                        );
+                        let _ = sock.write_all(resp.as_bytes()).await;
+                    }
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+
+        sleep(Duration::from_millis(100)).await;
+        (addr, counter)
+    }
+
+    fn count_partial_siblings(filepath: &Path) -> usize {
+        let parent = filepath.parent().unwrap();
+        let stem = filepath.file_name().unwrap().to_string_lossy().into_owned();
+        let prefix = format!("{stem}.partial.");
+        fs::read_dir(parent)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+            .count()
+    }
+
+    #[tokio::test]
+    async fn test_body_truncation_retries_and_recovers() {
+        let temp_dir = TempDir::new().unwrap();
+        let filepath = temp_dir.path().join("testfile.txt");
+        let filepath_clone = filepath.clone();
+
+        let (addr, counter) = truncated_then_full_server("complete payload").await;
+        let url = format!("http://{addr}/testfile.txt");
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &filepath_clone,
+                &url,
+                None,
+                5,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_ok(), "should retry past the truncated response");
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            count_partial_siblings(&filepath),
+            0,
+            "no .partial siblings must remain after success",
+        );
+        let content = fs::read_to_string(&filepath).unwrap();
+        assert_eq!(content, "complete payload");
+    }
+
+    #[tokio::test]
+    async fn test_body_truncation_exhausts_retries_leaves_no_corrupt_file() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let temp_dir = TempDir::new().unwrap();
+        let filepath = temp_dir.path().join("testfile.txt");
+        let filepath_clone = filepath.clone();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        task::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    break;
+                };
+
+                task::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let _ = sock.read(&mut buf).await;
+                    let resp =
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort";
+                    let _ = sock.write_all(resp).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+
+        sleep(Duration::from_millis(100)).await;
+        let url = format!("http://{addr}/testfile.txt");
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &filepath_clone,
+                &url,
+                None,
+                5,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_err(), "all retries should fail");
+        assert!(!filepath.exists(), "no corrupt file at final path");
+        assert_eq!(
+            count_partial_siblings(&filepath),
+            0,
+            "no .partial siblings may leak after exhausted retries",
+        );
+    }
+
+    #[rstest]
+    fn test_partial_path_for_is_unique_and_marked() {
+        let target = Path::new("/tmp/data.parquet");
+        let stem = target.file_name().unwrap().to_string_lossy().into_owned();
+        let expected_prefix = format!("{stem}.partial.");
+
+        let a = partial_path_for(target);
+        let b = partial_path_for(target);
+        assert_ne!(a, b, "partial paths must be unique per call");
+        for p in [&a, &b] {
+            let name = p.file_name().unwrap().to_string_lossy().into_owned();
+            assert!(name.starts_with(&expected_prefix), "got {name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_unrelated_partial_sibling_not_clobbered() {
+        let temp_dir = TempDir::new().unwrap();
+        let filepath = temp_dir.path().join("testfile.txt");
+        let filepath_clone = filepath.clone();
+        // A user-owned file whose name happens to start with `<target>.partial`
+        let bystander = temp_dir.path().join("testfile.txt.partial");
+        fs::write(&bystander, b"do not touch").unwrap();
+
+        let server_content = "downloaded".to_string();
+        let addr = setup_test_server(Some(server_content.clone()), StatusCode::OK).await;
+        let url = format!("http://{addr}/testfile.txt");
+
+        let result = tokio::task::spawn_blocking(move || {
+            ensure_file_exists_or_download_http_with_config(
+                &filepath_clone,
+                &url,
+                None,
+                5,
+                Some(test_retry_config()),
+                Some(0),
+            )
+        })
+        .await
+        .unwrap();
+
+        assert!(result.is_ok());
+        assert_eq!(fs::read_to_string(&filepath).unwrap(), server_content);
+        assert_eq!(
+            fs::read_to_string(&bystander).unwrap(),
+            "do not touch",
+            "unrelated sibling file must be preserved",
+        );
+    }
+
+    fn calculate_sha256_bytes(data: &[u8]) -> String {
+        let mut ctx = digest::Context::new(&digest::SHA256);
+        ctx.update(data);
+        hex::encode(ctx.finish().as_ref())
+    }
+
+    #[rstest]
+    #[expect(clippy::panic_in_result_fn)]
+    fn test_calculate_sha256() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let test_file_path = temp_dir.path().join("test_file.txt");
+        let mut test_file = File::create(&test_file_path)?;
+        let content = b"Hello, world!";
+        test_file.write_all(content)?;
+
+        let expected_hash = "315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3";
+        let calculated_hash = calculate_sha256(&test_file_path)?;
+
+        assert_eq!(calculated_hash, expected_hash);
+        Ok(())
+    }
+
+    #[rstest]
+    #[expect(clippy::panic_in_result_fn)]
+    fn test_verify_sha256_checksum() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let test_file_path = temp_dir.path().join("test_file.txt");
+        let mut test_file = File::create(&test_file_path)?;
+        let content = b"Hello, world!";
+        test_file.write_all(content)?;
+
+        let calculated_checksum = calculate_sha256(&test_file_path)?;
+
+        // Create checksums.json containing the checksum
+        let checksums_path = temp_dir.path().join("checksums.json");
+        let checksums_data = json!({
+            "test_file.txt": format!("sha256:{}", calculated_checksum)
+        });
+        let checksums_file = File::create(&checksums_path)?;
+        let writer = BufWriter::new(checksums_file);
+        to_writer(writer, &checksums_data)?;
+
+        let is_valid = verify_sha256_checksum(&test_file_path, &checksums_path)?;
+        assert!(is_valid, "The checksum should be valid");
+        Ok(())
+    }
+}

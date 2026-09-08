@@ -1,0 +1,223 @@
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
+
+import pytest
+
+from bomber.analysis import CAGR
+from bomber.analysis import AvgLoser
+from bomber.analysis import AvgWinner
+from bomber.analysis import CalmarRatio
+from bomber.analysis import Expectancy
+from bomber.analysis import LongRatio
+from bomber.analysis import MaxDrawdown
+from bomber.analysis import MaxLoser
+from bomber.analysis import MaxWinner
+from bomber.analysis import MinLoser
+from bomber.analysis import MinWinner
+from bomber.analysis import PortfolioAnalyzer
+from bomber.analysis import ProfitFactor
+from bomber.analysis import ReturnsAverage
+from bomber.analysis import ReturnsAverageLoss
+from bomber.analysis import ReturnsAverageWin
+from bomber.analysis import ReturnsVolatility
+from bomber.analysis import RiskReturnRatio
+from bomber.analysis import SharpeRatio
+from bomber.analysis import SortinoRatio
+from bomber.analysis import WinRate
+from bomber.model import Currency
+from bomber.model import Money
+from bomber.model import PositionId
+
+
+NO_ARG_STATISTICS = [
+    (AvgLoser, "Avg Loser"),
+    (AvgWinner, "Avg Winner"),
+    (Expectancy, "Expectancy"),
+    (LongRatio, "Long Ratio"),
+    (MaxDrawdown, "Max Drawdown"),
+    (MaxLoser, "Max Loser"),
+    (MaxWinner, "Max Winner"),
+    (MinLoser, "Min Loser"),
+    (MinWinner, "Min Winner"),
+    (ProfitFactor, "Profit Factor"),
+    (ReturnsAverage, "Average (Return"),
+    (ReturnsAverageLoss, "Average Loss (Return"),
+    (ReturnsAverageWin, "Average Win (Return"),
+    (RiskReturnRatio, "Risk Return Ratio"),
+    (WinRate, "Win Rate"),
+]
+
+PERIOD_STATISTICS = [
+    (CAGR, "CAGR"),
+    (CalmarRatio, "Calmar Ratio"),
+    (ReturnsVolatility, "Returns Volatility"),
+    (SharpeRatio, "Sharpe Ratio"),
+    (SortinoRatio, "Sortino Ratio"),
+]
+
+
+@pytest.mark.parametrize(("cls", "expected_prefix"), NO_ARG_STATISTICS)
+def test_statistic_construction_and_name(cls, expected_prefix):
+    stat = cls()
+
+    assert stat.name.startswith(expected_prefix)
+
+
+@pytest.mark.parametrize(("cls", "expected_prefix"), PERIOD_STATISTICS)
+def test_period_statistic_default_construction_and_name(cls, expected_prefix):
+    stat = cls()
+
+    assert stat.name.startswith(expected_prefix)
+
+
+@pytest.mark.parametrize(("cls", "expected_prefix"), PERIOD_STATISTICS)
+def test_period_statistic_custom_period(cls, expected_prefix):
+    stat = cls(period=30)
+
+    assert "30" in stat.name
+
+
+@pytest.mark.parametrize(
+    ("cls", "_expected_prefix"),
+    NO_ARG_STATISTICS + PERIOD_STATISTICS,
+)
+def test_pyo3_statistic_exposes_full_calculate_surface(cls, _expected_prefix):
+    stat = cls()
+
+    # Every pyo3 statistic must expose all three calculate_from_* methods so the
+    # Python PortfolioAnalyzer can iterate registered stats without AttributeError.
+    # Methods return None for inputs that do not apply to the underlying calculation.
+    assert callable(stat.calculate_from_returns)
+    assert callable(stat.calculate_from_realized_pnls)
+    assert callable(stat.calculate_from_positions)
+
+
+def test_long_ratio_custom_precision():
+    stat = LongRatio(precision=4)
+
+    assert stat.name.startswith("Long Ratio")
+
+
+def test_portfolio_analyzer_construction():
+    analyzer = PortfolioAnalyzer()
+
+    assert analyzer.currencies() == []
+    assert analyzer.returns() == {}
+    assert analyzer.position_returns() == {}
+    assert analyzer.portfolio_returns() == {}
+
+
+def test_portfolio_analyzer_register_and_deregister_statistic():
+    analyzer = PortfolioAnalyzer()
+    stat = SharpeRatio()
+
+    analyzer.register_statistic(stat)
+
+    assert analyzer.statistic(stat.name) is not None
+
+    analyzer.deregister_statistic(stat)
+
+    assert analyzer.statistic(stat.name) is None
+
+
+def test_portfolio_analyzer_deregister_all_statistics():
+    analyzer = PortfolioAnalyzer()
+    analyzer.register_statistic(SharpeRatio())
+    analyzer.register_statistic(WinRate())
+
+    analyzer.deregister_statistics()
+
+    assert analyzer.get_performance_stats_returns() == {}
+
+
+def test_portfolio_analyzer_add_return_and_stats():
+    analyzer = PortfolioAnalyzer()
+    analyzer.register_statistic(ReturnsAverage())
+
+    analyzer.add_return(1_000_000_000, 0.01)
+    analyzer.add_return(2_000_000_000, -0.005)
+
+    stats = analyzer.get_performance_stats_returns()
+
+    assert len(stats) > 0
+
+
+def test_portfolio_analyzer_add_position_return():
+    analyzer = PortfolioAnalyzer()
+
+    analyzer.add_position_return(1_000_000_000, 0.02)
+
+    assert analyzer.position_returns() != {}
+
+
+def test_portfolio_analyzer_reset():
+    analyzer = PortfolioAnalyzer()
+    analyzer.add_return(1_000_000_000, 0.01)
+
+    analyzer.reset()
+
+    assert analyzer.returns() == {}
+    assert analyzer.position_returns() == {}
+
+
+def test_portfolio_analyzer_formatted_stats_empty():
+    analyzer = PortfolioAnalyzer()
+
+    assert analyzer.get_stats_returns_formatted() == []
+    assert analyzer.get_stats_position_returns_formatted() == []
+    assert analyzer.get_stats_portfolio_returns_formatted() == []
+    assert analyzer.get_stats_general_formatted() == []
+
+
+def test_portfolio_analyzer_realized_pnls_drops_recorded_snapshot_alias():
+    analyzer = PortfolioAnalyzer()
+    usd = Currency.from_str("USD")
+    position_id = PositionId("P-1")
+    snapshot_id = PositionId(f"{position_id.value}-00000000-0000-4000-8000-000000000001")
+
+    analyzer.add_trade(snapshot_id, 1, Money(10.0, usd))
+    analyzer.record_trade(position_id, 1, Money(10.0, usd))
+
+    pnls = analyzer.realized_pnls(usd)
+
+    assert pnls == [(position_id.value, 1, 10.0)]
+
+
+def test_portfolio_analyzer_realized_pnls_drops_recorded_snapshot_alias_without_timestamp():
+    analyzer = PortfolioAnalyzer()
+    usd = Currency.from_str("USD")
+    position_id = PositionId("P-1")
+    snapshot_id = PositionId(f"{position_id.value}-00000000-0000-4000-8000-000000000001")
+
+    analyzer.add_trade(snapshot_id, 0, Money(10.0, usd))
+    analyzer.record_trade(position_id, 0, Money(10.0, usd))
+
+    pnls = analyzer.realized_pnls(usd)
+
+    assert pnls == [(position_id.value, 0, 10.0)]
+
+
+def test_portfolio_analyzer_realized_pnls_keeps_unrecorded_snapshot_cycle():
+    analyzer = PortfolioAnalyzer()
+    usd = Currency.from_str("USD")
+    position_id = PositionId("P-1")
+    snapshot_id = PositionId(f"{position_id.value}-00000000-0000-4000-8000-000000000001")
+
+    analyzer.add_trade(snapshot_id, 1, Money(10.0, usd))
+    analyzer.record_trade(position_id, 2, Money(25.0, usd))
+
+    pnls = analyzer.realized_pnls(usd)
+
+    assert pnls == [(snapshot_id.value, 1, 10.0), (position_id.value, 2, 25.0)]

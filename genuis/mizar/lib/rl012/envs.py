@@ -227,8 +227,12 @@ class TradingEnv(gym.Env):
         if not np.isfinite(raw_action).all():
             raw_action = np.zeros(3, dtype=float)
 
-        # 核心：将 raw_action (3维 logits，本身被 SAC 限制在 [-1, 1] 之间) 放大
-        # 放大的目的是打破 Tanh [-1, 1] 造成的数学封锁，让 Softmax 可以达到 >90% 的真正高置信度 (否则最大只能达到 78%)
+        # 将模型输出的 3 维 raw_action 视作 logits。
+        # 由于 SAC 连续动作经过 tanh 后通常落在 [-1, 1]，各维之间的差值范围有限，
+        # 直接做 softmax 时，概率分布往往不够尖锐。
+        # 这里用 softmax_temperature 对 logits 做放大，
+        # 目的是增强 long / short / flat 三者的区分度，
+        # 从而让后续 er_value = p_long - p_short 的振幅更明显。
         temperature_scaled_action = raw_action * self.softmax_temperature
         exp_action = np.exp(temperature_scaled_action - np.max(temperature_scaled_action)) # 减最大值防止溢出
         softmax_probs = exp_action / np.sum(exp_action)

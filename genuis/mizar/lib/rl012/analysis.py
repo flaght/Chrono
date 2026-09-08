@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import numpy as np
 from collections import deque
@@ -5,6 +6,7 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pdb
+from lib.cux001 import FactorEvaluate1
 
 def safe_corr(x: pd.Series, y: pd.Series, method: str = "pearson") -> float:
     mask = x.notna() & y.notna() & np.isfinite(x) & np.isfinite(y)
@@ -637,3 +639,21 @@ def create_evaluate(df: pd.DataFrame, factor_name:str,
                 pred_results=pred_results,
                 image_path=image_path)
     
+
+
+def create_evalute1(df: pd.DataFrame, factor_name:str, period:int, name:str, category:str, output_dir:str):
+    pdb.set_trace()
+    evaluate = FactorEvaluate1(factor_data=df,
+                                   factor_name=factor_name,
+                                   ret_name='nxt1_ret_{0}h'.format(period),
+                                   roll_win=15,
+                                   fee=0.0,
+                                   scale_method='raw',
+                                   expression="{0}".format(category),
+                                   resampling_win=period,
+                                   name="{0}_{1}".format(name,category))
+    dirs = os.path.join(output_dir, "metrics1")
+    os.makedirs(dirs, exist_ok=True)
+    _ = evaluate.run()
+    evaluate.plot_results()
+    evaluate.save_results(dirs)

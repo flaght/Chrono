@@ -11,9 +11,10 @@ from kdutils.tactix import Tactix
 from kdutils.macro2 import *
 from lib.uvx import * 
 
+from lib.aux001 import fetch_temp_returns
 from lib.rl012.train import train_model
 from lib.rl012.predict import predict_test_set
-from lib.rl012.analysis import create_evaluate
+from lib.rl012.analysis import create_evaluate, create_evalute1
 # from lib.rl011.analysis import analyze_run
 
 
@@ -191,7 +192,7 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id, trai
         env_id=env_id, train_id=train_id, regime_id=regime_id)
 
     # selected_features += ['CANARY_GOOD_20']
-    
+    pdb.set_trace()
     total_params = copy.deepcopy(trade_params)
     total_params.update(env_params)
     total_params.update(model_params)
@@ -325,7 +326,7 @@ def predict(method, instruments, task_id, period, env_id, trade_id,
     #     features=selected_features, regime=min_regime
     # )
     
-
+    pdb.set_trace()
     output_dir = os.path.join(base_path, method, instruments, 'temp',
                                'model', str(task_id), str(period),
                                'rl', 'result', str(name))
@@ -344,6 +345,8 @@ def predict(method, instruments, task_id, period, env_id, trade_id,
     
         filename = os.path.join(output_dir, "metrics", "{0}_results.csv".format(category))
         # image_path = os.path.join(output_dir, "metrics", "{0}_results.png".format(category))
+        pdb.set_trace()
+        data = data.loc[:500]
         predict_test_set(
             model_path=best_model_path,
             config_path=config_path,
@@ -392,11 +395,19 @@ def evaluate(method, instruments, task_id, period, env_id, trade_id,
         #     open_thr = ((abs_er >= thr) & (abs_er > 0)).mean()
         #     print(thr, open_thr, "drop_vs_base=", base_open - open_thr)
         
+        returns_data = fetch_temp_returns(method=method,
+                                     instruments=instruments,
+                                     category='returns',
+                                     datasets=[category])
         
-        pdb.set_trace()
+        returns_data['trade_time'] = pd.to_datetime(returns_data['trade_time'])
+        df1['trade_time'] = pd.to_datetime(df1['trade_time'] )
+        df1 = df1.merge(returns_data[['trade_time','code','nxt1_ret_{0}h'.format(period)]], on=['trade_time'])
+        create_evalute1(df=df1, factor_name='net_er_out', period=period, 
+                        name=name, category=category,output_dir=output_dir)
         create_evaluate(df=df1, factor_name='net_er_out', return_name='future_ret_h',
-                        title_prefix=category, image_path=image_path,pnl_method=pnl_method,
-                        cost_rate=COST_MAPPING[INSTRUMENTS_CODES[instruments]])
+                         title_prefix=category, image_path=image_path,pnl_method=pnl_method,
+                         cost_rate=COST_MAPPING[INSTRUMENTS_CODES[instruments]])
     
 if __name__ == '__main__':
     pdb.set_trace()
