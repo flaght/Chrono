@@ -1,0 +1,75 @@
+[package]
+name = "nautilus-system"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "System orchestration for the Nautilus trading engine"
+categories.workspace = true
+keywords.workspace = true
+documentation.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "nautilus_system"
+crate-type = ["rlib"]
+
+[features]
+default = []
+defi = ["nautilus-common/defi", "nautilus-data/defi", "nautilus-model/defi"]
+extension-module = ["python", "pyo3/extension-module", "streaming"]
+live = ["nautilus-common/live"]
+python = [
+  "nautilus-core/python",
+  "nautilus-persistence/python",
+  "pyo3",
+  "streaming",
+]
+streaming = ["nautilus-persistence"]
+tracing-bridge = ["nautilus-common/tracing-bridge"]
+
+[package.metadata.cargo-machete]
+ignored = [
+  "nautilus-persistence",
+] # Optional dep activated only via the streaming feature
+
+[package.metadata.docs.rs]
+# Python docs depend on the local pyo3-stub-gen patch for now, which published crates do not carry
+features = ["defi", "live", "streaming", "tracing-bridge"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+nautilus-common = { workspace = true }
+nautilus-core = { workspace = true }
+nautilus-data = { workspace = true }
+nautilus-execution = { workspace = true }
+nautilus-model = { workspace = true, features = ["stubs"] }
+nautilus-portfolio = { workspace = true }
+nautilus-risk = { workspace = true }
+nautilus-trading = { workspace = true }
+
+nautilus-persistence = { workspace = true, optional = true }
+
+ahash = { workspace = true }
+anyhow = { workspace = true }
+bon = { workspace = true }
+indexmap = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+sysinfo = { workspace = true }
+ustr = { workspace = true }
+
+pyo3 = { workspace = true, optional = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+rstest = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }

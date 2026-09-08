@@ -1,0 +1,50 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+//! Python bindings from [PyO3](https://pyo3.rs).
+
+pub mod config;
+pub mod node;
+
+use nautilus_portfolio::config::PortfolioConfig;
+use pyo3::prelude::*;
+
+pyo3_stub_gen::reexport_module_members!(
+    "bomber.live",
+    "bomber.portfolio",
+    "PortfolioConfig"
+);
+
+/// Loaded as `bomber_pyo3.live`.
+///
+/// # Errors
+///
+/// Returns a `PyErr` if registering any module components fails.
+#[pymodule]
+pub fn live(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<crate::node::LiveNode>()?;
+    m.add_class::<node::LiveNodeBuilderPy>()?;
+    m.add_class::<crate::config::LiveNodeConfig>()?;
+    m.add_class::<crate::config::LiveDataEngineConfig>()?;
+    m.add_class::<crate::config::LiveRiskEngineConfig>()?;
+    m.add_class::<crate::config::LiveExecEngineConfig>()?;
+    m.add_class::<crate::config::PluginConfig>()?;
+    m.add_class::<crate::config::RoutingConfig>()?;
+    m.add_class::<crate::config::InstrumentProviderConfig>()?;
+    m.add_class::<crate::config::LiveDataClientConfig>()?;
+    m.add_class::<crate::config::LiveExecClientConfig>()?;
+    m.add_class::<PortfolioConfig>()?;
+    Ok(())
+}

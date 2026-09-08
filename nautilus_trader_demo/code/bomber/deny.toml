@@ -1,0 +1,243 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+
+# =============================================================================
+# Dependency Graph Configuration
+# =============================================================================
+[graph]
+all-features = true
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+# =============================================================================
+# Security Advisories
+# =============================================================================
+[advisories]
+# Ignored advisories (use sparingly - document the reason)
+ignore = [
+  # paste unmaintained, transitive via alloy
+  # TODO: Monitor https://github.com/alloy-rs/alloy for migration to pastey or alternative
+  { id = "RUSTSEC-2024-0436", reason = "paste unmaintained, transitive via alloy" },
+
+  # rustls-pemfile unmaintained, transitive via nautilus-network and various TLS deps.
+  # Migration target is rustls-pki-types; not a vulnerability.
+  # TODO: Monitor upstream TLS deps for migration
+  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained, transitive via nautilus-network (not a vulnerability)" },
+
+  # unic-* unmaintained, transitive via pyo3-stub-gen -> rustpython-parser (dev tool only).
+  # TODO: Monitor https://github.com/Jij-Inc/pyo3-stub-gen for migration away from rustpython-parser
+  { id = "RUSTSEC-2025-0075", reason = "unic-char-range unmaintained, transitive via pyo3-stub-gen (dev tool only)" },
+  { id = "RUSTSEC-2025-0080", reason = "unic-common unmaintained, transitive via pyo3-stub-gen (dev tool only)" },
+  { id = "RUSTSEC-2025-0081", reason = "unic-char-property unmaintained, transitive via pyo3-stub-gen (dev tool only)" },
+  { id = "RUSTSEC-2025-0090", reason = "unic-emoji-char unmaintained, transitive via pyo3-stub-gen (dev tool only)" },
+  { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version unmaintained, transitive via pyo3-stub-gen (dev tool only)" },
+  { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident unmaintained, transitive via pyo3-stub-gen (dev tool only)" },
+
+  # bincode 1.3.3 unmaintained, dev-only via madsim. Not a vulnerability.
+  # TODO: Monitor https://github.com/madsys-dev/madsim for migration
+  { id = "RUSTSEC-2025-0141", reason = "bincode unmaintained, dev-only via madsim (not a vulnerability)" },
+
+  # capnp unsound APIs in constant::Reader and StructSchema, transitive via hypersync-client.
+  # Fix requires upstream update to capnp >= 0.24.0. Low risk: internal schema handling only.
+  # TODO: Monitor https://github.com/enviodev/hypersync-client-rust for capnp update
+  { id = "RUSTSEC-2025-0143", reason = "capnp unsound APIs, transitive via hypersync-client, awaiting upstream fix" },
+
+  # proc-macro-error2 unmaintained, transitive via alloy and tabled_derive.
+  # No patched version is available; not a vulnerability.
+  # TODO: Monitor upstream alloy and tabled releases for migration away from proc-macro-error2
+  { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained via alloy and tabled_derive; no patch" },
+
+  # NOTE: cargo-audit also flags RUSTSEC-2024-0388 (derivative), which cargo-deny
+  # does not surface; it is listed only in .cargo/audit.toml.
+]
+
+# =============================================================================
+# License Configuration
+# =============================================================================
+[licenses]
+# Licenses compatible with LGPL-3.0
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-2-Clause-Patent",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "ISC",
+  "MPL-2.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "Zlib",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "0BSD",
+  "LGPL-3.0-or-later",
+  "Unlicense",
+  "bzip2-1.0.6",
+]
+
+confidence-threshold = 0.8
+
+# Clarify licenses for crates with missing/incorrect license metadata
+[[licenses.clarify]]
+name = "implied-vol"
+version = "*"
+expression = "MIT"
+license-files = [{ path = "LICENSE", hash = 0xb0803f0e }]
+
+# dydx-proto uses "LicenseRef-dYdX-Custom" but is effectively MIT licensed.
+# The dYdX custom license is a permissive license compatible with MIT terms.
+# See: https://github.com/dydxprotocol/v4-chain/blob/main/LICENSE
+[[licenses.clarify]]
+name = "dydx-proto"
+version = "*"
+expression = "MIT"
+license-files = []
+
+[licenses.private]
+# Ignore workspace crates that aren't published
+# Note: All workspace crates in this project are LGPL-3.0 (project license)
+# If adding workspace crates with different licenses, set this to false
+ignore = true
+registries = []
+
+# =============================================================================
+# Banned/Duplicate Crates
+# =============================================================================
+[bans]
+# Deny multiple versions of the same crate to catch new duplicates we introduce.
+# Known transitive duplicates from upstream are allowlisted in `skip` below.
+# Review this list periodically when upgrading dependencies.
+multiple-versions = "deny"
+
+# Deny wildcard version requirements (*)
+# Prevents uncontrolled version drift and supply-chain attacks
+wildcards = "deny"
+
+highlight = "all"
+
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+# Explicitly allowed crates (use with care)
+allow = []
+
+# Explicitly denied crates
+deny = []
+
+# Skip certain crates during duplicate detection.
+# These are transitive duplicates from upstream crates outside our control.
+# Last reviewed: 2026-05-30
+skip = [
+  # Crypto ecosystem - version-locked together, pulled by various blockchain crates
+  { crate = "block-buffer" },
+  { crate = "crypto-common" },
+  { crate = "digest" },
+  { crate = "hmac" },
+  { crate = "md-5" },
+  { crate = "sha2" },
+
+  # RNG ecosystem - version-locked together, pulled by crypto and blockchain crates
+  { crate = "getrandom" },
+  { crate = "r-efi" },
+  { crate = "rand" },
+  { crate = "rand_chacha" },
+  { crate = "rand_core" },
+
+  # Proc-macro helpers - transitive via derive macros in various crates
+  { crate = "darling" },
+  { crate = "darling_core" },
+  { crate = "darling_macro" },
+  { crate = "derive_more" },
+  { crate = "derive_more-impl" },
+
+  # syn 1 and strsim 0.10 - transitive via madsim -> darling 0.14 (dev-only simulator)
+  { crate = "syn" },
+  { crate = "strsim" },
+
+  # Enum derive macros - strum 0.27 (alloy, hypersync) vs 0.28 (nautilus)
+  { crate = "strum" },
+  { crate = "strum_macros" },
+
+  # Case conversion - version fragmentation via derive_more
+  { crate = "convert_case" },
+
+  # Arrow/Parquet ecosystem - hypersync pins arrow 57, nautilus uses arrow 58
+  { crate = "lz4_flex" },
+  { crate = "arrow" },
+  { crate = "arrow-arith" },
+  { crate = "arrow-array" },
+  { crate = "arrow-buffer" },
+  { crate = "arrow-cast" },
+  { crate = "arrow-csv" },
+  { crate = "arrow-data" },
+  { crate = "arrow-ipc" },
+  { crate = "arrow-json" },
+  { crate = "arrow-ord" },
+  { crate = "arrow-row" },
+  { crate = "arrow-schema" },
+  { crate = "arrow-select" },
+  { crate = "arrow-string" },
+  { crate = "parquet" },
+
+  # Common utility crates with version fragmentation across ecosystem
+  { crate = "hashbrown" },
+  { crate = "itertools" },
+  { crate = "foldhash" },
+  { crate = "rustc-hash" },
+  { crate = "petgraph" },
+  { crate = "socket2" },
+
+  # Perfect hash function crates - transitive
+  { crate = "phf" },
+  { crate = "phf_shared" },
+
+  # Error handling - thiserror 1.x vs 2.x transition in progress
+  { crate = "thiserror" },
+  { crate = "thiserror-impl" },
+
+  # CPU feature detection - cpufeatures 0.2 vs 0.3 (const-hex vs chacha20/rand)
+  { crate = "cpufeatures" },
+
+  # HTTP client - reqwest 0.12 vs 0.13 transition (databento, hypersync, object_store on 0.12)
+  { crate = "reqwest" },
+  { crate = "wasm-streams" },
+
+  # Protobuf runtime - dYdX/cosmos/tonic use 0.13, ibapi uses 0.14
+  { crate = "prost" },
+  { crate = "prost-derive" },
+
+  # Cap'n Proto - hypersync-client uses 0.23.x, nautilus-serialization uses 0.25.0
+  { crate = "capnp" },
+
+  # TOML parser - cbindgen requires 0.9.x, pyo3-stub-gen requires 1.0.x
+  { crate = "toml" },
+  { crate = "toml_datetime" },
+  { crate = "winnow" },
+
+  # TLS roots - version fragmentation in TLS ecosystem
+  { crate = "webpki-roots" },
+
+  # Windows platform crates - notoriously fragmented across Windows SDK versions
+  { crate = "windows-sys" },
+]
+
+skip-tree = []
+
+# =============================================================================
+# Dependency Sources
+# =============================================================================
+[sources]
+# Only allow dependencies from crates.io
+unknown-registry = "deny"
+unknown-git = "deny"
+
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[sources.allow-org]
+github = []
+gitlab = []
+bitbucket = []

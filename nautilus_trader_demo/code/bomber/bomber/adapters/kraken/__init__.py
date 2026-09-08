@@ -1,0 +1,58 @@
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
+"""
+Kraken cryptocurrency exchange integration adapter.
+
+This subpackage provides an instrument provider, data client, execution client,
+configurations, and constants for connecting to and interacting with Kraken's API.
+
+For convenience, the most commonly used symbols are re-exported at the
+subpackage's top level, so downstream code can simply import from
+``bomber.adapters.kraken``.
+
+"""
+
+from bomber.adapters.kraken.config import KrakenDataClientConfig
+from bomber.adapters.kraken.config import KrakenExecClientConfig
+from bomber.adapters.kraken.constants import KRAKEN
+from bomber.adapters.kraken.constants import KRAKEN_CLIENT_ID
+from bomber.adapters.kraken.constants import KRAKEN_VENUE
+from bomber.adapters.kraken.data import KrakenDataClient
+from bomber.adapters.kraken.execution import KrakenExecutionClient
+from bomber.adapters.kraken.factories import KrakenLiveDataClientFactory
+from bomber.adapters.kraken.factories import KrakenLiveExecClientFactory
+from bomber.adapters.kraken.providers import KrakenInstrumentProvider
+from bomber.adapters.kraken.types import KRAKEN_INSTRUMENT_TYPES
+from bomber.adapters.kraken.types import KrakenInstrument
+from bomber.core.bomber_pyo3 import KrakenEnvironment
+from bomber.core.bomber_pyo3 import KrakenProductType
+
+
+__all__ = [
+    "KRAKEN",
+    "KRAKEN_CLIENT_ID",
+    "KRAKEN_INSTRUMENT_TYPES",
+    "KRAKEN_VENUE",
+    "KrakenDataClient",
+    "KrakenDataClientConfig",
+    "KrakenEnvironment",
+    "KrakenExecClientConfig",
+    "KrakenExecutionClient",
+    "KrakenInstrument",
+    "KrakenInstrumentProvider",
+    "KrakenLiveDataClientFactory",
+    "KrakenLiveExecClientFactory",
+    "KrakenProductType",
+]

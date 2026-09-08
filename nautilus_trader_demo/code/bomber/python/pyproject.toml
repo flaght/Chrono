@@ -1,0 +1,259 @@
+[project]
+name = "bomber"
+version = "2.0.0rc1"
+description = "Production-grade Rust-native trading engine with deterministic event-driven architecture"
+authors = [{ name = "Nautech Systems", email = "info@nautechsystems.io" }]
+classifiers = [
+  "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+  "Operating System :: OS Independent",
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Rust",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Office/Business :: Financial",
+  "Topic :: Office/Business :: Financial :: Investment",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Intended Audience :: Science/Research",
+]
+license = { text = "LGPL-3.0-or-later" }
+readme = "../README.md"
+requires-python = ">=3.12,<3.15"
+dependencies = []
+
+[project.optional-dependencies]
+visualization = [
+  "pandas>=2.3.3,<4.0.0",
+  "plotly>=6.8.0,<7.0.0",
+  "kaleido>=1.3.0,<2.0.0",
+  "simplejson==3.20.2",
+]
+
+[project.urls]
+homepage = "https://nautilustrader.io"
+repository = "https://github.com/nautechsystems/bomber"
+docs = "https://nautilustrader.io/docs"
+
+[build-system]
+# Keep the maturin pin exact; scripts/maturin-version.bash uses it for CI wheel builds.
+requires = ["maturin==1.14.0", "patchelf"]
+build-backend = "maturin"
+
+[tool.maturin]
+manifest-path = "../crates/pyo3/Cargo.toml"
+module-name = "bomber._libnautilus"
+python-source = "."
+features = [
+  "extension-module",
+  "arrow",
+  "betfair",
+  "high-precision",
+  "redis",
+  "postgres",
+  "defi",
+  "hypersync",
+  "tracing-bridge",
+]
+strip = false
+
+include = ["**/*.pyi"]
+
+[tool.uv]
+required-version = "==0.11.25"
+exclude-newer = "3 days"
+# Block sdist builds for every third-party package in python/uv.lock so
+# unexpected loss of wheel publishing fails `uv lock` instead of silently
+# building from source. Kept in sync with python/uv.lock by
+# scripts/check-no-build-packages.sh (also a pre-commit hook). The local
+# bomber v2 package is intentionally absent because it must be built
+# by maturin.
+no-build-package = [
+  "choreographer",
+  "colorama",
+  "coverage",
+  "execnet",
+  "iniconfig",
+  "kaleido",
+  "librt",
+  "logistro",
+  "maturin",
+  "mypy",
+  "mypy-extensions",
+  "narwhals",
+  "numpy",
+  "orjson",
+  "packaging",
+  "pandas",
+  "pathspec",
+  "platformdirs",
+  "plotly",
+  "pluggy",
+  "psutil",
+  "pygments",
+  "pytest",
+  "pytest-asyncio",
+  "pytest-cov",
+  "pytest-xdist",
+  "python-dateutil",
+  "ruff",
+  "simplejson",
+  "six",
+  "typing-extensions",
+  "tzdata",
+]
+
+[dependency-groups]
+dev = ["maturin==1.14.0", "mypy>=1.20.2,<2.0.0", "ruff>=0.15.18"]
+test = [
+  "pytest>=9.1.1",
+  "pytest-asyncio>=1.4.0",
+  "pytest-cov>=7.1.0",
+  "pytest-xdist[psutil]>=3.8.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = [
+  "stubs/**",
+  "bomber/_libnautilus.pyi",
+  "../build",
+  "../dist",
+  "../target",
+]
+
+[tool.ruff.lint]
+select = [
+  "C4", # flake8-comprehensions
+  "E", # pycodestyle errors
+  "F", # pyflakes
+  "W", # pycodestyle warnings
+  "C90", # mccabe complexity
+  "D", # pydocstyle
+  "DTZ", # flake8-datetimez
+  "UP", # pyupgrade
+  "S", # flake8-bandit (security)
+  "T10", # flake8-debugger
+  "ICN", # flake8-import-conventions
+  "PIE", # flake8-pie
+  "PT", # flake8-pytest-style
+  "PYI", # flake8-pyi (stubs)
+  "Q", # flake8-quotes
+  "I", # isort
+  "RSE", # flake8-raise
+  "TID", # flake8-tidy-imports
+  "SIM", # flake8-simplify
+  "B", # flake8-bugbear
+  "PERF", # Perflint
+  "FURB", # refurb
+  "ISC", # flake8-implicit-str-concat
+  "FLY", # flynt
+  "LOG", # flake8-logging
+  "ASYNC", # flake8-async
+  # "ARG", # flake8-unused-arguments
+  # "ERA", # eradicate (commented code)
+  "PD", # pandas-vet
+  "PGH", # pygrep-hooks
+  "PLE", # pylint errors
+  "PLW", # pylint warnings
+  "NPY", # NumPy-specific rules
+  "RUF", # Ruff-specific rules
+]
+
+ignore = [
+  "D100", # Missing docstring in public module  **fix**
+  "D101",
+  "D102", # Missing docstring in public method  **fix**
+  "D103", # Missing docstring in public function  **fix**
+  "D104", # Missing docstring in public package  **fix**
+  "D105",
+  "D107",
+  "D200", # One-line docstring should fit on one line with quotes (optional style)
+  "D203", # 1 blank line required before class docstring (optional style)
+  "D205", # 1 blank line required between summary line and description (optional style)
+  "D212", # Multi-line docstring summary should start at the first line (optional style)
+  "D400", # First line should end with a period (not always a first line)
+  "D413", # Missing blank line after last section ('Parameters')
+  "D415", # First line should end with a period, question mark, or exclamation point (not always a first line)
+  "D416", # Section name should end with a colon ('Warnings:', not 'Warnings') (incorrect?)
+  "E501", # Line too long (linted separately)
+  "E741", # Ambiguous variable name (single char)
+  "FURB110", # if-exp-instead-of-or-operator (ternary is often clearer than or)
+  "PYI021", # Docstrings should not be included in stubs (OK as this is the natural place for them)
+  "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
+  "S101", # Use of assert detected (OK in test suite)
+  "S105", # Use of hardcoded password (spurious)
+  "S106", # Use of hardcoded password (spurious)
+  "S113", # Probable use of requests call without timeout **fix**
+  "S603", # `subprocess` call: check for execution of untrusted input **fix**
+  "SIM108", # Use ternary operator instead of if-else-block (opinionated style)
+]
+
+# Allow autofix for all enabled rules (when `--fix`) is provided
+fixable = ["ALL"]
+
+# E4 = import-related rules (E401: multiple imports on one line, E402: module level import not at top)
+# E501 = line too long
+# UP006 = Use list instead of List for type annotation (field name 'list' shadows built-in in Bybit schemas)
+# UP035 = typing.List is deprecated (field name 'list' shadows built-in in Bybit schemas)
+# These are ignored and linted separately (see .pre-commit-config.yaml)
+unfixable = ["E4", "E501", "UP006", "UP035"]
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+"bomber/**/*.pyi" = [
+  "PYI011",
+  "D",
+  "RUF002",
+] # Generated stubs use explicit default values from #[pyo3(signature)] and inherit Rust docstrings
+"bomber/adapters/hyperliquid/__init__.py" = [
+  "PLE0604",
+] # Dynamic __all__ extension from star import
+"examples/**/*.py" = [
+  "DTZ",
+  "S101",
+  "S105",
+  "S106",
+] # Examples can use naive datetimes, asserts, and mock credentials
+"tests/**/*.py" = [
+  "S101",
+  "S105",
+  "S106",
+] # Tests can use asserts and mock credentials
+
+[tool.ruff.lint.isort]
+force-single-line = true
+lines-after-imports = 2
+split-on-trailing-comma = true
+known-first-party = ["bomber"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.mypy]
+python_version = "3.12"
+disallow_incomplete_defs = true
+explicit_package_bases = true
+ignore_missing_imports = true
+namespace_packages = true
+strict_optional = true
+warn_no_return = true
+warn_unused_configs = true
+warn_unused_ignores = true
+mypy_path = ["."]
+exclude = "^bomber/.*__init__\\.py$"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --new-first --failed-first"
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "session"
+filterwarnings = ["ignore::UserWarning", "ignore::DeprecationWarning"]
