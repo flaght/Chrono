@@ -201,7 +201,7 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# Nautilus
+# Bomber
 docs/
 tests/
 !docs/tutorials

@@ -1,0 +1,43 @@
+services:
+  bomber-remote-dev:
+    build:
+      context: ..
+      dockerfile: dockerfile/Dockerfile.remote
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/python:3.13-slim}
+        RUSTUP_DIST_SERVER: ${RUSTUP_DIST_SERVER:-https://rsproxy.cn}
+        RUSTUP_UPDATE_ROOT: ${RUSTUP_UPDATE_ROOT:-https://rsproxy.cn/rustup}
+        USER_NAME: dev
+        USER_UID: ${HOST_UID:-1000}
+        USER_GID: ${HOST_GID:-1000}
+
+    container_name: bomber-remote-dev
+    hostname: bomber-dev
+    restart: unless-stopped
+
+    ports:
+      # 映射 SSH 端口至 2222，可按需修改为 127.0.0.1:2222:22 加强防护
+      - "${SSH_PORT:-2222}:22"
+
+    volumes:
+      # 仅挂载使用者自己的策略/脚本工作区，严禁挂载 Bomber 底层源码
+      - ${STRATEGY_DIR:-./workspace}:/home/dev/workspace
+      # 数据目录挂载：宿主机数据目录 -> 容器内数据目录（启动时可通过 DATA_DIR 指定宿主机数据路径）
+      - ${DATA_DIR:-./data}:/home/dev/data
+
+    # 可选：如果希望使用公钥免密登录，放置 authorized_keys 并取消以下两项注释
+    # secrets:
+    #   - dev_authorized_key
+
+    environment:
+      TZ: Asia/Shanghai
+      REMOTE_USER: dev
+      # 账号登录密码（默认: bomber123，可通过环境变量 DEV_PASSWORD 自定义）
+      DEV_PASSWORD: ${DEV_PASSWORD:-bomber123}
+      # 回测与行情数据目录（bomber_adapter 优先从 BOMBER_DATA_DIR / BT_DATA_DIR 环境变量读取数据）
+      BOMBER_DATA_DIR: ${BOMBER_DATA_DIR:-/home/dev/data}
+      BT_DATA_DIR: ${BT_DATA_DIR:-/home/dev/data}
+
+# secrets:
+#   dev_authorized_key:
+#     file: ./authorized_keys

@@ -1,0 +1,154 @@
+# 全局定义基础镜像，默认使用华为云 SWR 镜像加速通道（避免 Docker Hub 官方源访问受限）
+ARG BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/python:3.13-slim
+
+# ==============================================================================
+# Stage 1: Builder (仅用于编译打包，不包含在最终分发镜像中)
+# ==============================================================================
+FROM ${BASE_IMAGE} AS builder
+
+ARG RUST_VERSION=1.97.0
+# 可选加速源，例如国内可传 ARG RUSTUP_DIST_SERVER=https://rsproxy.cn
+ARG RUSTUP_DIST_SERVER
+ARG RUSTUP_UPDATE_ROOT
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=off \
+    PYO3_PYTHON="/usr/local/bin/python3" \
+    PYSETUP_PATH="/opt/pysetup" \
+    CARGO_HOME="/usr/local/cargo" \
+    RUSTUP_HOME="/usr/local/rustup" \
+    BUILD_MODE="release" \
+    CC="clang"
+
+ENV PATH="/usr/local/cargo/bin:${PATH}"
+
+WORKDIR ${PYSETUP_PATH}
+
+# 1. 安装编译系统依赖
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        clang \
+        lld \
+        git \
+        make \
+        pkg-config \
+        capnproto \
+        libcapnp-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. 安装 uv (直接通过 pip 安装，避免从国外 ghcr.io 镜像拉取)
+RUN pip install --no-cache-dir uv==0.11.25
+
+# 3. 安装 Rust 工具链 (使用 rsproxy 国内镜像，避免海外源超时)
+RUN env RUSTUP_DIST_SERVER="${RUSTUP_DIST_SERVER:-}" \
+        RUSTUP_UPDATE_ROOT="${RUSTUP_UPDATE_ROOT:-}" \
+    curl --proto '=https' --tlsv1.2 -sSf https://rsproxy.cn/rustup-init.sh | \
+    sh -s -- -y --default-toolchain "${RUST_VERSION}" --profile minimal \
+    && cargo --version \
+    && rustc --version
+
+# 4. 拷贝依赖配置并同步环境
+COPY uv.lock pyproject.toml build.py ./
+RUN uv sync --no-install-package bomber
+
+# 5. 拷贝底层 Rust 代码进行编译
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY patches ./patches
+COPY examples/tutorials ./examples/tutorials
+RUN cargo build --lib --release --all-features
+
+# 6. 拷贝 Python 源码并构建 Wheel 安装到全局 Python
+COPY bomber ./bomber
+COPY README.md ./
+RUN uv build --wheel \
+    && uv pip install --system dist/*.whl \
+    && find /usr/local/lib/python3.13/site-packages -name "*.pyc" -exec rm -f {} \;
+
+# ==============================================================================
+# Stage 2: 纯二进制运行时与 SSH 远程开发镜像 (完全隔离源码与 Rust 构建环境)
+# ==============================================================================
+FROM ${BASE_IMAGE} AS runtime
+
+ARG USER_NAME=dev
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+ENV TZ=Asia/Shanghai
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    BOMBER_DATA_DIR="/home/dev/data" \
+    BT_DATA_DIR="/home/dev/data"
+
+# 1. 安装运行基础依赖及 SSH 服务
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        git \
+        openssh-server \
+        sudo \
+        libcapnp-dev \
+        procps \
+        vim \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. 从 builder 仅复制二进制产物及工具（无任何项目源码）
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
+
+# 3. 创建非 root 开发用户并赋予免密 sudo 权限（宿主机若为 root 则 UID/GID 回退为 1000，避免 GID 0 冲突）
+RUN TARGET_UID="${USER_UID:-1000}"; \
+    TARGET_GID="${USER_GID:-1000}"; \
+    [ "$TARGET_UID" = "0" ] && TARGET_UID=1000; \
+    [ "$TARGET_GID" = "0" ] && TARGET_GID=1000; \
+    if ! getent group "${TARGET_GID}" >/dev/null 2>&1; then \
+        groupadd --gid "${TARGET_GID}" "${USER_NAME}"; \
+    else \
+        groupadd "${USER_NAME}" || true; \
+    fi; \
+    if ! getent passwd "${TARGET_UID}" >/dev/null 2>&1; then \
+        useradd \
+            --uid "${TARGET_UID}" \
+            --gid "${TARGET_GID}" \
+            --create-home \
+            --shell /bin/bash \
+            "${USER_NAME}"; \
+    fi; \
+    echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${USER_NAME}" \
+    && chmod 0440 "/etc/sudoers.d/${USER_NAME}"
+
+# 4. SSH 服务配置（允许账号密码及公钥登录，禁止 root 登录）
+RUN mkdir -p /run/sshd \
+    && ssh-keygen -A \
+    && sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+    && sed -i 's/^#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config \
+    && printf '\nPasswordAuthentication yes\nPubkeyAuthentication yes\nAllowUsers %s\n' "${USER_NAME}" >> /etc/ssh/sshd_config
+
+# 5. 持久化环境变量，保证 SSH 登录时能正常读取 Python、uv 和数据目录
+RUN echo "export PATH=/usr/local/bin:\$PATH" > /etc/profile.d/00-env.sh \
+    && echo "export PYTHONPATH=/usr/local/lib/python3.13/site-packages:\$PYTHONPATH" >> /etc/profile.d/00-env.sh \
+    && echo "export BOMBER_DATA_DIR=\${BOMBER_DATA_DIR:-/home/dev/data}" >> /etc/profile.d/00-env.sh \
+    && echo "export BT_DATA_DIR=\${BT_DATA_DIR:-/home/dev/data}" >> /etc/profile.d/00-env.sh \
+    && echo "PATH=\"/usr/local/bin:${PATH}\"" >> /etc/environment \
+    && echo "BOMBER_DATA_DIR=\"${BOMBER_DATA_DIR:-/home/dev/data}\"" >> /etc/environment \
+    && echo "BT_DATA_DIR=\"${BT_DATA_DIR:-/home/dev/data}\"" >> /etc/environment
+
+# 6. 准备用户独立工作空间与数据目录
+RUN mkdir -p "/home/${USER_NAME}/workspace" "/home/${USER_NAME}/data" \
+    && chown -R "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/workspace" "/home/${USER_NAME}/data"
+
+COPY dockerfile/remote-entrypoint.sh /usr/local/bin/remote-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/remote-entrypoint.sh
+
+WORKDIR /home/${USER_NAME}/workspace
+
+EXPOSE 22
+
+ENTRYPOINT ["/usr/local/bin/remote-entrypoint.sh"]
