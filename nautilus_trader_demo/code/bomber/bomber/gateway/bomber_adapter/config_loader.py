@@ -161,7 +161,6 @@ def create_default_config(config_path: str):
         },
         'cost': {
             'commission_bps': 2.3,
-            'impact_bps': 10
         },
         'venue': {
             'name': 'CFFEX',
