@@ -23,11 +23,17 @@ class BarData:
     """K线数据 - 字段名与生产一致"""
     __slots__ = ("_inst", "_ts", "_timeUnit", "_barCode",
                  "_open", "_high", "_low", "_close", "_volume", "_turnover",
+                 # 期货累计字段
+                 "_turnoverAccumulate", "_volumeAccumulate", "_openInterestAccumulate",
+                 # 指数分段价格字段
+                 "_sectionalLowPrice", "_sectionalHighPrice", "_sectionalOpenPrice",
                  "_nautilus_bar")
 
     def __init__(self, inst="", ts=0, timeUnit=3, barCode=0,
                  openPrice=0.0, highPrice=0.0, lowPrice=0.0, closePrice=0.0,
-                 volume=0.0, turnOver=0.0):
+                 volume=0.0, turnOver=0.0,
+                 turnoverAccumulate=0.0, volumeAccumulate=0.0, openInterestAccumulate=0.0,
+                 sectionalLowPrice=0.0, sectionalHighPrice=0.0, sectionalOpenPrice=0.0):
         self._inst = inst
         self._ts = ts
         self._timeUnit = timeUnit
@@ -38,6 +44,14 @@ class BarData:
         self._close = closePrice
         self._volume = volume
         self._turnover = turnOver
+        # 期货累计字段
+        self._turnoverAccumulate = turnoverAccumulate
+        self._volumeAccumulate = volumeAccumulate
+        self._openInterestAccumulate = openInterestAccumulate
+        # 指数分段价格字段
+        self._sectionalLowPrice = sectionalLowPrice
+        self._sectionalHighPrice = sectionalHighPrice
+        self._sectionalOpenPrice = sectionalOpenPrice
         self._nautilus_bar = None
 
     def InstStr(self):
@@ -61,6 +75,20 @@ class BarData:
     def volume(self): return self._volume
     @property
     def turnOver(self): return self._turnover
+    # 期货累计字段
+    @property
+    def turnoverAccumulate(self): return self._turnoverAccumulate
+    @property
+    def volumeAccumulate(self): return self._volumeAccumulate
+    @property
+    def openInterestAccumulate(self): return self._openInterestAccumulate
+    # 指数分段价格字段
+    @property
+    def sectionalLowPrice(self): return self._sectionalLowPrice
+    @property
+    def sectionalHighPrice(self): return self._sectionalHighPrice
+    @property
+    def sectionalOpenPrice(self): return self._sectionalOpenPrice
 
     # ---- 北京时间便捷方法（策略层推荐用这些，不用关心时区）----
 

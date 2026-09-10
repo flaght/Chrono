@@ -5,20 +5,21 @@ BacktestEnv - 回测环境对象
 """
 import os
 import xml.etree.ElementTree as ET
-from .data_api import DataAPI
+from bomber_adapter.data_api import DataAPI
 
 
 class BacktestEnv:
     def __init__(self, config_path="", data_dir=None, ddb_config=None, **params):
         self._config = {}
         self._params = params
-        self._data_dir = data_dir
+        env_data_dir = os.environ.get("BOMBER_DATA_DIR") or os.environ.get("BT_DATA_DIR")
+        self._data_dir = data_dir or env_data_dir or "./data"
         self._ddb_config = ddb_config
         self._bridge = None  # 由 BomberBridge.on_start 注入
 
         # 初始化数据接口
         self.data_api = DataAPI(
-            data_dir=data_dir or "./data",
+            data_dir=self._data_dir,
             ddb_config=ddb_config
         )
 
@@ -45,6 +46,17 @@ class BacktestEnv:
         if self._bridge is not None:
             return self._bridge.get_position(code)
         return 0.0
+
+    def get_positions(self) -> dict:
+        """
+        获取所有当前持仓信息（从 Nautilus 引擎实时获取）
+
+        返回:
+            dict: {合约代码: 持仓数量}，正数表示多头，负数表示空头
+        """
+        if self._bridge is not None:
+            return self._bridge.get_positions()
+        return {}
 
     def get_param(self, key, default=None):
         return self._config.get(key, self._params.get(key, default))
