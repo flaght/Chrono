@@ -158,7 +158,6 @@ def load_er_data2(method,
     test_data1 = pd.read_feather(
         os.path.join(base_path1, "data", "{0}_data.feather".format('test')))
 
-    pdb.set_trace()
     val_data['code'] = INSTRUMENTS_CODES[instruments]
     test_data['code'] = INSTRUMENTS_CODES[instruments]
     val_data = val_data.merge(
