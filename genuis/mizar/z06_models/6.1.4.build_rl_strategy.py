@@ -10,6 +10,7 @@ from kdutils.tactix import Tactix
 from kdutils.macro2 import *
 from lib.uvx import *
 from lib.rl015.train import train_model
+from lib.rl015.predict import predict_test_set
 
 PAIRE_TASK = {"113001": ("hcb", "134001")}
 
@@ -64,6 +65,31 @@ def load_data1(method, instruments, task_id, period, features, regime,
         raise ValueError(
             f"val_data 不是单标的，检测到 {val_data['code'].nunique()} 个 code")
     return train_data, val_data
+
+def load_test_data(method, instruments, task_id, period, features, regime,
+                   ret_name, expected_code):
+    """读取已经由上游切好的单品种测试集，不重新切分或转换收益率。"""
+    base_dirs = os.path.join(base_path, method, instruments, 'temp', 'model',
+                             str(task_id), str(period), 'rl', 'data')
+    test_path = os.path.join(base_dirs, "test_data.feather")
+    test_data = pd.read_feather(test_path)
+
+    required = {'trade_time', 'code', ret_name, *features, *regime}
+    missing = required - set(test_data.columns)
+    if missing:
+        raise ValueError(f"{test_path} 缺少字段: {sorted(missing)}")
+
+    test_data = test_data.rename(columns={ret_name: "nxt1_ret"})
+    test_data = test_data[['trade_time', 'code', 'nxt1_ret'] + features + regime]
+    test_data['trade_time'] = pd.to_datetime(test_data['trade_time'], errors='raise')
+    test_data = test_data.sort_values('trade_time').reset_index(drop=True)
+    # 特征缺失填0；未来收益标签保持原值，由环境标记无效，不参与评分。
+    test_data = _sanitize_frame(test_data, features + regime)
+    actual_codes = set(test_data['code'].astype(str))
+    if test_data.empty or actual_codes != {expected_code}:
+        raise ValueError(
+            f"{test_path} 应只包含 {expected_code}，实际为 {sorted(actual_codes)}")
+    return test_data
 
 
 def train(method, instruments, task_id, period, env_id, trade_id, model_id,
@@ -201,6 +227,66 @@ def train(method, instruments, task_id, period, env_id, trade_id, model_id,
 
     return model, training_info
     
+def predict(method, instruments, task_id, period, env_id, trade_id, model_id,
+            train_id, feature_id, regime_id):
+    """使用完整验证选出的 best_model 对 RB、HC 测试集一次性生成信号。"""
+    file_dirs = os.path.join(base_path, method, instruments, 'temp', 'model',
+                             str(task_id), str(period), 'rl')
+    env_params, trade_params, model_params, train_params, selected_features, min_regime, daily_regime = load_rl_params(
+        file_dirs=file_dirs,
+        trade_id=trade_id,
+        model_id=model_id,
+        feature_id=feature_id,
+        env_id=env_id,
+        train_id=train_id,
+        regime_id=regime_id)
+
+    if int(period) != 5 or trade_params['ret_name'] != 'nxt1_ret_5h':
+        raise ValueError("当前联合模型要求 period=5 且 ret_name=nxt1_ret_5h")
+
+    total_params = copy.deepcopy(trade_params)
+    total_params.update(env_params)
+    total_params.update(model_params)
+    total_params.update(train_params)
+    total_params.update({'selected_features': selected_features})
+    total_params.update({'min_regime': min_regime})
+    total_params.update({'daily_regime': daily_regime})
+    name = Params.create_tag(total_params)
+
+    output_dir = os.path.join(base_path, method, instruments, 'temp', 'model',
+                              str(task_id), str(period), 'rl', 'result',
+                              str(name))
+    best_model_path = os.path.join(output_dir, 'models', 'best_model',
+                                   'best_model')
+    config_path = os.path.join(output_dir, 'config.json')
+    if not (os.path.isfile(best_model_path) or
+            os.path.isfile(best_model_path + '.zip')):
+        raise FileNotFoundError(f"完整验证最佳模型不存在: {best_model_path}")
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError(f"训练配置不存在: {config_path}")
+
+    right_instruments, right_task_id = PAIRE_TASK[task_id]
+    left_test = load_test_data(
+        method=method, instruments=instruments, task_id=task_id,
+        period=period, features=selected_features, regime=min_regime,
+        ret_name=trade_params['ret_name'], expected_code='RB')
+    right_test = load_test_data(
+        method=method, instruments=right_instruments, task_id=right_task_id,
+        period=period, features=selected_features, regime=min_regime,
+        ret_name=trade_params['ret_name'], expected_code='HC')
+    test_data = _merge_assets(left_test, right_test)
+
+    output_path = os.path.join(output_dir, 'metrics', 'test_results.csv')
+    print(f"[TEST_START] RB={len(left_test)} HC={len(right_test)} model=best")
+    result = predict_test_set(
+        model_path=best_model_path,
+        config_path=config_path,
+        test_df=test_data,
+        output_path=output_path,
+        deterministic=True)
+    print(f"[TEST_END] rows={len(result)} output={output_path}")
+    return result
+    
     
 
 if __name__ == '__main__':
@@ -216,3 +302,14 @@ if __name__ == '__main__':
               train_id=variant.train_id,
               feature_id=variant.feature_id,
               regime_id=variant.regime_id)
+    elif variant.form == "predict":
+        predict(method=variant.method,
+                instruments=variant.instruments,
+                task_id=variant.task_id,
+                period=variant.period,
+                env_id=variant.env_id,
+                trade_id=variant.trade_id,
+                model_id=variant.model_id,
+                train_id=variant.train_id,
+                feature_id=variant.feature_id,
+                regime_id=variant.regime_id)

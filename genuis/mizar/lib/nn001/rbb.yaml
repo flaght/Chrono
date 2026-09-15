@@ -1,0 +1,88 @@
+params:
+  env:
+    10001:
+      # 标签为 T 时刻对应 T+1～T+6 VWAP 的5分钟累计收益率
+      holding_period: 5
+      prediction_bound_std: 3.0
+      use_tcn: true
+      default_lookback: 20
+      asset_sampling: balanced
+      seed: 42
+
+  trade:
+    10001:
+      ret_name: nxt1_ret_5h
+
+  train:
+    10001:
+      # 一个 epoch 默认让两个品种各贡献“较大品种样本数”条记录
+      epochs: 20
+      samples_per_epoch: 0
+      # 20个epoch中只做4次完整选模，和SAC的4次完整验证可比
+      eval_every_epochs: 5
+
+      # 完整校验集和测试集的批量推理大小；A100 可尝试 16384
+      inference_batch_size: 8192
+
+      # 与既有因子和 rl016 完全相同的 IC 口径
+      ic_resampling_minutes: 5
+      ic_roll_window: 15
+      ic_min_periods: 5
+      min_valid_rolling_ic: 20
+
+      # 按完整校验集 min(RB滚动IC, HC滚动IC) 早停
+      early_stop_min_evals: 3
+      early_stop_patience_evals: 2
+      early_stop_ic_min_delta: 0.0005
+      progress_seconds: 15.0
+
+  model:
+    10001:
+      # 直接 TCN 回归参数；batch_size 可按显存提高到4096
+      learning_rate: 0.00005
+      batch_size: 2048
+      weight_decay: 0.00001
+      grad_clip_norm: 1.0
+      device: auto
+      use_amp: true
+      allow_tf32: true
+
+      # 与 rl016 的 TCN 特征提取器保持相同主体结构
+      channels: 64
+      kernel_size: 3
+      num_blocks: 4
+      features_dim: 64
+      head_hidden: [128, 64]
+      dropout: 0.0
+
+  feature:
+    10001: >
+      MDIFF(5,EMA(60,MRANK(15,'dv002_1_2_1')))
+      EMA(60,MRANK(15,'dv002_1_2_1'))
+      MCPS(120,'dv002_2_3_1')
+      MDIFF(30,MCPS(120,'dv002_2_3_1'))
+      MPERCENT(60,SIGLOG2ABS('dv002_2_3_1'))
+      SIGLOG10ABS(MQUANTILE(240,'dv002_2_3_1'))
+      MDIFF(5,MADiff(90,MRANK(240,MADiff(90,'dv002_2_3_1'))))
+      MMinDiff(90,SIGLOG10ABS(MQUANTILE(90,'iv012_1_2_1')))
+      SIGLOG10ABS(MPERCENT(60,MMinDiff(120,'dv002_2_3_1')))
+      MQUANTILE(240,SIGLOG10ABS('dv002_2_3_1'))
+      MRes(120,'cj007_10_15_1',MPERCENT(30,'iv012_2_3_1'))
+      MPERCENT(120,MADiff(240,'dv002_2_3_1'))
+      MCPS(120,MDIFF(10,MMaxDiff(60,MCPS(120,'dv002_2_3_1'))))
+      TANH(MQUANTILE(120,SIGLOG2ABS('dv002_2_3_1')))
+      MCPS(120,MDIFF(10,'dv002_2_3_1'))
+      ASIN(MCPS(120,'dv002_2_3_1'))
+      MRANK(120,MDIFF(5,SIGLOG2ABS('dv002_2_3_1')))
+      MPERCENT(120,MQUANTILE(90,'dv002_2_3_1'))
+      SIGLOG2ABS(MRANK(60,SIGLOG10ABS('iv012_1_2_1')))
+      MRANK(240,'iv012_1_2_1')
+      MPERCENT(120,MMinDiff(90,'tv018_2_3_1'))
+      MPERCENT(120,MMinDiff(90,MMinDiff(90,'tv018_2_3_1')))
+      MQUANTILE(90,MQUANTILE(90,'iv012_1_2_1'))
+      MPERCENT(120,MPERCENT(120,MPERCENT(120,MMinDiff(90,'tv018_2_3_1'))))
+
+  regime:
+    10001:
+      min: >
+      daily: >

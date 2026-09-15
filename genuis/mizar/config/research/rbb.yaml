@@ -114,7 +114,7 @@ experiment_setups:
     period: 5
     composite_method: "rl"
     composite_id: "1018806311332385"
-    form: "backtest"
+    form: "build"
 
   "positions_rbb_metrics": # 6.3.1.positions_metrics.py
     method: ricso2
@@ -144,3 +144,16 @@ experiment_setups:
     period: 5
     corr_threshold: 0
     count: 0
+
+  "rbb_rl_strategy":
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    env_id: 10001
+    trade_id: 10001
+    model_id: 10001
+    train_id: 10001
+    feature_id: 10001
+    regime_id: 10001
+    form: "forecast"
