@@ -24,7 +24,6 @@ def create_normal_factors1(method, instruments, task_id, period, name):
 
 ## 切割因子数据，创建训练集 校验集 测试集
 def prepare(method, instruments, task_id, period, name):
-    pdb.set_trace()
     train_data, val_data, test_data = DataLoader().load_from_project(
         method=method,
         task_id=task_id,

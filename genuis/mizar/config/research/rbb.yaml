@@ -156,4 +156,4 @@ experiment_setups:
     train_id: 10001
     feature_id: 10001
     regime_id: 10001
-    form: "forecast"
+    form: "train"
