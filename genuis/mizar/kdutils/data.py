@@ -6,7 +6,7 @@ from pymongo import InsertOne, DeleteOne
 from jdw import DBAPI
 from alphacopilot.api.data import RetrievalAPI, ddb_tools, DDBAPI
 from alphacopilot.dataapi.basic.ddb.utilities import to_format, convert_date
-from alphacopilot.dataapi.retireval.ddb_customized import NORMALIZERS
+#from alphacopilot.dataapi.retireval.ddb_customized import NORMALIZERS
 from kdutils.macro2 import *
 from kdutils.mongodb import MongoDBManager
 
@@ -93,6 +93,7 @@ def fetch_bench_market0(begin_date,
         end_date = row.end_date.strftime('%Y-%m-%d')
         md = fut_min_ddb(begin_date, end_date, row.symbol, row.code, columns)
         if md.empty:
+            NORMALIZERS = {}
             new_symbol = NORMALIZERS.get(row.code)(row.symbol)
             md = fut_min_ddb(begin_date, end_date, new_symbol, row.code,
                              columns)
