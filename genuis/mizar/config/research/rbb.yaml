@@ -27,7 +27,7 @@ experiment_setups:
     method: ricso2
     task_id: 113001
     instruments: rbb
-    session: 20260325
+    session: 20260507
     period: 5
     form: "first"
 
@@ -35,10 +35,10 @@ experiment_setups:
     method: ricso2
     task_id: 113001
     instruments: rbb
-    session: 20260325
+    session: 20260507
     period: 5
-    form: recent
-    filename: choose.csv
+    form: annual
+    filename: cohort.csv
 
   "factors_mc_deform":  # 2.2.3.choose_deform_factors.py
     method: ricso2
@@ -62,7 +62,7 @@ experiment_setups:
     instruments: rbb
     period: 5
     form: prepare
-    name: pro
+    name: cohort_pro
 
   "blend_rbb_data": # 3.0.2.blend_factors.py
     method: ricso2
@@ -144,3 +144,20 @@ experiment_setups:
     period: 5
     corr_threshold: 0
     count: 0
+
+  "factors_rbb_scope_micro":  # 2.2.1.scope_valid_factors_parallel.py # 
+    method: ricso2
+    task_id: 113002
+    instruments: rbb
+    session: 20260905
+    period: 5
+    form: "first"
+
+  "factors_rbb_compare_micro":  # 2.2.2.compare_twin_factors.py
+    method: ricso2
+    task_id: 113002
+    instruments: rbb
+    session: 20260905
+    period: 5
+    form: all
+    filename: choose.csv
