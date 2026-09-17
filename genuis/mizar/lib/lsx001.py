@@ -7,6 +7,7 @@ from lib.aux001 import calc_expression
 from lib.svx001 import scale_factors
 from lib.cux001 import FactorEvaluate1
 
+
 def fetch_draft_factors(method, instruments, task_id, period, name):
     pdb.set_trace()
     filename = os.path.join(base_path, method, instruments, "rulex",
@@ -17,12 +18,23 @@ def fetch_draft_factors(method, instruments, task_id, period, name):
     expressions = list(expressions.values())
     return expressions
 
+
 ## 加载选中
 def fetch_chosen_factors(method, instruments, task_id, period, name):
     filename = os.path.join(base_path, method, instruments, "rulex",
                             str(task_id), "nxt1_ret_{0}h".format(period),
                             "chosen_{0}.csv".format(name))
     pdb.set_trace()
+    expressions = pd.read_csv(filename).to_dict(orient='records')
+    expressions = {item['formula']: item for item in expressions}
+    expressions = list(expressions.values())
+    return expressions
+
+
+def fetch_custom_factors(method, instruments, task_id, period, name):
+    filename = os.path.join(base_path, method, instruments, "rulex",
+                            str(task_id), "nxt1_ret_{0}h".format(period),
+                            "{0}.csv".format(name))
     expressions = pd.read_csv(filename).to_dict(orient='records')
     expressions = {item['formula']: item for item in expressions}
     expressions = list(expressions.values())
@@ -66,7 +78,6 @@ def create_factors(total_data, expressions):
     return factors_data
 
 
-
 ### 缺失数据前置填充
 def build_factors(method,
                   instruments,
@@ -75,14 +86,20 @@ def build_factors(method,
                   name,
                   datasets=['train', 'val', 'test']):
     pdb.set_trace()
-    if name in ['draft']:
+    if name == 'draft':
         expressions = fetch_draft_factors(method=method,
                                           instruments=instruments,
                                           task_id=task_id,
                                           period=period,
                                           name=name)
-    else:
+    elif name == 'pro':
         expressions = fetch_chosen_factors(method=method,
+                                           instruments=instruments,
+                                           task_id=task_id,
+                                           period=period,
+                                           name=name)
+    else:
+        expressions = fetch_custom_factors(method=method,
                                            instruments=instruments,
                                            task_id=task_id,
                                            period=period,
@@ -96,9 +113,6 @@ def build_factors(method,
     factors_data = create_factors(total_data=total_data,
                                   expressions=expressions)
 
-
-
-
     factors_data = factors_data.unstack().fillna(method='ffill').stack()
     ## 标准化 保持和绩效验证一直
     old_data = factors_data.copy()
@@ -110,9 +124,9 @@ def build_factors(method,
                       method='roll_zscore',
                       win=15,
                       factor_name=expression['formula'])
-        factors_data[expression['formula']] = factors_data['transformed'] * expression['direction']
-        factors_data.drop(['transformed'],axis=1, inplace=True)
-
+        factors_data[expression[
+            'formula']] = factors_data['transformed'] * expression['direction']
+        factors_data.drop(['transformed'], axis=1, inplace=True)
     '''
     for col in columns:
         scale_factors(predict_data=factors_data,
