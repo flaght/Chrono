@@ -7,27 +7,12 @@
 利用 C-level 定点数直接初始化 TradeTick 与 QuoteTick，零 Python 字符串中转。
 """
 
-from libc.math cimport round
 from libc.stdint cimport uint8_t, uint64_t
 
-from bomber.core.rust.model cimport AggressorSide, PriceRaw, QuantityRaw
+from bomber.core.rust.model cimport AggressorSide
 from bomber.model.data cimport QuoteTick, TradeTick
 from bomber.model.identifiers cimport InstrumentId, TradeId
 from bomber.model.objects cimport Price, Quantity
-
-
-cdef double[10] POW10 = [
-    1.0,
-    10.0,
-    100.0,
-    1000.0,
-    10000.0,
-    100000.0,
-    1000000.0,
-    10000000.0,
-    100000000.0,
-    1000000000.0,
-]
 
 
 cpdef TradeTick fast_make_trade_tick(
@@ -41,19 +26,20 @@ cpdef TradeTick fast_make_trade_tick(
     uint64_t ts_init,
     uint8_t aggressor_side=0,
 ):
-    cdef double price_scalar = POW10[price_prec] if price_prec < 10 else 10.0 ** price_prec
-    cdef double size_scalar = POW10[size_prec] if size_prec < 10 else 10.0 ** size_prec
-
-    cdef PriceRaw price_raw = <PriceRaw>round(price * price_scalar)
-    cdef QuantityRaw size_raw = <QuantityRaw>round(size * size_scalar)
+    # Bomber raw values always use FIXED_SCALAR (10^16 in high-precision mode),
+    # independently of the display precision.  Let the native value objects do
+    # that conversion; multiplying by 10^price_prec/size_prec produces values
+    # close to zero when passed to ``from_raw_c``.
+    cdef Price price_value = Price(price, price_prec)
+    cdef Quantity size_value = Quantity(size, size_prec)
     cdef TradeId tid = TradeId(trade_id)
 
     return TradeTick.from_raw_c(
         instrument_id,
-        price_raw,
-        price_prec,
-        size_raw,
-        size_prec,
+        price_value._mem.raw,
+        price_value._mem.precision,
+        size_value._mem.raw,
+        size_value._mem.precision,
         <AggressorSide>aggressor_side,
         tid,
         ts_event,
@@ -103,25 +89,22 @@ cpdef list fast_make_trade_ticks_from_arrays(
     cdef list result = [None] * n
     cdef Py_ssize_t i
 
-    cdef double price_scalar = POW10[price_prec] if price_prec < 10 else 10.0 ** price_prec
-    cdef double size_scalar = POW10[size_prec] if size_prec < 10 else 10.0 ** size_prec
-
-    cdef PriceRaw p_raw
-    cdef QuantityRaw s_raw
+    cdef Price price_value
+    cdef Quantity size_value
     cdef TradeId tid
     cdef AggressorSide agg = <AggressorSide>aggressor_side
 
     for i in range(n):
-        p_raw = <PriceRaw>round(prices[i] * price_scalar)
-        s_raw = <QuantityRaw>round(sizes[i] * size_scalar)
+        price_value = Price(prices[i], price_prec)
+        size_value = Quantity(sizes[i], size_prec)
         tid = TradeId(trade_ids[i])
 
         result[i] = TradeTick.from_raw_c(
             instrument_id,
-            p_raw,
-            price_prec,
-            s_raw,
-            size_prec,
+            price_value._mem.raw,
+            price_value._mem.precision,
+            size_value._mem.raw,
+            size_value._mem.precision,
             agg,
             tid,
             ts_events[i],
