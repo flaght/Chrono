@@ -1,10 +1,21 @@
+"""Explicitly mapped vendor Bar parser."""
+
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 from zoneinfo import ZoneInfo
 
 from market.basic.base import CustomBar, DataType, InstrumentId, make_bar, make_custom_bar
-from market.replay.base import ParsedEvent, ParserContext
-from market.replay.parsers.base import nonnegative, parse_iso_timestamp, positive, required
+from market.replay.parsers.base import (
+    ParsedEvent,
+    ParserContext,
+    nonnegative,
+    parse_iso_timestamp,
+    positive,
+    required,
+)
+
 
 @dataclass(frozen=True)
 class BarColumns:
@@ -89,10 +100,7 @@ class MappedBarParser:
         if c.vwap is not None:
             factors["vwap"] = positive(row, c.vwap, context)
         if factors:
-            custom_bar: CustomBar = make_custom_bar(
-                bar,
-                factors,
-            )
+            custom_bar: CustomBar = make_custom_bar(bar, factors)
             events.append(
                 ParsedEvent(DataType.CUSTOM_BAR, instrument_id, custom_bar, bar_spec),
             )

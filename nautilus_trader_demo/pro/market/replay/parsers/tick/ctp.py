@@ -1,12 +1,36 @@
+"""CTP depth-market CSV parser."""
+
+from __future__ import annotations
+
 import hashlib
 from datetime import datetime
+from typing import Any, Iterable, Mapping
 from zoneinfo import ZoneInfo
-from typing import Mapping,Any,Iterable
-from market.basic.base import InstrumentId, DataType, QuoteTick, TradeTick,Price,Quantity,AggressorSide,TradeId
-from market.replay.base import ParsedEvent, ParserContext, RowParser, DataLoadError
-from market.replay.parsers.base import *
+
+from market.basic.base import (
+    AggressorSide,
+    DataType,
+    InstrumentId,
+    Price,
+    Quantity,
+    QuoteTick,
+    TradeId,
+    TradeTick,
+)
+from market.replay.parsers.base import (
+    ParsedEvent,
+    ParserContext,
+    datetime_to_ns,
+    integer_nonnegative,
+    nonnegative,
+    positive,
+    required,
+)
+
 
 class CtpTickParser:
+    """Convert CTP depth snapshots into quotes and inferred trades."""
+
     def __init__(self, exchange: str, timezone: str = "Asia/Shanghai") -> None:
         self.exchange = exchange.upper()
         self.timezone = ZoneInfo(timezone)
@@ -74,6 +98,6 @@ class CtpTickParser:
 
 
 def _synthetic_trade_id(symbol: str, ts_event: int, cumulative: int) -> str:
-    """Return a stable 36-character ID for a trade inferred from a CTP snapshot."""
+    """Return a stable 36-character ID for a trade inferred from a snapshot."""
     source = f"{symbol}|{ts_event}|{cumulative}".encode()
     return "ctp-" + hashlib.blake2b(source, digest_size=16).hexdigest()

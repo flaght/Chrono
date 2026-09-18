@@ -1,9 +1,66 @@
+"""Parser contracts, error context and common scalar conversions."""
+
+from __future__ import annotations
+
 import math
-from typing import Mapping, Any
+from dataclasses import dataclass
 from datetime import UTC, datetime, tzinfo
-from zoneinfo import ZoneInfo
-from market.basic.base import InstrumentId, DataType, QuoteTick, TradeTick
-from market.replay.base import ParsedEvent, ParserContext
+from pathlib import Path
+from typing import Any, Callable, Iterable, Mapping, Protocol
+
+from market.basic.base import (
+    Bar,
+    CustomBar,
+    DataType,
+    InstrumentId,
+    InstrumentMeta,
+    QuoteTick,
+    TradeTick,
+)
+
+
+MarketEvent = TradeTick | QuoteTick | Bar | CustomBar
+
+
+class DataLoadError(ValueError):
+    """A file row cannot be converted into market data."""
+
+
+@dataclass(frozen=True)
+class ParsedEvent:
+    data_type: DataType
+    instrument_id: InstrumentId
+    payload: MarketEvent
+    bar_spec: str | None = None
+
+
+@dataclass(frozen=True)
+class ParserContext:
+    path: Path
+    line: int
+    get_meta: Callable[[InstrumentId], InstrumentMeta | None]
+
+    def require_meta(self, instrument_id: InstrumentId) -> InstrumentMeta:
+        meta = self.get_meta(instrument_id)
+        if meta is None:
+            raise self.error(f"instrument is not registered: {instrument_id}")
+        return meta
+
+    def error(self, message: str) -> DataLoadError:
+        return DataLoadError(f"{self.path}:{self.line}: {message}")
+
+
+class RowParser(Protocol):
+    """Convert source-specific rows into normalized market events."""
+
+    def reset(self) -> None: ...
+
+    def parse(
+        self,
+        row: Mapping[str, Any],
+        context: ParserContext,
+    ) -> Iterable[ParsedEvent]: ...
+
 
 def required(row: Mapping[str, Any], column: str, context: ParserContext) -> str:
     result = row.get(column)

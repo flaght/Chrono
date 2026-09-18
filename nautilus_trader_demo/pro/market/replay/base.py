@@ -1,74 +1,30 @@
-import csv,pdb
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable,Protocol,Mapping,Any,Iterable,Literal
+from typing import Iterable, Literal
 
 from market.basic.base import (
     Bar,
     CustomBar,
-    InstrumentId,
     InstrumentMeta,
+    MarketDataFeed,
     QuoteTick,
-    TradeTick,
     DataType,
-    make_bar,
-    make_custom_bar,
-    make_custom_bar_all_in_one,
-    make_quote_tick,
-    make_trade_tick,
-    SubscriptionRequest
+    SubscriptionRequest,
+    TradeTick,
 )
-
-from market.basic.base import  MarketDataFeed
-
-
-MarketEvent = TradeTick | QuoteTick | Bar | CustomBar
-
-
-class DataLoadError(ValueError):
-    """A file row cannot be converted into market data."""
-
-
-@dataclass(frozen=True)
-class ParsedEvent:
-    data_type: DataType
-    instrument_id: InstrumentId
-    payload: MarketEvent
-    bar_spec: str | None = None
-
-
-@dataclass(frozen=True)
-class ParserContext:
-    path: Path
-    line: int
-    get_meta: Callable[[InstrumentId], InstrumentMeta | None]
-
-    def require_meta(self, instrument_id: InstrumentId) -> InstrumentMeta:
-        meta = self.get_meta(instrument_id)
-        if meta is None:
-            raise self.error(f"instrument is not registered: {instrument_id}")
-        return meta
-
-    def error(self, message: str) -> DataLoadError:
-        return DataLoadError(f"{self.path}:{self.line}: {message}")
-
-
-class RowParser(Protocol):
-    """Source-specific row converter, for example CTP or Binance."""
-
-    def reset(self) -> None: ...
-
-    def parse(
-        self,
-        row: Mapping[str, Any],
-        context: ParserContext,
-    ) -> Iterable[ParsedEvent]: ...
-
-
+from market.replay.parsers.base import (
+    DataLoadError,
+    MarketEvent,
+    ParsedEvent,
+    ParserContext,
+    RowParser,
+)
+from market.replay.readers import CsvReader, FeatherReader, ReaderError, RowReader
 
 @dataclass(frozen=True)
 class FileSource:
     path: str | Path
+    reader: RowReader
     parser: RowParser
     kind: Literal["tick", "bar"]
 
@@ -94,21 +50,36 @@ class FileReplayFeed(MarketDataFeed):
         self._events: tuple[MarketEvent, ...] = ()
 
     def add_tick_csv(self, path: str | Path, parser: RowParser) -> None:
-        self._add_source(path, parser, "tick", ".csv")
+        self._add_source(path, CsvReader(), parser, "tick")
+
+    def add_bar_csv(self, path: str | Path, parser: RowParser) -> None:
+        self._add_source(path, CsvReader(), parser, "bar")
 
     def add_bar_feather(self, path: str | Path, parser: RowParser) -> None:
-        self._add_source(path, parser, "bar", ".feather")
+        self._add_source(path, FeatherReader(), parser, "bar")
+
+    def add_source(
+        self,
+        path: str | Path,
+        reader: RowReader,
+        parser: RowParser,
+        kind: Literal["tick", "bar"],
+    ) -> None:
+        """Register an explicit reader/parser pair for an offline source."""
+        self._add_source(path, reader, parser, kind)
 
     def _add_source(
         self,
         path: str | Path,
+        reader: RowReader,
         parser: RowParser,
         kind: Literal["tick", "bar"],
-        required_suffix: str,
     ) -> None:
-        if Path(path).suffix.lower() != required_suffix:
-            raise DataLoadError(f"{kind} file must use {required_suffix}: {path}")
-        self._sources.append(FileSource(path, parser, kind))
+        suffixes = getattr(reader, "suffixes", frozenset())
+        if suffixes and Path(path).suffix.lower() not in suffixes:
+            expected = ", ".join(sorted(suffixes))
+            raise DataLoadError(f"{kind} file must use one of [{expected}]: {path}")
+        self._sources.append(FileSource(path, reader, parser, kind))
         self._events = ()
         
     def register_instrument(self, meta: InstrumentMeta) -> None:
@@ -145,19 +116,23 @@ class FileReplayFeed(MarketDataFeed):
             if not path.is_file():
                 raise DataLoadError(f"file does not exist: {path}")
             source.parser.reset()
-            for position, row in _read_rows(path):
-                context = ParserContext(path, position, self.get_instrument_meta)
-                try:
+            position = 0
+            try:
+                rows = source.reader.read(path)
+                for position, row in rows:
+                    context = ParserContext(path, position, self.get_instrument_meta)
                     parsed_events = source.parser.parse(row, context)
                     for parsed in parsed_events:
                         _validate_source_event(source.kind, parsed, context)
                         if self._subscribed(parsed):
                             loaded.append((sequence, parsed))
                             sequence += 1
-                except DataLoadError:
-                    raise
-                except Exception as exc:
-                    raise context.error(str(exc)) from exc
+            except DataLoadError:
+                raise
+            except ReaderError as exc:
+                raise DataLoadError(str(exc)) from exc
+            except Exception as exc:
+                raise ParserContext(path, position, self.get_instrument_meta).error(str(exc)) from exc
 
         # Sort by historical clock while retaining file order for equal times.
         loaded.sort(key=lambda item: (item[1].payload.ts_init, item[0]))
@@ -205,36 +180,12 @@ class FileReplayFeed(MarketDataFeed):
                 return True
         return False
 
-def _read_rows(path: Path) -> Iterable[tuple[int, Mapping[str, Any]]]:
-    suffix = path.suffix.lower()
-    if suffix == ".csv":
-        with path.open("r", encoding="utf-8-sig", newline="") as stream:
-            reader = csv.DictReader(stream)
-            if reader.fieldnames is None:
-                raise DataLoadError(f"CSV file has no header: {path}")
-            for line, row in enumerate(reader, start=2):
-                yield line, row
-        return
-
-    if suffix == ".feather":
-        try:
-            import pyarrow.feather as feather
-        except ImportError as exc:
-            raise DataLoadError("reading Bar Feather files requires pyarrow") from exc
-        table = feather.read_table(path)
-        for row_number, row in enumerate(table.to_pylist(), start=1):
-            yield row_number, row
-        return
-
-    raise DataLoadError(f"unsupported file type: {path.suffix}")
-
-
 def _validate_source_event(
     kind: Literal["tick", "bar"],
     event: ParsedEvent,
     context: ParserContext,
 ) -> None:
     if kind == "tick" and not isinstance(event.payload, (TradeTick, QuoteTick)):
-        raise context.error("Tick CSV parser returned a non-tick event")
+        raise context.error("Tick parser returned a non-tick event")
     if kind == "bar" and not isinstance(event.payload, (Bar, CustomBar)):
-        raise context.error("Bar Feather parser returned a non-bar event")
+        raise context.error("Bar parser returned a non-bar event")
