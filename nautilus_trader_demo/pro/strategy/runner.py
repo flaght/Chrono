@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
+import threading
 from typing import Any
 
 from market.basic.base import (
@@ -22,6 +23,13 @@ from strategy.contracts import (
     ExecutionRoute,
     RuntimeMode,
     TargetPortfolio,
+    TargetUpdateMode,
+)
+from strategy.portfolio import (
+    AccountTargetKey,
+    PortfolioCoordinator,
+    PositionManager,
+    TargetStore,
 )
 from strategy.ports import ExecutionClientPort, PositionProvider
 from strategy.template import StrategyContext, StrategyTemplate
@@ -32,12 +40,6 @@ class _Registration:
     strategy: StrategyTemplate
     data_bindings: tuple[DataBinding, ...]
     execution_routes: dict[str, ExecutionRoute]
-
-
-class _ZeroPositionProvider:
-    def position(self, strategy_id: str, target_key: str) -> Decimal:
-        del strategy_id, target_key
-        return Decimal(0)
 
 
 class _RuntimeContext(StrategyContext):
@@ -64,15 +66,38 @@ class UnifiedStrategyRunner:
         self,
         mode: RuntimeMode | str,
         position_provider: PositionProvider | None = None,
+        *,
+        target_store: TargetStore | None = None,
+        portfolio_coordinator: PortfolioCoordinator | None = None,
+        position_manager: PositionManager | None = None,
     ) -> None:
         self.mode = RuntimeMode(mode)
-        self._position_provider = position_provider or _ZeroPositionProvider()
+        self._target_store = target_store or TargetStore()
+        self._portfolio_coordinator = portfolio_coordinator or PortfolioCoordinator()
+        self._position_manager = position_manager or PositionManager()
+        self._position_provider = position_provider or self._position_manager
         self._feeds: dict[str, MarketDataFeed] = {}
         self._clients: dict[str, ExecutionClientPort] = {}
         self._registrations: dict[str, _Registration] = {}
         self._bindings: dict[tuple[str, DataType, InstrumentId], list[tuple[str, DataBinding]]] = defaultdict(list)
         self._attached_feeds: set[str] = set()
+        self._submit_lock = threading.RLock()
         self._started = False
+
+    @property
+    def target_store(self) -> TargetStore:
+        """返回Runner正在使用的策略目标存储。"""
+        return self._target_store
+
+    @property
+    def portfolio_coordinator(self) -> PortfolioCoordinator:
+        """返回Runner正在使用的账户目标协调器。"""
+        return self._portfolio_coordinator
+
+    @property
+    def position_manager(self) -> PositionManager:
+        """返回Runner正在使用的仓位与在途状态管理器。"""
+        return self._position_manager
 
     def add_data_feed(self, feed_id: str, feed: MarketDataFeed) -> None:
         if self._started:
@@ -142,8 +167,8 @@ class UnifiedStrategyRunner:
         self._started = False
 
     def run_replay(self) -> Any:
-        if self.mode is not RuntimeMode.REPLAY:
-            raise RuntimeError("只有 replay 模式可以调用 run_replay")
+        if self.mode is not RuntimeMode.HISTORICAL:
+            raise RuntimeError("只有 historical 模式可以调用 run_replay")
         if not self._started:
             self.start()
         replay_feeds = [feed for feed in self._feeds.values() if callable(getattr(feed, "replay", None))]
@@ -152,34 +177,75 @@ class UnifiedStrategyRunner:
         return replay_feeds[0].replay()
 
     def submit(self, intent: TargetPortfolio) -> None:
+        # 不同实时Feed可能从不同网络线程同时触发策略。目标保存、组合净额和向客户端
+        # 发布账户快照必须保持同一顺序，不能让较旧快照在较新快照之后到达执行端。
+        with self._submit_lock:
+            self._submit_locked(intent)
+
+    def _submit_locked(self, intent: TargetPortfolio) -> None:
         registration = self._registrations.get(intent.strategy_id)
         if registration is None:
             raise ValueError(f"未知 strategy_id: {intent.strategy_id}")
-        grouped_targets: dict[str, dict[InstrumentId, Decimal]] = defaultdict(dict)
-        grouped_logical: dict[str, dict[str, Decimal]] = defaultdict(dict)
-        for target_key, quantity in intent.targets.items():
+        unknown_targets = set(intent.targets) - set(registration.execution_routes)
+        if unknown_targets:
+            raise ValueError(
+                f"策略 {intent.strategy_id} 没有这些target_key的执行路由: "
+                f"{sorted(unknown_targets)}",
+            )
+
+        # TargetStore先把PATCH物化为完整REPLACE快照，并统一执行revision校验。
+        materialized = self._target_store.apply(intent)
+        previous = self._portfolio_coordinator.strategy_contribution(intent.strategy_id)
+        resolved: dict[AccountTargetKey, Decimal] = {}
+        for target_key, quantity in materialized.targets.items():
             route = registration.execution_routes.get(target_key)
             if route is None:
                 raise ValueError(
                     f"策略 {intent.strategy_id} 没有 target_key={target_key} 的执行路由",
                 )
-            concrete = grouped_targets[route.client_id]
-            concrete[route.instrument_id] = concrete.get(route.instrument_id, Decimal(0)) + quantity
-            grouped_logical[route.client_id][target_key] = quantity
+            account_key = AccountTargetKey(route.client_id, route.instrument_id)
+            resolved[account_key] = resolved.get(account_key, Decimal(0)) + quantity
 
-        for client_id, targets in grouped_targets.items():
+        # materialized已经是完整快照，所以Coordinator也使用REPLACE。它会保留已知腿并
+        # 在目标被移除时输出0，确保下游收到明确的清仓目标。
+        snapshot = self._portfolio_coordinator.update(
+            strategy_id=intent.strategy_id,
+            revision=materialized.revision,
+            ts_event=materialized.ts_event,
+            targets=resolved,
+            update_mode=TargetUpdateMode.REPLACE,
+        )
+        affected_clients = {key.client_id for key in previous} | {
+            key.client_id for key in resolved
+        }
+        for client_id in sorted(affected_clients):
+            targets = {
+                key.instrument_id: quantity
+                for key, quantity in snapshot.targets.items()
+                if key.client_id == client_id
+            }
+            # 对当前策略被REPLACE移除的逻辑腿显式给0，便于审计；账户级targets已是
+            # 所有策略在该客户端上的净额快照。
+            logical_targets = {
+                target_key: materialized.targets.get(target_key, Decimal(0))
+                for target_key, route in registration.execution_routes.items()
+                if route.client_id == client_id
+            }
             client = self._clients[client_id]
             client.submit_targets(
                 ExecutionRequest(
-                    strategy_id=intent.strategy_id,
-                    revision=intent.revision,
+                    strategy_id=materialized.strategy_id,
+                    revision=materialized.revision,
                     client_id=client_id,
-                    ts_event=intent.ts_event,
+                    ts_event=materialized.ts_event,
                     targets=targets,
-                    logical_targets=grouped_logical[client_id],
-                    execution_policy=intent.execution_policy,
-                    deadline_ns=intent.deadline_ns,
-                    metadata=intent.metadata,
+                    logical_targets=logical_targets,
+                    execution_policy=materialized.execution_policy,
+                    deadline_ns=materialized.deadline_ns,
+                    metadata={
+                        **materialized.metadata,
+                        "portfolio_revision": snapshot.revision,
+                    },
                 ),
             )
 

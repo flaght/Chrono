@@ -12,7 +12,9 @@ from market.basic.base import DataType, InstrumentId
 
 
 class RuntimeMode(str, Enum):
-    REPLAY = "replay"
+    """运行时使用的时间环境。具体能力由RuntimePort实现决定。"""
+
+    HISTORICAL = "historical"
     LIVE = "live"
 
 
