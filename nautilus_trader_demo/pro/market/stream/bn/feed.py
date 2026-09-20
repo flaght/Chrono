@@ -1,21 +1,14 @@
-import json, pdb
+import json
 import logging
+import threading
 import time
 from dataclasses import dataclass
-from decimal import Decimal
-from typing import Any, Callable, Protocol
+from typing import Any
 
 from market.basic.base import (
-    Bar,
-    CustomBar,
     DataType,
     InstrumentId,
-    QuoteTick,
     SubscriptionRequest,
-    TradeTick,
-    make_bar,
-    make_custom_bar,
-    make_custom_bar_all_in_one,
     make_quote_tick,
     make_trade_tick,
 )
@@ -38,35 +31,109 @@ class BNWSStreamDataFeed(StreamDataFeed):
         super().__init__(source_id=source_id)
         self.config = config or BNWSConfig()
         self._active_streams: set[str] = set()
+        self._ws_app: Any = None
+        self._net_thread: threading.Thread | None = None
+        self._last_ws_error: str | None = None
+
+    @property
+    def last_ws_error(self) -> str | None:
+        """返回最近一次 WebSocket 错误，供监控和测试诊断。"""
+        return self._last_ws_error
 
     def _start_network_client(self) -> None:
-        logger.info(f"建立 WebSocket 长连接: {self.config.ws_base_url}")
+        try:
+            import websocket
+        except ImportError as exc:
+            raise RuntimeError(
+                "Binance 实时行情需要 websocket-client；"
+                "请执行 `uv pip install --link-mode=copy websocket-client`",
+            ) from exc
+
+        # Runner 会先声明订阅、再连接 Feed。未连接时 MarketDataFeed 只保存
+        # SubscriptionRequest，不调用网络钩子，因此启动时必须从声明式订阅
+        # 恢复组合流名称。
+        configured_streams = set(self._active_streams)
+        for requests in self._subscriptions.values():
+            configured_streams.update(self._stream_name(request) for request in requests)
+        self._active_streams = configured_streams
+        streams = sorted(configured_streams)
+        if not streams:
+            raise RuntimeError("连接 Binance 前至少需要一个行情订阅")
+        stream_path = "/".join(streams)
+        ws_url = f"{self.config.ws_base_url.rstrip('/')}/stream?streams={stream_path}"
+        logger.info("正在连接 Binance WebSocket 流: %s", ws_url)
+
+        def on_open(ws: Any) -> None:
+            del ws
+            logger.info("Binance WebSocket 已连接")
+
+        def on_message(ws: Any, message: str) -> None:
+            del ws
+            try:
+                data = json.loads(message)
+                self.on_ws_message(data.get("data", data))
+            except Exception:
+                logger.exception("Binance WebSocket 报文处理失败")
+
+        def on_error(ws: Any, error: Any) -> None:
+            del ws
+            self._last_ws_error = str(error)
+            logger.error("Binance WebSocket 异常: %s", error)
+
+        def on_close(ws: Any, status: Any, message: Any) -> None:
+            del ws
+            logger.info(
+                "Binance WebSocket 已关闭: status=%s message=%s",
+                status,
+                message,
+            )
+
+        self._last_ws_error = None
+        self._ws_app = websocket.WebSocketApp(
+            ws_url,
+            on_open=on_open,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+        )
+        self._net_thread = threading.Thread(
+            target=self._ws_app.run_forever,
+            name="Binance-NetThread",
+            daemon=True,
+        )
+        self._net_thread.start()
 
     def _stop_network_client(self) -> None:
-        logger.info("关闭 WebSocket 连接。")
+        ws_app = self._ws_app
+        if ws_app is not None:
+            ws_app.close()
+        thread = self._net_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
+        self._ws_app = None
+        self._net_thread = None
+        logger.info("Binance WebSocket 已安全断开")
 
     def _on_subscription_added(self, request: SubscriptionRequest) -> None:
-        raw_symbol = str(request.instrument_id).split(".")[0].lower()
-        if request.data_type == DataType.TRADE_TICK:
-            stream_name = f"{raw_symbol}@trade"
-        elif request.data_type == DataType.QUOTE_TICK:
-            stream_name = f"{raw_symbol}@bookTicker"
-        else:
-            stream_name = f"{raw_symbol}@kline_1m"
-
-        self._active_streams.add(stream_name)
+        self._active_streams.add(self._stream_name(request))
 
     def _on_subscription_removed(self, request: SubscriptionRequest) -> None:
+        self._active_streams.discard(self._stream_name(request))
+
+    @staticmethod
+    def _stream_name(request: SubscriptionRequest) -> str:
         raw_symbol = str(request.instrument_id).split(".")[0].lower()
-        stream_name = f"{raw_symbol}@trade"
-        self._active_streams.discard(stream_name)
+        if request.data_type == DataType.TRADE_TICK:
+            return f"{raw_symbol}@trade"
+        if request.data_type == DataType.QUOTE_TICK:
+            return f"{raw_symbol}@bookTicker"
+        return f"{raw_symbol}@kline_1m"
 
     def on_ws_message(self, message: str | dict[str, Any]) -> None:
         if isinstance(message, str):
             data = json.loads(message)
         else:
             data = message
-        print(data)
         event_type = data.get("e")
 
         # 1. 逐笔成交帧 (trade)
@@ -88,13 +155,17 @@ class BNWSStreamDataFeed(StreamDataFeed):
             )
             self.enqueue_event(tick)
 
-        # # 2. 最优挂单帧 (bookTicker)
+        # 2. 最优挂单帧 (bookTicker)
         elif "b" in data and "a" in data and "s" in data:
             symbol = data["s"].upper()
             inst_id = InstrumentId.from_str(f"{symbol}.BINANCE")
-            ts_ns = int(time.time() * 1_000_000_000)
+            event_time_ms = data.get("E")
+            ts_ns = (
+                int(event_time_ms) * 1_000_000
+                if event_time_ms is not None
+                else time.time_ns()
+            )
             meta = self.get_instrument_meta(inst_id)
-            pdb.set_trace()
             quote = make_quote_tick(
                 instrument_id=inst_id,
                 bid_price=float(data["b"]),
