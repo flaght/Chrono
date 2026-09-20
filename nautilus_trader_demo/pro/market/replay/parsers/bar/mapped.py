@@ -41,10 +41,15 @@ class MappedBarParser:
         columns: BarColumns,
         bar_spec: str = "1-MINUTE",
         timezone: str = "Asia/Shanghai",
+        exchange_aliases: Mapping[str, str] | None = None,
     ) -> None:
         self.columns = columns
         self.bar_spec = bar_spec.upper()
         self.timezone = ZoneInfo(timezone)
+        self.exchange_aliases = {
+            source.upper(): target.upper()
+            for source, target in (exchange_aliases or {}).items()
+        }
 
     def reset(self) -> None:
         pass
@@ -55,9 +60,9 @@ class MappedBarParser:
         context: ParserContext,
     ) -> Iterable[ParsedEvent]:
         c = self.columns
-        instrument_id = InstrumentId.from_str(
-            f"{required(row, c.symbol, context)}.{required(row, c.exchange, context).upper()}",
-        )
+        exchange = required(row, c.exchange, context).upper()
+        exchange = self.exchange_aliases.get(exchange, exchange)
+        instrument_id = InstrumentId.from_str(f"{required(row, c.symbol, context)}.{exchange}")
         meta = context.require_meta(instrument_id)
         bar_spec = (
             required(row, c.bar_spec, context).upper()

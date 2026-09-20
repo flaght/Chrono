@@ -31,9 +31,15 @@ from market.replay.parsers.base import (
 class CtpTickParser:
     """Convert CTP depth snapshots into quotes and inferred trades."""
 
-    def __init__(self, exchange: str, timezone: str = "Asia/Shanghai") -> None:
+    def __init__(
+        self,
+        exchange: str,
+        timezone: str = "Asia/Shanghai",
+        night_session_action_day: str | None = None,
+    ) -> None:
         self.exchange = exchange.upper()
         self.timezone = ZoneInfo(timezone)
+        self.night_session_action_day = night_session_action_day
         self._last_volume: dict[InstrumentId, int] = {}
 
     def reset(self) -> None:
@@ -86,6 +92,10 @@ class CtpTickParser:
     def _timestamp(self, row: Mapping[str, Any], context: ParserContext) -> int:
         day = required(row, "TradingDay", context)
         clock = required(row, "UpdateTime", context)
+        # CTP的TradingDay是交易日，不一定等于夜盘所在自然日。源文件没有
+        # ActionDay时不能可靠推导节假日，因此由调用方显式传入夜盘自然日。
+        if self.night_session_action_day is not None and clock >= "18:00:00":
+            day = self.night_session_action_day
         millisec = integer_nonnegative(row, "UpdateMillisec", context)
         if millisec > 999:
             raise context.error("UpdateMillisec must be between 0 and 999")
