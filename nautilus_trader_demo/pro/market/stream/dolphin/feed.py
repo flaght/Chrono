@@ -9,6 +9,7 @@ from typing import Any
 
 from market.basic.base import DataType, InstrumentId, InstrumentMeta, SubscriptionRequest
 from market.stream.base import StreamDataFeed
+from market.stream.health import StreamHealthConfig
 
 from market.native.dolphin import (
     DolphinDbDriver,
@@ -33,8 +34,13 @@ class DolphinDbLiveDataFeed(StreamDataFeed):
         source_id: str = "DOLPHINDB_LIVE_SOURCE",
         queue_size: int = 100_000,
         driver_factory: DriverFactory = create_native_driver,
+        health_config: StreamHealthConfig | None = None,
     ) -> None:
-        super().__init__(source_id=source_id, queue_size=queue_size)
+        super().__init__(
+            source_id=source_id,
+            queue_size=queue_size,
+            health_config=health_config,
+        )
         self.config = config
         self._driver_factory = driver_factory
         self._driver: DolphinDbDriver | None = None

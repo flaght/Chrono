@@ -9,11 +9,7 @@ from decimal import Decimal
 
 from dotenv import load_dotenv
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 def _required_env(name: str) -> str:
@@ -561,17 +557,106 @@ def test6() -> None:
         feed.disconnect()
 
 
+def test7() -> None:
+    """Stage 7 / G3: convert one real Bar stream row into Bar and CustomBar."""
+    import threading
+
+    from market.basic.base import Bar, CustomBar, DataType, InstrumentId, InstrumentMeta
+    from market.stream.dolphin import DolphinDbConfig, DolphinDbLiveDataFeed, DolphinDbStreamSpec
+
+    symbol = _required_env("DDB_BAR_SYMBOL").strip()
+    exchange = os.getenv("DDB_BAR_EXCHANGE", "CFFEX").upper()
+    instrument_id = InstrumentId.from_str(f"{symbol}.{exchange}")
+    timeout = float(os.getenv("DDB_BAR_TIMEOUT", os.getenv("DDB_RAW_TIMEOUT", "60")))
+    bar_spec = os.getenv("DDB_BAR_SPEC", "1-MINUTE").upper()
+    bar_received = threading.Event()
+    custom_received = threading.Event()
+
+    stream = DolphinDbStreamSpec.bar(
+        table_name=_required_env("DDB_BAR_STREAM_TABLE"),
+        action_name=os.getenv("DDB_BAR_ACTION", "bomberBarStandardProbe"),
+        bar_spec=bar_spec,
+        offset=int(os.getenv("DDB_STREAM_OFFSET", "-1")),
+        resub=_env_bool("DDB_STREAM_RESUB", True),
+        batch_size=int(os.getenv("DDB_STREAM_BATCH_SIZE", "0")),
+        throttle=float(os.getenv("DDB_STREAM_THROTTLE", "0.01")),
+    )
+    feed = DolphinDbLiveDataFeed(
+        DolphinDbConfig(
+            host=_required_env("DDB_HOST"),
+            port=int(os.getenv("DDB_PORT", "8848")),
+            username=_required_env("DDB_USERNAME"),
+            password=_required_env("DDB_PASSWORD"),
+            streams=(stream,),
+            streaming_port=int(os.getenv("DDB_STREAMING_PORT", "0")),
+            keep_alive_seconds=int(os.getenv("DDB_KEEP_ALIVE_SECONDS", "60")),
+        ),
+    )
+    feed.register_instrument(
+        InstrumentMeta(
+            instrument_id=instrument_id,
+            price_precision=int(os.getenv("DDB_BAR_PRICE_PRECISION", "1")),
+            size_precision=int(os.getenv("DDB_BAR_SIZE_PRECISION", "0")),
+            price_increment=Decimal(os.getenv("DDB_BAR_PRICE_INCREMENT", "0.2")),
+            multiplier=Decimal(os.getenv("DDB_BAR_MULTIPLIER", "300")),
+            currency=os.getenv("DDB_BAR_CURRENCY", "CNY"),
+            exchange=exchange,
+        ),
+    )
+
+    def on_bar(bar: Bar) -> None:
+        if bar_received.is_set():
+            return
+        print(
+            "标准 Bar: "
+            f"{bar.bar_type} O={bar.open} H={bar.high} L={bar.low} "
+            f"C={bar.close} V={bar.volume} ts={bar.ts_event}",
+        )
+        bar_received.set()
+
+    def on_custom_bar(bar: CustomBar) -> None:
+        if custom_received.is_set():
+            return
+        print(
+            "标准 CustomBar: "
+            f"{bar.instrument_id} open_interest={bar.get_factor('open_interest')} "
+            f"turnover={bar.get_factor('turnover')} ts={bar.ts_event}",
+        )
+        custom_received.set()
+
+    feed.register_bar_handler(on_bar)
+    feed.register_custom_bar_handler(on_custom_bar)
+    feed.subscribe(instrument_id, DataType.BAR, bar_spec=bar_spec)
+    feed.subscribe(instrument_id, DataType.CUSTOM_BAR, bar_spec=bar_spec)
+
+    print(
+        "启动 DolphinDB 标准Bar探针: "
+        f"instrument={instrument_id} table={stream.table_name} bar_spec={bar_spec}",
+    )
+    try:
+        feed.connect()
+        if not feed.wait_until_ready(float(os.getenv("DDB_CONNECT_TIMEOUT", "15"))):
+            raise TimeoutError("DolphinDB Bar Feed连接或订阅提交超时")
+        if not bar_received.wait(timeout):
+            raise TimeoutError(f"{timeout:g}秒内未收到{instrument_id}标准Bar")
+        if not custom_received.wait(timeout):
+            raise TimeoutError(f"{timeout:g}秒内未收到{instrument_id}标准CustomBar")
+        print("G3通过：DolphinDB真实Bar流已转换并分发标准Bar/CustomBar")
+    finally:
+        feed.disconnect()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="逐阶段验证 DolphinDB 实时行情源")
     parser.add_argument(
         "--stage",
         type=int,
-        choices=range(1, 7),
+        choices=range(1, 8),
         default=5,
-        help="验证阶段：1-3 离线，4 连接，5 cu 原始流，6 标准 Tick（默认 5）",
+        help="验证阶段：1-3离线，4连接，5原始Tick，6标准Tick，7标准Bar（默认5）",
     )
     args = parser.parse_args()
-    stages = {1: test1, 2: test2, 3: test3, 4: test4, 5: test5, 6: test6}
+    stages = {1: test1, 2: test2, 3: test3, 4: test4, 5: test5, 6: test6, 7: test7}
     stages[args.stage]()
 
 

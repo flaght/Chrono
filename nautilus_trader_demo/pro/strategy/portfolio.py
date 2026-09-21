@@ -3,11 +3,11 @@
 本模块不创建订单：TargetStore 保存策略目标，PortfolioCoordinator 汇总已经
 解析为真实账户腿的策略贡献，PositionManager 保存仓位和在途数量。
 """
+
 from __future__ import annotations
 
-
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Mapping
@@ -99,6 +99,18 @@ class TargetStore:
         with self._lock:
             self._targets.clear()
 
+    def restore(self, targets: Mapping[str, TargetPortfolio]) -> None:
+        """原子恢复已经物化的完整目标快照。"""
+        restored: dict[str, TargetPortfolio] = {}
+        for strategy_id, target in targets.items():
+            if strategy_id != target.strategy_id:
+                raise ValueError("TargetStore恢复键与strategy_id不一致")
+            if target.update_mode is not TargetUpdateMode.REPLACE:
+                raise ValueError("TargetStore只能恢复已经物化的REPLACE快照")
+            restored[strategy_id] = target
+        with self._lock:
+            self._targets = restored
+
 
 @dataclass(frozen=True)
 class AccountTargetKey:
@@ -128,6 +140,27 @@ class PortfolioTargetSnapshot:
         }
         object.__setattr__(self, "targets", MappingProxyType(dict(self.targets)))
         object.__setattr__(self, "contributions", MappingProxyType(frozen))
+
+
+@dataclass(frozen=True)
+class PortfolioCoordinatorState:
+    revision: int
+    contributions: Mapping[str, Mapping[AccountTargetKey, Decimal]]
+    strategy_revisions: Mapping[str, int]
+    known_keys: frozenset[AccountTargetKey]
+
+    def __post_init__(self) -> None:
+        frozen = {
+            strategy_id: MappingProxyType(dict(values))
+            for strategy_id, values in self.contributions.items()
+        }
+        object.__setattr__(self, "contributions", MappingProxyType(frozen))
+        object.__setattr__(
+            self,
+            "strategy_revisions",
+            MappingProxyType(dict(self.strategy_revisions)),
+        )
+        object.__setattr__(self, "known_keys", frozenset(self.known_keys))
 
 
 class PortfolioCoordinator:
@@ -212,6 +245,29 @@ class PortfolioCoordinator:
         with self._lock:
             return MappingProxyType(dict(self._contributions.get(strategy_id, {})))
 
+    def state(self) -> PortfolioCoordinatorState:
+        with self._lock:
+            return PortfolioCoordinatorState(
+                revision=self._revision,
+                contributions=self._contributions,
+                strategy_revisions=self._strategy_revisions,
+                known_keys=frozenset(self._known_keys),
+            )
+
+    def restore(self, state: PortfolioCoordinatorState) -> None:
+        if state.revision < 0:
+            raise ValueError("PortfolioCoordinator revision不能为负数")
+        if set(state.contributions) != set(state.strategy_revisions):
+            raise ValueError("策略贡献与策略版本集合不一致")
+        with self._lock:
+            self._contributions = {
+                strategy_id: dict(values)
+                for strategy_id, values in state.contributions.items()
+            }
+            self._strategy_revisions = dict(state.strategy_revisions)
+            self._known_keys = set(state.known_keys)
+            self._revision = state.revision
+
     def _snapshot_locked(self, ts_event: int) -> PortfolioTargetSnapshot:
         totals = {key: Decimal(0) for key in self._known_keys}
         for contribution in self._contributions.values():
@@ -226,12 +282,24 @@ class PortfolioCoordinator:
 
 
 @dataclass(frozen=True)
+class AccountReconciliationState:
+    """某个交易客户端最近一次成功权威对账的版本。"""
+
+    revision: int
+    ts_event: int
+
+
+@dataclass(frozen=True)
 class PositionSnapshot:
     """仓位管理器的不可变状态快照。"""
 
     strategy_positions: Mapping[tuple[str, str], Decimal]
     account_positions: Mapping[AccountTargetKey, Decimal]
     working_quantities: Mapping[AccountTargetKey, Decimal]
+    account_reconciliations: Mapping[str, AccountReconciliationState] = field(
+        default_factory=dict,
+    )
+    recovery_required_clients: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -249,6 +317,35 @@ class PositionSnapshot:
             "working_quantities",
             MappingProxyType(dict(self.working_quantities)),
         )
+        object.__setattr__(
+            self,
+            "account_reconciliations",
+            MappingProxyType(dict(self.account_reconciliations)),
+        )
+        object.__setattr__(
+            self,
+            "recovery_required_clients",
+            frozenset(self.recovery_required_clients),
+        )
+
+
+@dataclass(frozen=True)
+class PositionManagerState:
+    snapshot: PositionSnapshot
+    account_revisions: Mapping[AccountTargetKey, int]
+    strategy_revisions: Mapping[tuple[str, str], int]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "account_revisions",
+            MappingProxyType(dict(self.account_revisions)),
+        )
+        object.__setattr__(
+            self,
+            "strategy_revisions",
+            MappingProxyType(dict(self.strategy_revisions)),
+        )
 
 
 class PositionManager:
@@ -265,6 +362,8 @@ class PositionManager:
         self._working_quantities: dict[AccountTargetKey, Decimal] = {}
         self._account_revisions: dict[AccountTargetKey, int] = {}
         self._strategy_revisions: dict[tuple[str, str], int] = {}
+        self._account_reconciliations: dict[str, AccountReconciliationState] = {}
+        self._recovery_required_clients: set[str] = set()
         self._lock = threading.RLock()
 
     def position(self, strategy_id: str, target_key: str) -> Decimal:
@@ -350,6 +449,82 @@ class PositionManager:
                     self._account_positions[key] = Decimal(0)
             self._account_positions.update(normalized)
 
+    def apply_account_snapshot(
+        self,
+        client_id: str,
+        positions: Mapping[InstrumentId, Decimal | int | float | str],
+        *,
+        revision: int,
+        ts_event: int,
+    ) -> AccountReconciliationState:
+        """原子应用权威全量仓位，并记录成功对账版本。"""
+        if not client_id.strip():
+            raise ValueError("client_id不能为空")
+        if revision < 1:
+            raise ValueError("revision必须为正整数")
+        if ts_event < 0:
+            raise ValueError("ts_event不能为负数")
+        normalized = {
+            AccountTargetKey(client_id, instrument_id): _decimal(quantity)
+            for instrument_id, quantity in positions.items()
+        }
+        state = AccountReconciliationState(revision=revision, ts_event=ts_event)
+        with self._lock:
+            current = self._account_reconciliations.get(client_id)
+            if current is not None and revision <= current.revision:
+                raise StaleRevisionError(
+                    f"账户快照版本必须递增: client={client_id} "
+                    f"current={current.revision} received={revision}",
+                )
+            for key in tuple(self._account_positions):
+                if key.client_id == client_id:
+                    self._account_positions[key] = Decimal(0)
+            self._account_positions.update(normalized)
+            self._account_reconciliations[client_id] = state
+            return state
+
+    def account_reconciliation(
+        self,
+        client_id: str,
+    ) -> AccountReconciliationState | None:
+        with self._lock:
+            return self._account_reconciliations.get(client_id)
+
+    def is_account_reconciled(self, client_id: str) -> bool:
+        return self.account_reconciliation(client_id) is not None
+
+    def clear_account_reconciliation(self, client_id: str) -> None:
+        with self._lock:
+            self._account_reconciliations.pop(client_id, None)
+
+    def mark_recovery_required(self, client_id: str) -> None:
+        if not client_id.strip():
+            raise ValueError("client_id不能为空")
+        with self._lock:
+            self._recovery_required_clients.add(client_id)
+            self._account_reconciliations.pop(client_id, None)
+
+    def is_recovery_required(self, client_id: str) -> bool:
+        with self._lock:
+            return client_id in self._recovery_required_clients
+
+    def complete_working_recovery(
+        self,
+        client_id: str,
+        working_quantities: Mapping[InstrumentId, Decimal | int | float | str],
+    ) -> None:
+        """用柜台活动订单查询结果替换在途量，并解除重启恢复闸门。"""
+        normalized = {
+            AccountTargetKey(client_id, instrument_id): _decimal(quantity)
+            for instrument_id, quantity in working_quantities.items()
+        }
+        with self._lock:
+            for key in tuple(self._working_quantities):
+                if key.client_id == client_id:
+                    self._working_quantities[key] = Decimal(0)
+            self._working_quantities.update(normalized)
+            self._recovery_required_clients.discard(client_id)
+
     def set_working_quantity(
         self,
         client_id: str,
@@ -400,7 +575,28 @@ class PositionManager:
                 strategy_positions=self._strategy_positions,
                 account_positions=self._account_positions,
                 working_quantities=self._working_quantities,
+                account_reconciliations=self._account_reconciliations,
+                recovery_required_clients=frozenset(self._recovery_required_clients),
             )
+
+    def state(self) -> PositionManagerState:
+        with self._lock:
+            return PositionManagerState(
+                snapshot=self.snapshot(),
+                account_revisions=self._account_revisions,
+                strategy_revisions=self._strategy_revisions,
+            )
+
+    def restore(self, state: PositionManagerState) -> None:
+        snapshot = state.snapshot
+        with self._lock:
+            self._strategy_positions = dict(snapshot.strategy_positions)
+            self._account_positions = dict(snapshot.account_positions)
+            self._working_quantities = dict(snapshot.working_quantities)
+            self._account_reconciliations = dict(snapshot.account_reconciliations)
+            self._recovery_required_clients = set(snapshot.recovery_required_clients)
+            self._account_revisions = dict(state.account_revisions)
+            self._strategy_revisions = dict(state.strategy_revisions)
 
     @staticmethod
     def _guard_revision(

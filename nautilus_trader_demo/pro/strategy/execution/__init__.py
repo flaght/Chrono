@@ -1,6 +1,7 @@
 """统一目标到模拟撮合器或真实交易端的执行边界。"""
 
 from strategy.execution.contracts import (
+    AccountPositionSnapshot,
     ExecutionBackendKind,
     ExecutionReport,
     ExecutionReportType,
@@ -10,6 +11,25 @@ from strategy.execution.contracts import (
     PositionEffect,
 )
 from strategy.execution.nautilus import NautilusExecutionAdapter
+from strategy.execution.order_state import (
+    OrderLifecycleStatus,
+    OrderReportStateMachine,
+    OrderReportUpdate,
+    OrderState,
+    OrderStateCheckpoint,
+    OrderStateError,
+)
+from strategy.execution.risk import (
+    KillSwitchMode,
+    MarketReferencePriceStore,
+    PreTradeRiskManager,
+    ReferencePrice,
+    RiskDecision,
+    RiskLimits,
+    RiskRejected,
+    RiskViolation,
+    RiskViolationCode,
+)
 from strategy.execution.planner import NetTargetOrderPlanner
 from strategy.execution.live import (
     BackendExecutionClient,
@@ -23,6 +43,7 @@ from strategy.execution.ctp import (
     CtpCommissionRule,
     CtpExecutionAccounting,
     CtpFillResult,
+    CtpLedgerState,
     CtpFuturesHedgingProfile,
     CtpPositionLedger,
     CtpPositionSnapshot,
@@ -43,6 +64,7 @@ from strategy.execution.simulation import (
 )
 
 __all__ = [
+    "AccountPositionSnapshot",
     "ExecutionBackendKind",
     "ExecutionBackendPort",
     "ExecutionReport",
@@ -54,6 +76,7 @@ __all__ = [
     "CtpCommissionRule",
     "CtpExecutionAccounting",
     "CtpFillResult",
+    "CtpLedgerState",
     "CtpFuturesHedgingProfile",
     "CtpPositionLedger",
     "CtpPositionSnapshot",
@@ -61,17 +84,32 @@ __all__ = [
     "GenericVenueProfile",
     "BackendExecutionClient",
     "LiveExecutionBackendPort",
+    "KillSwitchMode",
+    "MarketReferencePriceStore",
     "NautilusExecutionAdapter",
     "NautilusLiveDriverPort",
     "NautilusLiveExecutionBackend",
     "NautilusTradingNodeDriver",
     "NautilusSimExecutionBackend",
     "OrderIntent",
+    "OrderLifecycleStatus",
+    "OrderReportStateMachine",
+    "OrderReportUpdate",
+    "OrderState",
+    "OrderStateCheckpoint",
+    "OrderStateError",
     "NetTargetOrderPlanner",
     "OrderPlannerPort",
     "OrderSide",
     "OrderType",
     "PositionEffect",
+    "PreTradeRiskManager",
+    "ReferencePrice",
+    "RiskDecision",
+    "RiskLimits",
+    "RiskRejected",
+    "RiskViolation",
+    "RiskViolationCode",
     "SimExecutionBackendPort",
     "VenueSimulationProfilePort",
 ]

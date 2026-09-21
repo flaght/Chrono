@@ -51,6 +51,29 @@ class ExecutionReportType(str, Enum):
 
 
 @dataclass(frozen=True)
+class AccountPositionSnapshot:
+    """交易柜台返回的账户级权威净仓快照。"""
+
+    backend_id: str
+    revision: int
+    ts_event: int
+    positions: Mapping[InstrumentId, Decimal | int | float | str]
+
+    def __post_init__(self) -> None:
+        if not self.backend_id.strip():
+            raise ValueError("backend_id不能为空")
+        if self.revision < 1:
+            raise ValueError("revision必须为正整数")
+        if self.ts_event < 0:
+            raise ValueError("ts_event不能为负数")
+        normalized = {
+            instrument_id: _decimal(quantity)
+            for instrument_id, quantity in self.positions.items()
+        }
+        object.__setattr__(self, "positions", MappingProxyType(normalized))
+
+
+@dataclass(frozen=True)
 class OrderIntent:
     """OrderPlanner 输出、ExecutionBackend 消费的中立订单意图。"""
 
@@ -100,6 +123,8 @@ class ExecutionReport:
     order_quantity: Decimal | int | float | str | None = None
     position_effect: PositionEffect | str | None = None
     reason: str | None = None
+    report_id: str | None = None
+    sequence: int | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -125,6 +150,10 @@ class ExecutionReport:
             raise ValueError("fill_price 必须大于零")
         if order_quantity is not None and order_quantity <= 0:
             raise ValueError("order_quantity 必须大于零")
+        if self.report_id is not None and not self.report_id.strip():
+            raise ValueError("report_id不能为空字符串")
+        if self.sequence is not None and self.sequence < 1:
+            raise ValueError("sequence必须为正整数")
         object.__setattr__(self, "report_type", report_type)
         object.__setattr__(self, "filled_quantity", filled)
         object.__setattr__(self, "fill_price", fill_price)

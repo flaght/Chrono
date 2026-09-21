@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from market.basic.base import InstrumentId
 from strategy import (
+    AccountPositionSnapshot,
     ExecutionBackendKind,
     ExecutionBackendPort,
     ExecutionReport,
@@ -124,8 +125,9 @@ class _LiveBackendProbe:
     def cancel_strategy(self, strategy_id: str) -> None:
         del strategy_id
 
-    def reconcile(self) -> None:
+    def reconcile(self) -> AccountPositionSnapshot:
         self.reconciliations += 1
+        return AccountPositionSnapshot(self.backend_id, self.reconciliations, 0, {})
 
 
 def test1_order_contracts() -> None:
@@ -198,11 +200,23 @@ def test3_planner_and_profile_ports() -> None:
     print("E3通过：OrderPlanner和VenueProfile可独立替换，不进入策略代码")
 
 
+STAGES = {
+    1: test1_order_contracts,
+    2: test2_backend_capabilities,
+    3: test3_planner_and_profile_ports,
+}
+
 
 def main() -> None:
-    test1_order_contracts()
-    test2_backend_capabilities()
-    test3_planner_and_profile_ports()
+    parser = argparse.ArgumentParser(description="执行Backend阶段A契约测试")
+    parser.add_argument("--stage", choices=(*(str(i) for i in STAGES), "all"), default="all")
+    args = parser.parse_args()
+    selected = STAGES if args.stage == "all" else {int(args.stage): STAGES[int(args.stage)]}
+    for number, function in selected.items():
+        print(f"\n--- E{number} ---")
+        function()
+    print("Execution backend contract tests OK")
+
 
 if __name__ == "__main__":
     main()

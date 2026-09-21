@@ -13,6 +13,7 @@ from market.basic.base import (
     make_trade_tick,
 )
 from market.stream.base import StreamDataFeed
+from market.stream.health import StreamHealthConfig
 
 logger = logging.getLogger("BNWSStreamDataFeed")
 
@@ -27,8 +28,18 @@ class BNWSConfig:
 class BNWSStreamDataFeed(StreamDataFeed):
     """web socket 实时行情数据源。"""
 
-    def __init__(self, config: BNWSConfig | None = None, source_id: str = "BINANCE_LIVE_SOURCE") -> None:
-        super().__init__(source_id=source_id)
+    def __init__(
+        self,
+        config: BNWSConfig | None = None,
+        source_id: str = "BINANCE_LIVE_SOURCE",
+        queue_size: int = 100_000,
+        health_config: StreamHealthConfig | None = None,
+    ) -> None:
+        super().__init__(
+            source_id=source_id,
+            queue_size=queue_size,
+            health_config=health_config,
+        )
         self.config = config or BNWSConfig()
         self._active_streams: set[str] = set()
         self._ws_app: Any = None
@@ -78,10 +89,15 @@ class BNWSStreamDataFeed(StreamDataFeed):
         def on_error(ws: Any, error: Any) -> None:
             del ws
             self._last_ws_error = str(error)
+            self.report_stream_interruption(f"Binance WebSocket异常: {error}")
             logger.error("Binance WebSocket 异常: %s", error)
 
         def on_close(ws: Any, status: Any, message: Any) -> None:
             del ws
+            if not self._stop_event.is_set():
+                self.report_stream_interruption(
+                    f"Binance WebSocket关闭: status={status} message={message}",
+                )
             logger.info(
                 "Binance WebSocket 已关闭: status=%s message=%s",
                 status,

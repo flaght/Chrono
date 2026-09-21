@@ -100,7 +100,7 @@ def test2_trading_node_driver_lifecycle() -> None:
     driver = NautilusTradingNodeDriver(
         "binance-live",
         node,
-        reconcile_callback=lambda: reconciliations.append("reconcile"),
+        reconcile_callback=lambda: (reconciliations.append("reconcile"), {})[1],
     )
     backend = NautilusLiveExecutionBackend("binance-live", driver)
     assert isinstance(backend, LiveExecutionBackendPort)
@@ -164,8 +164,9 @@ class _AutoFillDriver:
     def cancel_strategy(self, strategy_id: str) -> None:
         del strategy_id
 
-    def reconcile(self) -> None:
+    def reconcile(self):
         self.reconciliations += 1
+        return {}
 
 
 class _ManualBinanceStream(BNWSStreamDataFeed):
@@ -265,9 +266,13 @@ STAGES = {
 
 
 def main() -> None:
-    test1_net_target_planner()
-    test2_trading_node_driver_lifecycle()
-    test3_binance_stream_to_live_backend()
+    parser = argparse.ArgumentParser(description="E9 Binance与Nautilus Live Backend测试")
+    parser.add_argument("--stage", choices=("1", "2", "3", "all"), default="all")
+    args = parser.parse_args()
+    selected = STAGES if args.stage == "all" else {int(args.stage): STAGES[int(args.stage)]}
+    for function in selected.values():
+        function()
+
 
 if __name__ == "__main__":
     main()

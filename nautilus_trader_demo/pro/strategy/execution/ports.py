@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping, Protocol, Sequence, runtime_checkable
 
 from strategy.contracts import ExecutionRequest
-from strategy.execution.contracts import ExecutionBackendKind, ExecutionReport, OrderIntent
+from strategy.execution.contracts import (
+    AccountPositionSnapshot,
+    ExecutionBackendKind,
+    ExecutionReport,
+    OrderIntent,
+)
 
 
 @runtime_checkable
@@ -42,7 +47,7 @@ class SimExecutionBackendPort(ExecutionBackendPort, Protocol):
 class LiveExecutionBackendPort(ExecutionBackendPort, Protocol):
     """连接真实或模拟柜台、支持权威状态同步的在线执行后端。"""
 
-    def reconcile(self) -> None: ...
+    def reconcile(self) -> AccountPositionSnapshot: ...
 
 
 @runtime_checkable

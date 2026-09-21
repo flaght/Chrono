@@ -81,6 +81,7 @@ class UnifiedStrategyRunner:
         self._registrations: dict[str, _Registration] = {}
         self._bindings: dict[tuple[str, DataType, InstrumentId], list[tuple[str, DataBinding]]] = defaultdict(list)
         self._attached_feeds: set[str] = set()
+        self._market_observers: list[Any] = []
         self._submit_lock = threading.RLock()
         self._started = False
 
@@ -112,6 +113,16 @@ class UnifiedStrategyRunner:
         if not client.client_id.strip() or client.client_id in self._clients:
             raise ValueError(f"client_id 无效或重复: {client.client_id!r}")
         self._clients[client.client_id] = client
+
+    def add_market_observer(self, observer: Any) -> None:
+        """注册行情旁路观察者，例如风控参考价存储。"""
+        if self._started:
+            raise RuntimeError("Runner 启动后不能再添加行情观察者")
+        callback = getattr(observer, "on_market_event", None)
+        if not callable(callback):
+            raise TypeError("行情观察者必须实现on_market_event(event)")
+        if observer not in self._market_observers:
+            self._market_observers.append(observer)
 
     def add_strategy(
         self,
@@ -259,6 +270,8 @@ class UnifiedStrategyRunner:
         """发布标准行情事件，供行情适配器和契约测试使用。"""
         data_type = _event_data_type(event)
         instrument_id = _event_instrument_id(event)
+        for observer in tuple(self._market_observers):
+            observer.on_market_event(event)
         key = (feed_id, data_type, instrument_id)
         for strategy_id, binding in tuple(self._bindings.get(key, ())):
             if not _bar_spec_matches(binding, event):

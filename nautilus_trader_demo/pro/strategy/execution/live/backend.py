@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import time
+from decimal import Decimal
 from typing import Callable
 
+from market.basic.base import InstrumentId
 from strategy.execution.contracts import (
+    AccountPositionSnapshot,
     ExecutionBackendKind,
     ExecutionReport,
     OrderIntent,
@@ -27,6 +31,7 @@ class NautilusLiveExecutionBackend:
         self._report_handlers: list[Callable[[ExecutionReport], None]] = []
         self._reports: list[ExecutionReport] = []
         self._started = False
+        self._reconcile_revision = 0
 
     @property
     def is_started(self) -> bool:
@@ -71,10 +76,27 @@ class NautilusLiveExecutionBackend:
             raise ValueError("strategy_id不能为空")
         self.driver.cancel_strategy(strategy_id)
 
-    def reconcile(self) -> None:
+    def reconcile(self) -> AccountPositionSnapshot:
         if not self._started:
             raise RuntimeError("Live Backend尚未启动")
-        self.driver.reconcile()
+        raw_positions = self.driver.reconcile()
+        positions: dict[InstrumentId, Decimal] = {}
+        for instrument_id, quantity in raw_positions.items():
+            normalized_id = (
+                instrument_id
+                if isinstance(instrument_id, InstrumentId)
+                else InstrumentId.from_str(str(instrument_id))
+            )
+            positions[normalized_id] = (
+                quantity if isinstance(quantity, Decimal) else Decimal(str(quantity))
+            )
+        self._reconcile_revision += 1
+        return AccountPositionSnapshot(
+            backend_id=self.backend_id,
+            revision=self._reconcile_revision,
+            ts_event=time.time_ns(),
+            positions=positions,
+        )
 
     def _receive_report(self, report: ExecutionReport) -> None:
         if report.backend_id != self.backend_id:

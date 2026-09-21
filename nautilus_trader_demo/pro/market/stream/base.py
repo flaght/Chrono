@@ -19,6 +19,14 @@ from market.basic.base import (
     make_trade_tick,
 )
 from market.basic.base import  MarketDataFeed
+from market.stream.health import (
+    HealthHandler,
+    MarketHealthReason,
+    MarketHealthSnapshot,
+    MarketHealthState,
+    StreamHealthConfig,
+    StreamHealthMonitor,
+)
 
 logger = logging.getLogger("StreamDataFeed")
 
@@ -29,11 +37,37 @@ class StreamDataFeed(MarketDataFeed):
     提供线程安全缓冲队列（解耦网络 IO 线程与策略消费）与后台事件消费分派循环。
     """
 
-    def __init__(self, source_id: str, queue_size: int = 100_000) -> None:
+    def __init__(
+        self,
+        source_id: str,
+        queue_size: int = 100_000,
+        health_config: StreamHealthConfig | None = None,
+    ) -> None:
         super().__init__(source_id=source_id)
         self._event_queue: queue.Queue = queue.Queue(maxsize=queue_size)
         self._worker_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._health_monitor = StreamHealthMonitor(source_id, health_config)
+
+    @property
+    def health_state(self) -> MarketHealthState:
+        return self._health_monitor.snapshot.state
+
+    @property
+    def health_snapshot(self) -> MarketHealthSnapshot:
+        return self._health_monitor.snapshot
+
+    def register_health_handler(self, handler: HealthHandler) -> None:
+        self._health_monitor.register_handler(handler)
+
+    def acknowledge_health_degradation(self) -> MarketHealthSnapshot:
+        return self._health_monitor.acknowledge_degradation()
+
+    def report_stream_interruption(self, detail: str) -> None:
+        """供具体网络驱动在断线/异常回调中上报流中断。"""
+        if self._stop_event.is_set():
+            return
+        self._health_monitor.on_stream_interrupted(detail)
 
     def connect(self) -> None:
         if self._is_connected:
@@ -46,7 +80,19 @@ class StreamDataFeed(MarketDataFeed):
             daemon=True,
         )
         self._worker_thread.start()
-        self._start_network_client()
+        self._health_monitor.on_connected()
+        try:
+            self._start_network_client()
+        except Exception as exc:
+            self._stop_event.set()
+            self._signal_dispatch_stop()
+            self._worker_thread.join(timeout=2.0)
+            self._worker_thread = None
+            self._health_monitor.on_disconnected(
+                MarketHealthReason.CONNECTION_ERROR,
+                f"行情连接失败: {exc}",
+            )
+            raise
         self._is_connected = True
         logger.info(f"[{self.source_id}] 实时行情数据源已连接。")
 
@@ -55,26 +101,42 @@ class StreamDataFeed(MarketDataFeed):
             return
 
         self._stop_event.set()
-        self._stop_network_client()
-        if self._worker_thread and self._worker_thread.is_alive():
-            self._event_queue.put(None)
-            self._worker_thread.join(timeout=2.0)
-        self._is_connected = False
-        logger.info(f"[{self.source_id}] 实时行情数据源已安全断开。")
+        try:
+            self._stop_network_client()
+        finally:
+            if self._worker_thread and self._worker_thread.is_alive():
+                self._signal_dispatch_stop()
+                self._worker_thread.join(timeout=2.0)
+            self._worker_thread = None
+            self._is_connected = False
+            self._health_monitor.on_disconnected()
+            logger.info(f"[{self.source_id}] 实时行情数据源已安全断开。")
 
     def enqueue_event(self, event: Any) -> None:
+        if not self._health_monitor.on_event(event):
+            logger.warning(
+                "[%s] 丢弃时间戳回退事件: %s",
+                self.source_id,
+                self._health_monitor.snapshot.detail,
+            )
+            return
         try:
             self._event_queue.put_nowait(event)
         except queue.Full:
-            logger.warning(f"[{self.source_id}] 队列满，丢弃历史事件！")
+            self._health_monitor.on_queue_overflow()
+            logger.warning(f"[{self.source_id}] 队列满，丢弃实时事件！")
 
     def _dispatch_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
                 item = self._event_queue.get(timeout=0.2)
-                if item is None:
-                    break
-
+            except queue.Empty:
+                self._health_monitor.check_timeout()
+                continue
+            if item is None:
+                self._event_queue.task_done()
+                break
+            try:
                 if isinstance(item, TradeTick):
                     self._emit_trade_tick(item)
                 elif isinstance(item, QuoteTick):
@@ -83,12 +145,18 @@ class StreamDataFeed(MarketDataFeed):
                     self._emit_custom_bar(item)
                 elif isinstance(item, Bar):
                     self._emit_bar(item)
-
-                self._event_queue.task_done()
-            except queue.Empty:
-                continue
             except Exception as exc:
+                self._health_monitor.on_dispatch_error(exc)
                 logger.error(f"[{self.source_id}] 事件分派异常: {exc}", exc_info=True)
+            finally:
+                self._event_queue.task_done()
+
+    def _signal_dispatch_stop(self) -> None:
+        try:
+            self._event_queue.put_nowait(None)
+        except queue.Full:
+            # stop_event已置位，消费者结束当前回调后会自行退出；不能在这里阻塞。
+            pass
 
     def _start_network_client(self) -> None:
         raise NotImplementedError

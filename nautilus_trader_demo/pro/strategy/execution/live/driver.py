@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable, Protocol, runtime_checkable
+from decimal import Decimal
+from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
+from market.basic.base import InstrumentId
 from strategy.execution.contracts import ExecutionReport, OrderIntent
 from strategy.execution.simulation.gateway import NautilusOrderGateway
 
@@ -23,7 +25,9 @@ class NautilusLiveDriverPort(Protocol):
 
     def cancel_strategy(self, strategy_id: str) -> None: ...
 
-    def reconcile(self) -> None: ...
+    def reconcile(
+        self,
+    ) -> Mapping[InstrumentId | str, Decimal | int | float | str]: ...
 
 
 class NautilusTradingNodeDriver:
@@ -38,7 +42,9 @@ class NautilusTradingNodeDriver:
         driver_id: str,
         node: Any,
         *,
-        reconcile_callback: Callable[[], None] | None = None,
+        reconcile_callback: Callable[
+            [], Mapping[InstrumentId | str, Decimal | int | float | str]
+        ] | None = None,
     ) -> None:
         if not driver_id.strip():
             raise ValueError("driver_id不能为空")
@@ -84,9 +90,12 @@ class NautilusTradingNodeDriver:
         if self._gateway is not None:
             self._gateway.cancel_strategy_orders(strategy_id)
 
-    def reconcile(self) -> None:
+    def reconcile(self) -> Mapping[InstrumentId | str, Decimal | int | float | str]:
         # TradingNode启动时的原生reconciliation由LiveExecEngineConfig控制。
         # 运行期主动对账由调用方注入，避免猜测不同Bomber版本的私有API。
         if self._reconcile_callback is None:
             raise RuntimeError("未配置运行期reconcile_callback")
-        self._reconcile_callback()
+        positions = self._reconcile_callback()
+        if positions is None:
+            raise RuntimeError("reconcile_callback必须返回账户仓位映射")
+        return positions

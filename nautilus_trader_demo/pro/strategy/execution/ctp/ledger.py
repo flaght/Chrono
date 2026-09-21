@@ -76,6 +76,15 @@ class CtpPositionSnapshot:
 
 
 @dataclass(frozen=True)
+class CtpLedgerState:
+    trading_day: str | None
+    positions: Mapping[InstrumentId, CtpPositionSnapshot]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "positions", MappingProxyType(dict(self.positions)))
+
+
+@dataclass(frozen=True)
 class CtpCloseAllocation:
     position_effect: PositionEffect
     quantity: Decimal
@@ -124,6 +133,52 @@ class CtpPositionLedger:
                 short_today_basis=position.short_today.basis_price,
                 short_yesterday_basis=position.short_yesterday.basis_price,
             )
+
+    def state(self) -> CtpLedgerState:
+        with self._lock:
+            return CtpLedgerState(
+                trading_day=self._trading_day,
+                positions={
+                    instrument_id: self.snapshot(instrument_id)
+                    for instrument_id in self._positions
+                },
+            )
+
+    def restore(self, state: CtpLedgerState) -> None:
+        if state.trading_day is not None and not state.trading_day.strip():
+            raise ValueError("trading_day不能为空字符串")
+        restored: dict[InstrumentId, _Position] = {}
+        for instrument_id, snapshot in state.positions.items():
+            if snapshot.instrument_id != instrument_id:
+                raise ValueError("CTP仓位快照键与instrument_id不一致")
+            values = (
+                snapshot.long_today,
+                snapshot.long_yesterday,
+                snapshot.short_today,
+                snapshot.short_yesterday,
+            )
+            bases = (
+                snapshot.long_today_basis,
+                snapshot.long_yesterday_basis,
+                snapshot.short_today_basis,
+                snapshot.short_yesterday_basis,
+            )
+            if any(value < 0 for value in values):
+                raise ValueError("CTP恢复仓位不能为负数")
+            for quantity, basis in zip(values, bases):
+                if quantity > 0 and basis <= 0:
+                    raise ValueError("非零CTP恢复仓位必须具有正成本价")
+                if quantity == 0 and basis != 0:
+                    raise ValueError("零CTP恢复仓位的成本价必须为零")
+            restored[instrument_id] = _Position(
+                _Bucket(snapshot.long_today, snapshot.long_today_basis),
+                _Bucket(snapshot.long_yesterday, snapshot.long_yesterday_basis),
+                _Bucket(snapshot.short_today, snapshot.short_today_basis),
+                _Bucket(snapshot.short_yesterday, snapshot.short_yesterday_basis),
+            )
+        with self._lock:
+            self._trading_day = state.trading_day
+            self._positions = restored
 
     def apply_fill(
         self,

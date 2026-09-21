@@ -17,6 +17,7 @@ from market.basic.base import (
     SubscriptionRequest,
 )
 from market.stream.base import StreamDataFeed
+from market.stream.health import StreamHealthConfig
 
 from market.native.ctp.driver import CtpMdDriver, create_native_driver
 from market.stream.ctp.converter import CtpTickConverter
@@ -47,8 +48,13 @@ class CtpLiveDataFeed(StreamDataFeed):
         source_id: str = "CTP_LIVE_SOURCE",
         queue_size: int = 100_000,
         driver_factory: DriverFactory = create_native_driver,
+        health_config: StreamHealthConfig | None = None,
     ) -> None:
-        super().__init__(source_id=source_id, queue_size=queue_size)
+        super().__init__(
+            source_id=source_id,
+            queue_size=queue_size,
+            health_config=health_config,
+        )
         self.config = config
         self._driver_factory = driver_factory
         self._driver: CtpMdDriver | None = None
@@ -142,6 +148,7 @@ class CtpLiveDataFeed(StreamDataFeed):
         self._ready.clear()
         with self._lock:
             self._subscribed_symbols.clear()
+        self.report_stream_interruption(f"CTP行情前置断开: reason={reason}")
         logger.warning("CTP 行情前置断开: reason=%s；等待底层 API 自动重连", reason)
 
     def on_login_response(self, error: Mapping[str, Any] | None) -> None:
@@ -185,6 +192,7 @@ class CtpLiveDataFeed(StreamDataFeed):
             logger.info("CTP 行情退订成功: %s", symbol)
 
     def on_api_error(self, error: Mapping[str, Any] | None) -> None:
+        self.report_stream_interruption(f"CTP行情接口错误: {_error_text(error)}")
         logger.error("CTP 行情接口错误: %s", _error_text(error))
 
     def on_depth_market_data(self, data: Mapping[str, Any]) -> None:

@@ -4,6 +4,7 @@ from strategy.execution.ctp.accounting import CtpExecutionAccounting
 from strategy.execution.ctp.ledger import (
     CtpCloseAllocation,
     CtpFillResult,
+    CtpLedgerState,
     CtpPositionLedger,
     CtpPositionSnapshot,
     CtpSettlementResult,
@@ -20,6 +21,7 @@ __all__ = [
     "CtpCommissionRule",
     "CtpExecutionAccounting",
     "CtpFillResult",
+    "CtpLedgerState",
     "CtpFuturesHedgingProfile",
     "CtpPositionLedger",
     "CtpPositionSnapshot",

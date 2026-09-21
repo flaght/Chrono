@@ -42,6 +42,7 @@ class NautilusOrderGateway(Strategy):
         self._ready = False
         self._queued: list[OrderIntent] = []
         self._intents: dict[ClientOrderId, OrderIntent] = {}
+        self._report_sequences: dict[ClientOrderId, int] = {}
 
     def enqueue(self, intent: OrderIntent) -> None:
         if self._ready:
@@ -184,6 +185,8 @@ class NautilusOrderGateway(Strategy):
         reason: str | None = None,
         metadata: dict[str, str] | None = None,
     ) -> None:
+        sequence = self._report_sequences.get(client_order_id, 0) + 1
+        self._report_sequences[client_order_id] = sequence
         report_metadata = {
             "strategy_id": intent.strategy_id,
             "position_effect": intent.position_effect.value,
@@ -203,6 +206,8 @@ class NautilusOrderGateway(Strategy):
                 order_quantity=intent.quantity,
                 position_effect=intent.position_effect,
                 reason=reason,
+                report_id=f"{client_order_id}:{sequence}",
+                sequence=sequence,
                 metadata=report_metadata,
             ),
         )
