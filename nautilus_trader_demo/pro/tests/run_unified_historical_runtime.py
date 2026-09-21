@@ -190,6 +190,9 @@ def test1_simulation_execution_client() -> None:
         ),
     )
     client.start()
+    # I1故意不填参考价：默认RiskLimits不需要价格，风控时间仍应取请求时间，
+    # 不能对单个int调用max并抛TypeError。
+    assert client.risk_manager.price_store.get(RB) is None
     client.submit_targets(
         ExecutionRequest(
             strategy_id="alpha",

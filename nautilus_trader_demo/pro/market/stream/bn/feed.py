@@ -9,6 +9,7 @@ from market.basic.base import (
     DataType,
     InstrumentId,
     SubscriptionRequest,
+    make_bar,
     make_quote_tick,
     make_trade_tick,
 )
@@ -23,6 +24,30 @@ class BNWSConfig:
     ws_base_url: str = "wss://stream.binance.com:9443"
     api_key: str | None = None
     secret_key: str | None = None
+    market_type: str = "spot"
+
+    def __post_init__(self) -> None:
+        normalized = self.market_type.strip().lower()
+        if normalized not in {"spot", "futures"}:
+            raise ValueError("market_type必须是spot或futures")
+        self.market_type = normalized
+
+
+_BAR_SPEC_TO_INTERVAL = {
+    "1-MINUTE": "1m",
+    "3-MINUTE": "3m",
+    "5-MINUTE": "5m",
+    "15-MINUTE": "15m",
+    "30-MINUTE": "30m",
+    "1-HOUR": "1h",
+    "2-HOUR": "2h",
+    "4-HOUR": "4h",
+    "6-HOUR": "6h",
+    "8-HOUR": "8h",
+    "12-HOUR": "12h",
+    "1-DAY": "1d",
+}
+_INTERVAL_TO_BAR_SPEC = {value: key for key, value in _BAR_SPEC_TO_INTERVAL.items()}
 
 
 class BNWSStreamDataFeed(StreamDataFeed):
@@ -137,25 +162,52 @@ class BNWSStreamDataFeed(StreamDataFeed):
         self._active_streams.discard(self._stream_name(request))
 
     @staticmethod
-    def _stream_name(request: SubscriptionRequest) -> str:
-        raw_symbol = str(request.instrument_id).split(".")[0].lower()
+    def _raw_symbol(instrument_id: InstrumentId) -> str:
+        raw_symbol = str(instrument_id).split(".")[0]
+        return raw_symbol.removesuffix("-PERP").lower()
+
+    def _stream_name(self, request: SubscriptionRequest) -> str:
+        instrument_symbol = str(request.instrument_id).split(".")[0].upper()
+        is_perpetual = instrument_symbol.endswith("-PERP")
+        if self.config.market_type == "futures" and not is_perpetual:
+            raise ValueError(
+                "futures Feed必须订阅*-PERP.BINANCE，避免与现货标识冲突",
+            )
+        if self.config.market_type == "spot" and is_perpetual:
+            raise ValueError("spot Feed不能订阅永续合约标识")
+        raw_symbol = self._raw_symbol(request.instrument_id)
         if request.data_type == DataType.TRADE_TICK:
             return f"{raw_symbol}@trade"
         if request.data_type == DataType.QUOTE_TICK:
             return f"{raw_symbol}@bookTicker"
-        return f"{raw_symbol}@kline_1m"
+        if request.data_type == DataType.BAR:
+            bar_spec = (request.bar_spec or "1-MINUTE").strip().upper()
+            try:
+                interval = _BAR_SPEC_TO_INTERVAL[bar_spec]
+            except KeyError as exc:
+                raise ValueError(f"Binance实时Kline不支持周期: {bar_spec}") from exc
+            return f"{raw_symbol}@kline_{interval}"
+        raise ValueError(f"Binance实时行情不支持数据类型: {request.data_type.name}")
+
+    def _instrument_id(self, symbol: str) -> InstrumentId:
+        normalized = symbol.strip().upper()
+        if self.config.market_type == "futures":
+            normalized = f"{normalized.removesuffix('-PERP')}-PERP"
+        return InstrumentId.from_str(f"{normalized}.BINANCE")
 
     def on_ws_message(self, message: str | dict[str, Any]) -> None:
         if isinstance(message, str):
             data = json.loads(message)
         else:
             data = message
+        # 同时接受原始事件和Binance组合流外层结构。
+        data = data.get("data", data)
         event_type = data.get("e")
 
         # 1. 逐笔成交帧 (trade)
         if event_type == "trade":
             symbol = data["s"].upper()
-            inst_id = InstrumentId.from_str(f"{symbol}.BINANCE")
+            inst_id = self._instrument_id(symbol)
             trade_time_ms = int(data["T"])
             ts_ns = trade_time_ms * 1_000_000
             meta = self.get_instrument_meta(inst_id)
@@ -174,7 +226,7 @@ class BNWSStreamDataFeed(StreamDataFeed):
         # 2. 最优挂单帧 (bookTicker)
         elif "b" in data and "a" in data and "s" in data:
             symbol = data["s"].upper()
-            inst_id = InstrumentId.from_str(f"{symbol}.BINANCE")
+            inst_id = self._instrument_id(symbol)
             event_time_ms = data.get("E")
             ts_ns = (
                 int(event_time_ms) * 1_000_000
@@ -193,3 +245,36 @@ class BNWSStreamDataFeed(StreamDataFeed):
                 meta=meta,
             )
             self.enqueue_event(quote)
+
+        # 3. 已收盘Kline。进行中的x=false帧会不断覆盖，不能送入策略。
+        elif event_type == "kline":
+            kline = data.get("k") or {}
+            if not kline.get("x", False):
+                return
+            symbol = str(kline.get("s") or data.get("s") or "").upper()
+            if not symbol:
+                raise ValueError("Binance Kline缺少symbol")
+            interval = str(kline.get("i") or "")
+            try:
+                bar_spec = _INTERVAL_TO_BAR_SPEC[interval]
+            except KeyError as exc:
+                raise ValueError(f"Binance Kline周期不受支持: {interval!r}") from exc
+            inst_id = self._instrument_id(symbol)
+            meta = self.get_instrument_meta(inst_id)
+            if meta is None:
+                raise ValueError(f"Binance Kline合约尚未注册: {inst_id}")
+            close_time_ms = int(kline["T"])
+            event_time_ms = int(data.get("E", close_time_ms))
+            bar = make_bar(
+                instrument_id=inst_id,
+                open=kline["o"],
+                high=kline["h"],
+                low=kline["l"],
+                close=kline["c"],
+                volume=kline["v"],
+                ts_event=close_time_ms * 1_000_000,
+                ts_init=event_time_ms * 1_000_000,
+                meta=meta,
+                bar_type=bar_spec,
+            )
+            self.enqueue_event(bar)

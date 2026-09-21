@@ -20,6 +20,7 @@ from strategy import (
     RiskLimits,
     RiskRejected,
     RiskViolationCode,
+    SimulationExecutionClient,
 )
 
 
@@ -210,16 +211,163 @@ def test3_reduce_only_and_kill_switch() -> None:
     print("F1c3通过：只减仓模式和Kill Switch撤单/禁单规则正常")
 
 
+class _SimRiskBackend:
+    backend_id = "rb-sim"
+
+    def __init__(self) -> None:
+        self.orders: list[OrderIntent] = []
+
+    def register_report_handler(self, handler) -> None:
+        self.report_handler = handler
+
+    def start(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def submit_order(self, order: OrderIntent) -> None:
+        self.orders.append(order)
+
+    def cancel_strategy(self, strategy_id: str) -> None:
+        del strategy_id
+
+
+def test4_rb_multiplier_and_historical_risk_clock() -> None:
+    """RB名义金额按10倍合约乘数计算；Tick聚合信号不误判参考价超前。"""
+
+    rb = InstrumentId.from_str("rb2704.SHFE")
+    positions = PositionManager()
+    prices = MarketReferencePriceStore()
+    prices.update(rb, 3000, 200)
+    limits = RiskLimits(
+        max_order_quantity=2,
+        max_abs_position=2,
+        max_order_notional=50_000,
+        max_abs_position_notional=60_000,
+        max_market_age_ns=20,
+        contract_multiplier=10,
+    )
+    risk = PreTradeRiskManager(
+        "rb-sim",
+        positions,
+        prices,
+        instrument_limits={rb: limits},
+    )
+    backend = _SimRiskBackend()
+    client = SimulationExecutionClient(
+        "rb-sim",
+        NetTargetOrderPlanner(positions),
+        backend,
+        positions,
+        risk_manager=risk,
+    )
+    client.start()
+    try:
+        # 信号Bar时间早于触发它结束的行情时间：评估时刻取已处理行情200。
+        client.submit_targets(
+            ExecutionRequest(
+                strategy_id="rb-ema",
+                revision=1,
+                client_id="rb-sim",
+                ts_event=190,
+                targets={rb: Decimal(1)},
+                execution_policy="DIRECT",
+            ),
+        )
+        assert len(backend.orders) == 1
+        # 一手名义金额=3000×10=30000；两手超过50000订单上限。
+        oversized = OrderIntent(
+            strategy_id="rb-ema",
+            backend_id="rb-sim",
+            instrument_id=rb,
+            side=OrderSide.BUY,
+            quantity=2,
+        )
+        assert RiskViolationCode.ORDER_NOTIONAL in {
+            violation.code
+            for violation in risk.evaluate((oversized,), now_ns=200).violations
+        }
+        # 没有新行情而信号时间前进，仍须因行情过旧拒绝新增目标。
+        try:
+            client.submit_targets(
+                ExecutionRequest(
+                    strategy_id="rb-ema",
+                    revision=2,
+                    client_id="rb-sim",
+                    ts_event=221,
+                    targets={rb: Decimal(2)},
+                    execution_policy="DIRECT",
+                ),
+            )
+        except RiskRejected as error:
+            assert RiskViolationCode.MARKET_STALE in {
+                violation.code for violation in error.violations
+            }
+        else:
+            raise AssertionError("过期参考价必须拒绝新增RB目标")
+        assert len(backend.orders) == 1
+    finally:
+        client.stop()
+    print("F1c4通过：RB乘数名义金额与Tick聚合历史风控时钟正常")
+
+
+def test5_missing_reference_price_rejects_cleanly() -> None:
+    """无参考行情但启用价格风控时，明确拒单，而不是发生max(int)异常。"""
+
+    rb = InstrumentId.from_str("rb2704.SHFE")
+    positions = PositionManager()
+    backend = _SimRiskBackend()
+    client = SimulationExecutionClient(
+        backend.backend_id,
+        NetTargetOrderPlanner(positions),
+        backend,
+        positions,
+        risk_manager=PreTradeRiskManager(
+            backend.backend_id,
+            positions,
+            MarketReferencePriceStore(),
+            instrument_limits={rb: RiskLimits(max_market_age_ns=10)},
+        ),
+    )
+    client.start()
+    try:
+        try:
+            client.submit_targets(
+                ExecutionRequest(
+                    strategy_id="rb-ema",
+                    revision=1,
+                    client_id=backend.backend_id,
+                    ts_event=100,
+                    targets={rb: Decimal(1)},
+                    execution_policy="DIRECT",
+                ),
+            )
+        except RiskRejected as error:
+            assert RiskViolationCode.MARKET_PRICE_MISSING in {
+                violation.code for violation in error.violations
+            }
+        else:
+            raise AssertionError("缺少必需参考价时必须明确拒单")
+        assert not backend.orders
+        assert positions.working_quantity(backend.backend_id, rb) == 0
+    finally:
+        client.stop()
+    print("F1c5通过：缺少参考价时明确风控拒单，不抛时间计算异常")
+
+
 STAGES = {
     1: test1_limits_and_market_freshness,
     2: test2_client_pretrade_gate,
     3: test3_reduce_only_and_kill_switch,
+    4: test4_rb_multiplier_and_historical_risk_clock,
+    5: test5_missing_reference_price_rejects_cleanly,
 }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="F1c统一前置风控测试")
-    parser.add_argument("--stage", choices=("1", "2", "3", "all"), default="all")
+    parser.add_argument("--stage", choices=("1", "2", "3", "4", "5", "all"), default="all")
     args = parser.parse_args()
     selected = STAGES if args.stage == "all" else {int(args.stage): STAGES[int(args.stage)]}
     for function in selected.values():

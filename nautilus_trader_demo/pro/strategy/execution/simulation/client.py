@@ -87,9 +87,23 @@ class SimulationExecutionClient:
                 == KillSwitchMode.REDUCE_ONLY.value
             )
             if self.risk_manager is not None:
+                # 内部Tick聚合的Bar时间可能是上一分钟边界，而触发该Bar的
+                # 下一分钟Quote/Trade已先进入参考价存储。风控评估时刻应是
+                # 当前已经处理到的行情时刻，不能用较早的信号Bar时间把有效
+                # 参考价误判为“未来行情”。ExecutionRequest.ts_event仍保留
+                # 原始信号时间，供回测前视审计。
+                reference_times = (
+                    reference.ts_event
+                    for order in orders
+                    if (reference := self.risk_manager.price_store.get(order.instrument_id))
+                    is not None
+                )
+                # 单个时间戳不能调用max(value)：那会进入「单可迭代对象」重载，
+                # 在尚无参考行情（或本批无订单）时对int抛TypeError。
+                # 将信号时间也放入序列，保证空reference_times仍有一个候选值。
                 self.risk_manager.check(
                     orders,
-                    now_ns=request.ts_event,
+                    now_ns=max((request.ts_event, *reference_times)),
                     mode_override=(
                         KillSwitchMode.REDUCE_ONLY
                         if health_reduce_only

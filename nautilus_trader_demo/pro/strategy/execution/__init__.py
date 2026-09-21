@@ -30,6 +30,7 @@ from strategy.execution.risk import (
     RiskViolation,
     RiskViolationCode,
 )
+from strategy.execution.recording import RecordingExecutionClient
 from strategy.execution.planner import NetTargetOrderPlanner
 from strategy.execution.live import (
     BackendExecutionClient,
@@ -107,6 +108,7 @@ __all__ = [
     "PositionEffect",
     "PreTradeRiskManager",
     "ReferencePrice",
+    "RecordingExecutionClient",
     "RiskDecision",
     "RiskLimits",
     "RiskRejected",

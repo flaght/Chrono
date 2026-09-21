@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
@@ -45,12 +46,18 @@ class NautilusTradingNodeDriver:
         reconcile_callback: Callable[
             [], Mapping[InstrumentId | str, Decimal | int | float | str]
         ] | None = None,
+        ready_callback: Callable[[], bool] | None = None,
+        startup_timeout: float = 30.0,
     ) -> None:
         if not driver_id.strip():
             raise ValueError("driver_id不能为空")
         self.driver_id = driver_id
         self.node = node
         self._reconcile_callback = reconcile_callback
+        if startup_timeout <= 0:
+            raise ValueError("startup_timeout必须大于0")
+        self._ready_callback = ready_callback
+        self._startup_timeout = startup_timeout
         self._gateway: NautilusOrderGateway | None = None
         self._thread: threading.Thread | None = None
         self._started = False
@@ -68,6 +75,27 @@ class NautilusTradingNodeDriver:
             daemon=True,
         )
         self._thread.start()
+        if self._ready_callback is not None:
+            deadline = time.monotonic() + self._startup_timeout
+            while not self._ready_callback():
+                if self._thread is not None and not self._thread.is_alive():
+                    self.node.dispose()
+                    self._gateway = None
+                    self._thread = None
+                    raise RuntimeError("TradingNode在完成启动前已经退出")
+                if time.monotonic() >= deadline:
+                    try:
+                        self.node.stop()
+                    finally:
+                        if self._thread is not None and self._thread.is_alive():
+                            self._thread.join(timeout=5.0)
+                        self.node.dispose()
+                        self._gateway = None
+                        self._thread = None
+                    raise TimeoutError(
+                        f"TradingNode在{self._startup_timeout:g}秒内未就绪",
+                    )
+                time.sleep(0.05)
         self._started = True
 
     def stop(self) -> None:
