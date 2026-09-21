@@ -107,6 +107,27 @@ experiment_setups:
     model_id: "1018806311332385" #"7" #1018806311332385
     form: "metrics"
 
+  "nn_rbb_strategy": # 6.1.9.build_hybrid_transformer_loss_strategy.py
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    form: "forecast"
+    trial_id: 10002 # forecast 模式 指定训练不同组
+    split: "test"# forecast 模式 指定不同数据集
+    inference_batch_size: 4096
+    device: "cuda"
+    model_id: "1018806311332385" # 用于predict 模式 指定模型
+
+  "nn_rbb_signal": # 6.4.1.transformer_signal_backtest
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    trial_id: "10001"
+    form: "metrics"
+
+
   "rl_rbb_eval": # 6.2.2.rl_signal_backtest.py
     method: ricso2
     task_id: "113001"
@@ -173,4 +194,4 @@ experiment_setups:
     train_id: 10001
     feature_id: 10001
     regime_id: 10001
-    form: "forecast"
+    form: "train"
