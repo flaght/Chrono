@@ -197,6 +197,124 @@ def parse_summary_file2(file_path):
     return final_data
 
 
+def load_signal_performance(base_dir, data_type=None):
+    """加载信号回测落盘绩效，供 Notebook 独立查询。
+
+    Parameters
+    ----------
+    base_dir : str or pathlib.Path
+        可以传入 ``.../rl``、``.../rl/composite``，也可以直接传入
+        composite 下某个模型目录。函数会递归查找 performance_summary.txt。
+    data_type : {None, 'optimi', 'obse', 'obs'}
+        ``optimi`` 是参数寻优集；``obse`` 是参数验证集，，``obs`` 是
+        ``obse`` 的查询别名。None 表示同时加载两类数据。
+
+    Returns
+    -------
+    pandas.DataFrame
+        每个模型、品种、信号参数和数据类型一行，同时包含原始绩效文件
+        与 evaluation_plot.png 的绝对路径。
+    """
+    aliases = {
+        "optimi": "optimi",
+        "obse": "obse",
+        "obs": "obse",
+        "test": "trst"
+    }
+    selected_type = None
+    if data_type is not None:
+        selected_type = aliases.get(str(data_type).lower())
+        if selected_type is None:
+            raise ValueError("data_type只允许None、optimi、obse或obs")
+
+    search_root = Path(base_dir).expanduser()
+    if not search_root.exists():
+        raise FileNotFoundError(f"绩效根目录不存在: {search_root}")
+    if search_root.name != "composite" and (search_root /
+                                            "composite").is_dir():
+        search_root = search_root / "composite"
+
+    records = []
+    for summary_path in sorted(search_root.rglob("performance_summary.txt")):
+        result_name = summary_path.parent.name
+        segment = next((canonical for suffix, canonical in aliases.items()
+                        if result_name.endswith(f"_{suffix}")), None)
+        if segment is None or (selected_type is not None
+                               and segment != selected_type):
+            continue
+
+        # 标准目录：model/signal_method/signal_id/result_name/summary。
+        # 从文件向上解析，因此base_dir既可以是rl/composite，也可以直接
+        # 指向某个模型目录。
+        result_dir = summary_path.parent
+        signal_id_dir = result_dir.parent
+        signal_method_dir = signal_id_dir.parent
+        model_dir = signal_method_dir.parent
+        if not all((result_dir.name, signal_id_dir.name,
+                    signal_method_dir.name, model_dir.name)):
+            continue
+        model = model_dir.name
+        signal_method = signal_method_dir.name
+        signal_id = signal_id_dir.name
+        parsed = parse_summary(summary_path)
+        plot_path = summary_path.with_name("evaluation_plot.png")
+
+        def percent_to_ratio(value):
+            return None if value is None else float(value) / 100.0
+
+        records.append({
+            "signal_method":
+            signal_method,
+            "signal_id":
+            str(signal_id),
+            "model":
+            model,
+            "code":
+            result_name.split("_", 1)[0],
+            "segment":
+            segment,
+            "data_type": ("参数寻优集" if segment == "optimi" else
+                          ("固定参数集" if segment == 'obse' else "测试集")),
+            "avg_ret":
+            parsed.get("avg_ret"),
+            "total_ret":
+            percent_to_ratio(parsed.get("total_ret")),
+            "sharpe":
+            parsed.get("sharpe"),
+            "ann_sharpe":
+            parsed.get("ann_sharpe"),
+            "max_dd":
+            percent_to_ratio(parsed.get("max_dd")),
+            "calmar":
+            parsed.get("calmar"),
+            "win_rate":
+            percent_to_ratio(parsed.get("win_rate")),
+            "pl_ratio":
+            parsed.get("pl_ratio"),
+            "ic_mean":
+            parsed.get("ic_mean"),
+            "icir":
+            parsed.get("icir"),
+            "turnover":
+            parsed.get("turnover"),
+            "factor_ac":
+            parsed.get("factor_ac"),
+            "ret_ac":
+            parsed.get("ret_ac"),
+            "performance_file":
+            str(summary_path.resolve()),
+            "plot":
+            str(plot_path.resolve()) if plot_path.exists() else None,
+        })
+
+    if not records:
+        suffix = "全部数据类型" if selected_type is None else selected_type
+        raise FileNotFoundError(f"在{search_root}下没有找到{suffix}的信号绩效文件")
+    return (pd.DataFrame(records).sort_values(
+        ["segment", "signal_method", "signal_id", "model",
+         "code"]).reset_index(drop=True))
+
+
 def parse_comparison_summary(file_path):
     """解析双品种对比表，每个品种返回一条记录，百分数保留百分数值。"""
     key_mapping = {
@@ -522,7 +640,6 @@ def fetch_data4(method,
                              "nxt1_ret_{0}h".format(period))
     cohort_data = pd.read_csv(os.path.join(file_path, filename))
     cohort_data['source'] = cohort_data['source'].astype(int)
-    cohort_data['direction'] = cohort_data['direction'].astype(int)
     cohort_data['factor_id'] = cohort_data['formula'].apply(
         lambda x: create_id(generate_simple_id(x)))
     records = []
@@ -536,18 +653,13 @@ def fetch_data4(method,
                     rec['expression'] = row.formula
                 if not rec.get('name') and hasattr(row, 'factor_id'):
                     rec['name'] = row.factor_id
-                if not rec.get('source'):
-                    rec['source'] = row.source
-                if not rec.get('direction'):
-                    rec['direction'] = row.direction
-                    
             records.extend(recs)
         else:
             print(f"Warning: {summary_file} not found")
 
     df = pd.DataFrame(
         records,
-        columns=[*STANDARD_SCHEMA, 'total_ic', 'category', 'instrument', 'source', 'direction'])
+        columns=[*STANDARD_SCHEMA, 'total_ic', 'category', 'instrument'])
 
     return df
 
@@ -565,6 +677,22 @@ def extract_href(value):
         return unescape(match.group(1))
 
     return unescape(text)
+
+
+def to_html1(results, u_name, k_name=[]):
+    data = results.copy()
+    temp_id = data
+    data['id'] = [
+        '_'.join(map(str, row)) for row in data[k_name].itertuples(index=False)
+    ]
+    data['id'] = data['id'].apply(lambda x: create_id(generate_simple_id(x)))
+    data[u_name] = data.apply(
+        lambda row:
+        (f'<a href="{escape(extract_href(row["plot"]), quote=True)}">'
+         f'{escape(str(row["id"]))}</a>'),
+        axis=1,
+    )
+    return display(HTML(data.to_html(escape=False, index=False)))
 
 
 def to_html(results):
@@ -1026,13 +1154,13 @@ def _merge_annual_images_with_labels(window_plots,
         with Image.open(path) as source:
             images.append((window, source.convert('RGB').copy()))
     first_width, first_height = images[0][1].size
-    target_width = min(int(cell_width), first_width) if cell_width else first_width
+    target_width = min(int(cell_width),
+                       first_width) if cell_width else first_width
     target_height = max(1, round(first_height * target_width / first_width))
     rows = int(np.ceil(len(images) / columns))
-    canvas = Image.new(
-        'RGB',
-        (target_width * columns, (target_height + banner_height) * rows),
-        'white')
+    canvas = Image.new('RGB', (target_width * columns,
+                               (target_height + banner_height) * rows),
+                       'white')
     draw = ImageDraw.Draw(canvas)
     font = _get_font(size=26)
     colors = [
@@ -1044,15 +1172,13 @@ def _merge_annual_images_with_labels(window_plots,
         x = column * target_width
         y = row * (target_height + banner_height)
         scale = min(target_width / source.width, target_height / source.height)
-        resized = source.resize(
-            (max(1, round(source.width * scale)),
-             max(1, round(source.height * scale))),
-            bilinear_filter)
+        resized = source.resize((max(1, round(
+            source.width * scale)), max(1, round(source.height * scale))),
+                                bilinear_filter)
         image_x = x + (target_width - resized.width) // 2
         image_y = y + banner_height + (target_height - resized.height) // 2
-        draw.rectangle(
-            [x, y, x + target_width, y + banner_height],
-            fill=colors[index % len(colors)])
+        draw.rectangle([x, y, x + target_width, y + banner_height],
+                       fill=colors[index % len(colors)])
         title = window.upper()
         if hasattr(draw, 'textbbox'):
             bbox = draw.textbbox((0, 0), title, font=font)
@@ -1071,12 +1197,12 @@ def _merge_annual_images_with_labels(window_plots,
         output_image = canvas
     else:
         palette = getattr(Image, 'Palette', Image)
-        output_image = canvas.convert(
-            'P', palette=palette.ADAPTIVE, colors=int(png_colors))
-    output_image.save(
-        save_path,
-        format='PNG',
-        compress_level=int(png_compress_level))
+        output_image = canvas.convert('P',
+                                      palette=palette.ADAPTIVE,
+                                      colors=int(png_colors))
+    output_image.save(save_path,
+                      format='PNG',
+                      compress_level=int(png_compress_level))
     if output_image is not canvas:
         output_image.close()
     canvas.close()
@@ -1105,15 +1231,14 @@ def _write_annual_plots_html(window_plots,
     os.makedirs(output_dir, exist_ok=True)
     figures = []
     for window, image_path in valid_items:
-        relative_path = os.path.relpath(image_path, output_dir).replace(
-            os.sep, '/')
-        figures.append(
-            '<figure>'
-            f'<figcaption>{escape(window.upper())}</figcaption>'
-            f'<a href="{escape(relative_path, quote=True)}">'
-            f'<img src="{escape(relative_path, quote=True)}" '
-            'loading="lazy" decoding="async"></a>'
-            '</figure>')
+        relative_path = os.path.relpath(image_path,
+                                        output_dir).replace(os.sep, '/')
+        figures.append('<figure>'
+                       f'<figcaption>{escape(window.upper())}</figcaption>'
+                       f'<a href="{escape(relative_path, quote=True)}">'
+                       f'<img src="{escape(relative_path, quote=True)}" '
+                       'loading="lazy" decoding="async"></a>'
+                       '</figure>')
     html = f'''<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1169,17 +1294,19 @@ def merge_annual_factor_plots(method,
     if expressions is None:
         raise ValueError('expressions 不能为空')
     if isinstance(expressions, pd.DataFrame):
-        formula_column = ('expression' if 'expression' in expressions.columns
-                          else 'formula' if 'formula' in expressions.columns
-                          else None)
+        formula_column = (
+            'expression' if 'expression' in expressions.columns else
+            'formula' if 'formula' in expressions.columns else None)
         if formula_column is None:
             raise ValueError('DataFrame 需要 expression 或 formula 字段')
         formulas = expressions[formula_column].dropna().astype(str).tolist()
     elif isinstance(expressions, str):
         formulas = [expressions]
     else:
-        formulas = [str(expression) for expression in expressions
-                    if pd.notna(expression)]
+        formulas = [
+            str(expression) for expression in expressions
+            if pd.notna(expression)
+        ]
     formulas = list(dict.fromkeys(formulas))
     if not formulas:
         raise ValueError('没有有效的因子表达式')
@@ -1189,15 +1316,14 @@ def merge_annual_factor_plots(method,
     if output_format not in {'png', 'html'}:
         raise ValueError("output_format 只能是 'png' 或 'html'")
     years = sorted({int(year) for year in years})
-    window_order = ([full_window] if full_window else []) + [
-        f'year_{year}' for year in years
-    ]
+    window_order = ([full_window] if full_window else
+                    []) + [f'year_{year}' for year in years]
 
     if annual_root is not None:
         roots = [Path(annual_root)]
     else:
-        relative = (Path(method) / str(instruments) / 'rulex' / str(task_id)
-                    / f'nxt1_ret_{period}h' / str(category))
+        relative = (Path(method) / str(instruments) / 'rulex' / str(task_id) /
+                    f'nxt1_ret_{period}h' / str(category))
         roots = [Path(base_path) / relative, Path('records') / relative]
     expanded_roots = []
     for root in roots:
@@ -1205,12 +1331,11 @@ def merge_annual_factor_plots(method,
     roots = list(dict.fromkeys(expanded_roots))
     existing_roots = [root for root in roots if root.exists()]
     if not existing_roots:
-        raise FileNotFoundError(
-            '未找到年度图片目录: ' + ', '.join(str(root) for root in roots))
+        raise FileNotFoundError('未找到年度图片目录: ' +
+                                ', '.join(str(root) for root in roots))
 
-    output_root = existing_roots[0] / (
-        'merged_year_html' if output_format == 'html'
-        else 'merged_year_plots')
+    output_root = existing_roots[0] / ('merged_year_html' if output_format
+                                       == 'html' else 'merged_year_plots')
     tasks = []
     records = []
     for formula in formulas:
@@ -1223,12 +1348,17 @@ def merge_annual_factor_plots(method,
                     factor_dir / 'comparison_plot.png',
                     factor_dir / 'evaluation_plot.png'
                 ]
-                plot = next((path for path in candidates if path.exists()), None)
+                plot = next((path for path in candidates if path.exists()),
+                            None)
                 if plot is not None:
                     window_plots[window] = str(plot)
                     break
-        available = [window for window in window_order if window in window_plots]
-        missing = [window for window in window_order if window not in window_plots]
+        available = [
+            window for window in window_order if window in window_plots
+        ]
+        missing = [
+            window for window in window_order if window not in window_plots
+        ]
         suffix = 'html' if output_format == 'html' else 'png'
         merged_path = output_root / f'{factor_id}_annual_merged.{suffix}'
         if available and (overwrite or not merged_path.exists()):
@@ -1245,27 +1375,18 @@ def merge_annual_factor_plots(method,
 
     if tasks and output_format == 'html':
         for plots, output, formula in tasks:
-            _write_annual_plots_html(
-                plots,
-                output,
-                window_order,
-                formula,
-                columns=columns,
-                overwrite=overwrite)
+            _write_annual_plots_html(plots,
+                                     output,
+                                     window_order,
+                                     formula,
+                                     columns=columns,
+                                     overwrite=overwrite)
     elif tasks:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
-                executor.submit(
-                    _merge_annual_images_with_labels,
-                    plots,
-                    output,
-                    window_order,
-                    columns,
-                    60,
-                    cell_width,
-                    overwrite,
-                    png_colors,
-                    png_compress_level)
+                executor.submit(_merge_annual_images_with_labels, plots,
+                                output, window_order, columns, 60, cell_width,
+                                overwrite, png_colors, png_compress_level)
                 for plots, output, _ in tasks
             ]
             for future in futures:

@@ -15,18 +15,19 @@ from .model import HybridTransformerRegressor
 from .metrics import evaluate_predictions
 
 
-def _result_dir(method, instruments, task_id, period, name):
+def _result_dir(method, instruments, task_id, period, trial_id, name):
     return os.path.join(base_path, method, instruments, "temp", "model",
-                        str(task_id), str(period), "rl",
+                        str(task_id), str(period), "rl", str(trial_id),
                         "hybrid_transformer_loss", "result", str(name))
 
 
-def find_model_files(method, instruments, task_id, period, model_id):
+def find_model_files(method, instruments, task_id, period, trial_id, model_id):
     """由主task_id和训练结果ID定位模型与固化参数文件。"""
     task_key, model_id = str(task_id), str(model_id)
     if not model_id.isdigit():
         raise ValueError("run_id必须是数字训练结果ID")
-    run_dir = _result_dir(method, instruments, task_key, period, model_id)
+    run_dir = _result_dir(method, instruments, task_key, period, trial_id,
+                          model_id)
     files = {
         "run_dir": run_dir,
         "model_path": os.path.join(run_dir, "models", "best_model.pt"),

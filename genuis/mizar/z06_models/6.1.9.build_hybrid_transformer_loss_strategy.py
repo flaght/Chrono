@@ -17,6 +17,18 @@ from lib.nn004.predict import predict_test_set
 from lib.nn004.train import train_model
 
 PAIRE_TASK = {"113001": ("hcb", "134001")}
+ENSEMBLE_TASK = {
+    10001: {
+        42: "1048239198485335",
+        3407: "1056628310147615",
+        2026: "1026780123442923"
+    },
+    10002: {
+        42: "1013995178499222",
+        3407: "1077034256017865",
+        2026: "1087298621243300"
+    }
+}
 
 
 def _sanitize_frame(df, columns):
@@ -32,12 +44,14 @@ def _sanitize_frame(df, columns):
     return df
 
 
-def _load_split(method, instruments, task_id, period, split, features, regime,
-                ret_name, expected_code):
+def _load_split(method, instruments, task_id, period, trial_id, split,
+                features, regime, ret_name, expected_code):
     data_dir = os.path.join(base_path, method, instruments, "temp", "model",
-                            str(task_id), str(period), "rl", "data")
+                            str(task_id), str(period), "rl", str(trial_id),
+                            "data")
     path = os.path.join(data_dir, f"{split}_data.feather")
     data = pd.read_feather(path)
+
     required = {"trade_time", "code", ret_name, *features, *regime}
     missing = required - set(data.columns)
     if missing:
@@ -54,12 +68,12 @@ def _load_split(method, instruments, task_id, period, split, features, regime,
     return data
 
 
-def load_data1(method, instruments, task_id, period, features, regime,
-               ret_name, expected_code):
-    train = _load_split(method, instruments, task_id, period, "train",
-                        features, regime, ret_name, expected_code)
-    val = _load_split(method, instruments, task_id, period, "val", features,
-                      regime, ret_name, expected_code)
+def load_data1(method, instruments, task_id, period, trial_id, features,
+               regime, ret_name, expected_code):
+    train = _load_split(method, instruments, task_id, period, trial_id,
+                        "train", features, regime, ret_name, expected_code)
+    val = _load_split(method, instruments, task_id, period, trial_id, "val",
+                      features, regime, ret_name, expected_code)
     if train["trade_time"].max() >= val["trade_time"].min():
         raise ValueError(f"{expected_code} train/val 时间重叠或顺序错误")
     return train, val
@@ -78,10 +92,10 @@ def _merge_assets(left, right):
     return data.sort_values(["code", "trade_time"]).reset_index(drop=True)
 
 
-def _load_params(method, instruments, task_id, period, env_id, trade_id,
-                 model_id, train_id, feature_id, regime_id):
+def _load_params(method, instruments, task_id, period, trial_id, env_id,
+                 trade_id, model_id, train_id, feature_id, regime_id):
     file_dirs = os.path.join(base_path, method, instruments, "temp", "model",
-                             str(task_id), str(period), "rl")
+                             str(task_id), str(period), "rl", str(trial_id))
     return load_rl_params(file_dirs=file_dirs,
                           trade_id=trade_id,
                           model_id=model_id,
@@ -116,36 +130,48 @@ def _validate_core(period, trade_params, env_params, train_params):
         raise ValueError(f"损失参数缺少: {sorted(missing)}")
 
 
-def _result_dir(method, instruments, task_id, period, name):
+def _result_dir(method, instruments, task_id, period, trial_id, name):
     return os.path.join(base_path, method, instruments, "temp", "model",
-                        str(task_id), str(period), "rl",
+                        str(task_id), str(period), "rl", str(trial_id),
                         "hybrid_transformer_loss", "result", str(name))
 
 
-def train(method, instruments, task_id, period, env_id, trade_id, model_id,
-          train_id, feature_id, regime_id):
+def train(method, instruments, task_id, period, trial_id, env_id, trade_id,
+          model_id, train_id, feature_id, regime_id):
     task_key = str(task_id)
     if task_key not in PAIRE_TASK:
         raise KeyError(f"未配置主任务 {task_key} 的配对品种")
     (env_params, trade_params, model_params, train_params, selected_features,
-     min_regime, daily_regime) = _load_params(method, instruments, task_id,
-                                              period, env_id, trade_id,
-                                              model_id, train_id, feature_id,
-                                              regime_id)
+     min_regime, daily_regime) = _load_params(method=method,
+                                              instruments=instruments,
+                                              task_id=task_id,
+                                              trial_id=trial_id,
+                                              period=period,
+                                              env_id=env_id,
+                                              trade_id=trade_id,
+                                              model_id=model_id,
+                                              train_id=train_id,
+                                              feature_id=feature_id,
+                                              regime_id=regime_id)
     _validate_core(period, trade_params, env_params, train_params)
     name = _run_identity(trade_params, env_params, model_params, train_params,
                          selected_features, min_regime, daily_regime)
-    output_dir = _result_dir(method, instruments, task_id, period, name)
+    output_dir = _result_dir(method=method,
+                             instruments=instruments,
+                             task_id=task_id,
+                             period=period,
+                             trial_id=trial_id,
+                             name=name)
     os.makedirs(output_dir, exist_ok=True)
     logger.configure(log_file=os.path.join(output_dir, "model.log"))
 
     right_instruments, right_task = PAIRE_TASK[task_key]
     rb_train, rb_val = load_data1(method, instruments, task_id, period,
-                                  selected_features, min_regime,
+                                  trial_id, selected_features, min_regime,
                                   trade_params["ret_name"], "RB")
     hc_train, hc_val = load_data1(method, right_instruments, right_task,
-                                  period, selected_features, min_regime,
-                                  trade_params["ret_name"], "HC")
+                                  period, trial_id, selected_features,
+                                  min_regime, trade_params["ret_name"], "HC")
     train_data = _merge_assets(rb_train, hc_train)
     val_data = _merge_assets(rb_val, hc_val)
     env_config = {
@@ -215,6 +241,7 @@ def forecast(method,
              instruments,
              task_id,
              period,
+             trial_id,
              seed_run_ids,
              split="val",
              output_dir=None,
@@ -237,7 +264,7 @@ def forecast(method,
         raise ValueError("forecast至少需要两个不同seed的模型")
     run_dirs = {
         seed:
-        find_model_files(method, instruments, task_id, period,
+        find_model_files(method, instruments, task_id, period, trial_id,
                          run_id)["run_dir"]
         for seed, run_id in ids.items()
     }
@@ -246,17 +273,20 @@ def forecast(method,
     asset_paths = {
         code:
         os.path.join(base_path, method, asset, "temp", "model", str(task),
-                     str(period), "rl", "data", f"{split}_data.feather")
+                     str(period), "rl", str(trial_id), "data",
+                     f"{split}_data.feather")
         for code, asset, task in ((INSTRUMENTS_CODES[instruments], instruments,
                                    task_id),
                                   (INSTRUMENTS_CODES[right_instruments],
                                    right_instruments, right_task))
     }
     if output_dir is None:
-        name = "ensemble_" + "_".join(f"s{seed}_{ids[seed]}"
-                                      for seed in sorted(ids))
+        #name = "ensemble_" + "_".join(f"s{seed}_{ids[seed]}"
+        #                              for seed in sorted(ids))
+        name = "_".join(f"{ids[seed]}" for seed in sorted(ids))
         output_dir = os.path.join(
-            _result_dir(method, instruments, task_id, period, name), split)
+            _result_dir(method, instruments, task_id, period, trial_id,
+                        os.path.join("ensemble", name)), split)
 
     return compare_seeds(run_dirs=run_dirs,
                          asset_paths=asset_paths,
@@ -281,7 +311,8 @@ if __name__ == "__main__":
               model_id=variant.model_id,
               train_id=variant.train_id,
               feature_id=variant.feature_id,
-              regime_id=variant.regime_id)
+              regime_id=variant.regime_id,
+              trial_id=10002)
     elif variant.form == "predict":
         predict(method=variant.method,
                 instruments=variant.instruments,
@@ -299,14 +330,15 @@ if __name__ == "__main__":
             instruments=variant.instruments,
             task_id=variant.task_id,
             period=variant.period,
-            seed_run_ids={
-                42: "1048239198485335",
-                3407: "1056628310147615",
-                2026: "1026780123442923",
-            },
-            split="test",
-            inference_batch_size=4096,
-            device="cuda",
-        )
+            seed_run_ids=ENSEMBLE_TASK[variant.trial_id],
+            # seed_run_ids={
+            #     42: "1013995178499222",  #42: "1048239198485335",
+            #     3407: "1077034256017865",  #3407: "1056628310147615",
+            #     2026: "1087298621243300",  #2026: "1026780123442923",
+            # },
+            split=variant.split,  #"val",
+            inference_batch_size=variant.inference_batch_size,
+            device=variant.device,
+            trial_id=variant.trial_id)
     else:
         raise ValueError(f"不支持 form={variant.form}")
