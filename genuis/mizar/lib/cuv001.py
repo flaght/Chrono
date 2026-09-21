@@ -36,6 +36,20 @@ sns.set_style('whitegrid')
 
 class FactorEvaluate1(object):
 
+    @classmethod
+    def from_window(cls, factor_data: pd.DataFrame,
+                 resampling_win: int = 1,
+                 factor_name: str = 'factor',
+                 ret_name: str = 'ret',
+                 roll_win: int = 252,
+                 fee: float = 0.0003,
+                 scale_method: str = 'roll_min_max',
+                 annualization_factor: int = 252,
+                 expression=None,
+                 name=None):
+        pass
+        
+        
     def __init__(self,
                  factor_data: pd.DataFrame,
                  resampling_win: int = 1,
@@ -134,9 +148,9 @@ class FactorEvaluate1(object):
         """
         self.resample_data['ic'] = self.resample_data[self.ret_name].rolling(
             window=self.roll_win,
-            min_periods=5).corr(self.resample_data[self.factor_name])
+            min_periods=5).corr(self.resample_data['f_scaled'])
         total_ic = self.resample_data[self.ret_name].corr(
-            self.resample_data[self.factor_name])
+            self.resample_data['f_scaled'])
         self.resample_data['cumsum_ic'] = self.resample_data['ic'].cumsum()
         ic_mean = self.resample_data['ic'].mean()
         ic_std = self.resample_data['ic'].std()
@@ -193,8 +207,8 @@ class FactorEvaluate1(object):
 
         rets_mean = daily_net_ret.mean() * self.annualization_factor
         rets_std = daily_net_ret.std() * np.sqrt(self.annualization_factor)
-        sharpe2 = (rets_mean / rets_std
-                   if np.isfinite(rets_std) and rets_std > 0 else 0)
+        sharpe2 = (rets_mean /
+                   rets_std if np.isfinite(rets_std) and rets_std > 0 else 0)
         period_std = self.resample_data['net_ret'].std()
         sharpe1 = (self.resample_data['net_ret'].mean() / period_std
                    if np.isfinite(period_std) and period_std > 0 else 0)
@@ -206,8 +220,8 @@ class FactorEvaluate1(object):
 
         winning_returns = self.resample_data.loc[
             self.resample_data['net_ret'] > 0, 'net_ret']
-        losing_returns = self.resample_data.loc[
-            self.resample_data['net_ret'] < 0, 'net_ret']
+        losing_returns = self.resample_data.loc[self.resample_data['net_ret'] <
+                                                0, 'net_ret']
         profit_ratio = (winning_returns.mean() / abs(losing_returns.mean())
                         if not losing_returns.empty else np.inf)
         if winning_returns.empty:
@@ -324,8 +338,8 @@ class FactorEvaluate1(object):
         self.resample_data = self.factor_data[is_on_mark].copy()
 
         self.resample_data.replace([np.inf, -np.inf], np.nan, inplace=True)
-        self.resample_data = self.resample_data.loc[
-            self.resample_data[self.ret_name].notna()].copy()
+        self.resample_data = self.resample_data.loc[self.resample_data[
+            self.ret_name].notna()].copy()
         if self.resample_data.empty:
             raise ValueError('No valid return observations after resampling.')
 
@@ -439,8 +453,10 @@ class FactorEvaluate1(object):
                 return series
             if max_points < 2:
                 raise ValueError('max_line_points must be at least 2 or None')
-            positions = np.linspace(
-                0, len(series) - 1, num=max_points, dtype=np.int64)
+            positions = np.linspace(0,
+                                    len(series) - 1,
+                                    num=max_points,
+                                    dtype=np.int64)
             return series.iloc[np.unique(positions)]
 
         def set_sequential_xticks(ax, series, num_ticks=7):
@@ -470,8 +486,8 @@ class FactorEvaluate1(object):
 
         # 1. 净值曲线 (NAV)
         ax1 = axes[0, 0]
-        nav_data = downsample_series(
-            self.resample_data['nav'].dropna(), max_line_points)
+        nav_data = downsample_series(self.resample_data['nav'].dropna(),
+                                     max_line_points)
         gross_ret_data = downsample_series(
             (1 + self.resample_data['gross_ret']).cumprod().dropna(),
             max_line_points)
@@ -545,8 +561,8 @@ class FactorEvaluate1(object):
 
         # 3. IC 和 累计IC
         ax3 = axes[1, 0]
-        ic_data = downsample_series(
-            self.resample_data['ic'].dropna(), max_line_points)
+        ic_data = downsample_series(self.resample_data['ic'].dropna(),
+                                    max_line_points)
         cumsum_ic_data = downsample_series(
             self.resample_data['cumsum_ic'].dropna(), max_line_points)
 
@@ -574,13 +590,12 @@ class FactorEvaluate1(object):
 
         # 4. 因子 vs. 收益率散点图
         ax4 = axes[1, 1]
-        scatter_data = self.resample_data[
-            [self.factor_name, self.ret_name]].dropna()
+        scatter_data = self.resample_data[[self.factor_name,
+                                           self.ret_name]].dropna()
         if (max_scatter_points is not None
                 and len(scatter_data) > max_scatter_points):
             if max_scatter_points < 1:
-                raise ValueError(
-                    'max_scatter_points must be positive or None')
+                raise ValueError('max_scatter_points must be positive or None')
             scatter_data = scatter_data.sample(
                 n=max_scatter_points, random_state=scatter_random_state)
         ax4.scatter(scatter_data[self.factor_name],
@@ -597,9 +612,9 @@ class FactorEvaluate1(object):
 
         # 5. 每日收益率与回撤
         ax5 = axes[2, 0]
-        drawdown_data = downsample_series((
-            (self.resample_data['nav'] / self.resample_data['nav'].cummax() -
-             1) * 100).dropna(), max_line_points)
+        drawdown_data = downsample_series(
+            ((self.resample_data['nav'] / self.resample_data['nav'].cummax() -
+              1) * 100).dropna(), max_line_points)
 
         drawdown_data.plot(ax=ax5, color='red', alpha=0.8, use_index=False)
         # fill_between 需要 numpy 数组
@@ -733,14 +748,14 @@ class FactorEvaluate1(object):
         effective_ic = ET.SubElement(characteristics, 'effective_ic', {
             'description': '方向调整后实际用于收益计算的因子IC',
         })
-        add_metric(effective_ic, 'total_ic', self.stats['effective_total_ic'], '全样本IC',
-                   'correlation')
-        add_metric(effective_ic, 'ic_mean', self.stats['effective_ic_mean'], '滚动IC平均值',
-                   'correlation')
-        add_metric(effective_ic, 'ic_std', self.stats.get('effective_ic_std'), '滚动IC标准差',
-                   'correlation')
-        add_metric(effective_ic, 'ic_ir', self.stats.get('effective_ic_ir'), '滚动ICIR',
-                   'ratio')
+        add_metric(effective_ic, 'total_ic', self.stats['effective_total_ic'],
+                   '全样本IC', 'correlation')
+        add_metric(effective_ic, 'ic_mean', self.stats['effective_ic_mean'],
+                   '滚动IC平均值', 'correlation')
+        add_metric(effective_ic, 'ic_std', self.stats.get('effective_ic_std'),
+                   '滚动IC标准差', 'correlation')
+        add_metric(effective_ic, 'ic_ir', self.stats.get('effective_ic_ir'),
+                   '滚动ICIR', 'ratio')
 
         add_metric(characteristics, 'factor_autocorrelation',
                    self.stats.get('factor_autocorr'), '原始因子一阶自相关',
@@ -752,8 +767,8 @@ class FactorEvaluate1(object):
         add_metric(distribution, 'coverage', self.stats.get('factor_coverage'),
                    '有效因子值覆盖率', 'decimal_ratio')
         add_metric(distribution, 'zero_rate',
-                   self.stats.get('factor_zero_rate'),
-                   '有效原始因子中近似为零的比例', 'decimal_ratio')
+                   self.stats.get('factor_zero_rate'), '有效原始因子中近似为零的比例',
+                   'decimal_ratio')
         add_metric(distribution, 'mean', self.stats.get('factor_mean'),
                    '原始因子均值', 'factor_value')
         add_metric(distribution, 'std', self.stats.get('factor_std'),
@@ -840,3 +855,5 @@ class FactorEvaluate1(object):
 
         print(f"Evaluation plot saved to: {image_path}")
         print(f"Evaluation xml saved to: {xml_path}")
+        
+        
