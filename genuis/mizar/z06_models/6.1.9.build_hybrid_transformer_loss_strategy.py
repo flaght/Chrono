@@ -17,6 +17,18 @@ from lib.nn004.predict import predict_test_set
 from lib.nn004.train import train_model
 
 PAIRE_TASK = {"113001": ("hcb", "134001")}
+ENSEMBLE_TASK = {
+    10001: {
+        42: "1048239198485335",
+        3407: "1056628310147615",
+        2026: "1026780123442923"
+    },
+    10002: {
+        42: "1013995178499222",
+        3407: "1077034256017865",
+        2026: "1087298621243300"
+    }
+}
 
 
 def _sanitize_frame(df, columns):
@@ -39,7 +51,7 @@ def _load_split(method, instruments, task_id, period, trial_id, split,
                             "data")
     path = os.path.join(data_dir, f"{split}_data.feather")
     data = pd.read_feather(path)
-   
+
     required = {"trade_time", "code", ret_name, *features, *regime}
     missing = required - set(data.columns)
     if missing:
@@ -229,6 +241,7 @@ def forecast(method,
              instruments,
              task_id,
              period,
+             trial_id,
              seed_run_ids,
              split="val",
              output_dir=None,
@@ -251,7 +264,7 @@ def forecast(method,
         raise ValueError("forecast至少需要两个不同seed的模型")
     run_dirs = {
         seed:
-        find_model_files(method, instruments, task_id, period,
+        find_model_files(method, instruments, task_id, period, trial_id,
                          run_id)["run_dir"]
         for seed, run_id in ids.items()
     }
@@ -260,17 +273,20 @@ def forecast(method,
     asset_paths = {
         code:
         os.path.join(base_path, method, asset, "temp", "model", str(task),
-                     str(period), "rl", "data", f"{split}_data.feather")
+                     str(period), "rl", str(trial_id), "data",
+                     f"{split}_data.feather")
         for code, asset, task in ((INSTRUMENTS_CODES[instruments], instruments,
                                    task_id),
                                   (INSTRUMENTS_CODES[right_instruments],
                                    right_instruments, right_task))
     }
     if output_dir is None:
-        name = "ensemble_" + "_".join(f"s{seed}_{ids[seed]}"
-                                      for seed in sorted(ids))
+        #name = "ensemble_" + "_".join(f"s{seed}_{ids[seed]}"
+        #                              for seed in sorted(ids))
+        name = "_".join(f"{ids[seed]}" for seed in sorted(ids))
         output_dir = os.path.join(
-            _result_dir(method, instruments, task_id, period, name), split)
+            _result_dir(method, instruments, task_id, period, trial_id,
+                        os.path.join("ensemble", name)), split)
 
     return compare_seeds(run_dirs=run_dirs,
                          asset_paths=asset_paths,
@@ -314,14 +330,15 @@ if __name__ == "__main__":
             instruments=variant.instruments,
             task_id=variant.task_id,
             period=variant.period,
-            seed_run_ids={
-                42: "1048239198485335",
-                3407: "1056628310147615",
-                2026: "1026780123442923",
-            },
-            split="test",
-            inference_batch_size=4096,
-            device="cuda",
-        )
+            seed_run_ids=ENSEMBLE_TASK[variant.trial_id],
+            # seed_run_ids={
+            #     42: "1013995178499222",  #42: "1048239198485335",
+            #     3407: "1077034256017865",  #3407: "1056628310147615",
+            #     2026: "1087298621243300",  #2026: "1026780123442923",
+            # },
+            split=variant.split,  #"val",
+            inference_batch_size=variant.inference_batch_size,
+            device=variant.device,
+            trial_id=variant.trial_id)
     else:
         raise ValueError(f"不支持 form={variant.form}")

@@ -206,7 +206,7 @@ def load_signal_performance(base_dir, data_type=None):
         可以传入 ``.../rl``、``.../rl/composite``，也可以直接传入
         composite 下某个模型目录。函数会递归查找 performance_summary.txt。
     data_type : {None, 'optimi', 'obse', 'obs'}
-        ``optimi`` 是参数寻优集；``obse`` 是固定参数验证集，``obs`` 是
+        ``optimi`` 是参数寻优集；``obse`` 是参数验证集，，``obs`` 是
         ``obse`` 的查询别名。None 表示同时加载两类数据。
 
     Returns
@@ -274,7 +274,7 @@ def load_signal_performance(base_dir, data_type=None):
             "segment":
             segment,
             "data_type": ("参数寻优集" if segment == "optimi" else
-                          ("固定参数集" if segment == 'obs' else "测试集")),
+                          ("固定参数集" if segment == 'obse' else "测试集")),
             "avg_ret":
             parsed.get("avg_ret"),
             "total_ret":

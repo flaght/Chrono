@@ -18,6 +18,51 @@ from lib.flp001 import load_signal_performance
 
 PAIRE_TASK = {"113001": ("hcb", "134001")}
 
+ENSEMBLE_TASK = {
+    10001: {
+        42: "1048239198485335",
+        3407: "1056628310147615",
+        2026: "1026780123442923"
+    },
+    10002: {
+        42: "1013995178499222",
+        3407: "1077034256017865",
+        2026: "1087298621243300"
+    }
+}
+
+SIGNAL_FUNCTION_MAPPING = {
+    10001: {
+        "linear_threshold_signal": {
+            "1204": {
+                "roll_num": 0,
+                "threshold": 0.05,
+                "upper": 0.15,
+            }
+        },
+        "threshold_signal": {
+            "1304": {
+                "roll_num": 0,
+                "threshold": 0.075,
+            }
+        }
+    },
+    10002: {
+        "linear_signal": {
+            "1103": {
+                "roll_num": 0,
+                "threshold": 0.15,
+            }
+        },
+        "threshold_signal": {
+            "1301": {
+                "roll_num": 0,
+                "threshold": 0.02,
+            }
+        },
+    }
+}
+
 signal_functions = {
     # 第一梯队A：连续线性仓位
     # position = clip(predicted_z / threshold, -1, 1)
@@ -85,7 +130,7 @@ signal_functions = {
 }
 
 
-def load_er_data2(instruments, task_id, base_path, dataset):
+def load_er_data2(instruments, task_id, trial_id, base_path, dataset):
 
     def filter_data(
             data,
@@ -99,11 +144,17 @@ def load_er_data2(instruments, task_id, base_path, dataset):
 
     base_path1 = base_path
 
-    ## 临时加载已经预测好的值和对应收益率
+    pdb.set_trace()
     dirs_path = os.path.join(
-        base_path1,
-        "hybrid_transformer_loss/result/ensemble/s42_1048239198485335_s2026_1026780123442923_s3407_1056628310147615/{0}"
-        .format(dataset))
+        base_path1, str(trial_id), "hybrid_transformer_loss", "result",
+        "ensemble", "_".join(
+            str(v) for _, v in sorted(ENSEMBLE_TASK[int(trial_id)].items())),
+        dataset)
+    ## 临时加载已经预测好的值和对应收益率
+    # dirs_path = os.path.join(
+    #     base_path1,
+    #     "hybrid_transformer_loss/result/ensemble/s42_1048239198485335_s2026_1026780123442923_s3407_1056628310147615/{0}"
+    #     .format(dataset))
 
     prediction_paths = sorted(Path(dirs_path).glob("*_predictions.csv"))
     if not prediction_paths:
@@ -213,13 +264,13 @@ def query_signal_results(source, segment="obse"):
     ).sort_index()
 
 
-def metrics_signal(method, instruments, task_id, period, composite_method,
-                   composite_id):
+def metrics_signal(method, instruments, task_id, period, trial_id):
 
     base_path1 = os.path.join(base_path, method, instruments, 'temp', 'model',
                               str(task_id), str(period), 'rl')
     data_sets = load_er_data2(instruments=instruments,
                               task_id=task_id,
+                               trial_id=trial_id,
                               base_path=base_path1,
                               dataset='test')
     # 所有模型和品种共用同一个时间切割点，避免按各自行数切割后区间错位。
@@ -227,28 +278,11 @@ def metrics_signal(method, instruments, task_id, period, composite_method,
         [pd.to_datetime(data["trade_time"]) for data in data_sets],
         ignore_index=True).drop_duplicates().sort_values().reset_index(
             drop=True)
-    split_time = unique_times.iloc[int(len(unique_times) * 0.7)]
-
-    signal_functions1 = {
-        "linear_threshold_signal": {
-            "1204": {
-                "roll_num": 0,
-                "threshold": 0.05,
-                "upper": 0.15,
-            }
-        },
-        "threshold_signal": {
-            "1304": {
-                "roll_num": 0,
-                "threshold": 0.075,
-            }
-        }
-    }
-
+    signal_functions1 = SIGNAL_FUNCTION_MAPPING[int(trial_id)]
     for key1, functions in signal_functions1.items():
         for key2, params in functions.items():
             for data in data_sets:
-                output_dirs = os.path.join(base_path1, "composite", data.name)
+                output_dirs = os.path.join(base_path1, str(trial_id), "holdout", data.name)
                 os.makedirs(output_dirs, exist_ok=True)
                 signal_input = data.copy()
                 signal_input["trade_time"] = pd.to_datetime(
@@ -287,13 +321,13 @@ def metrics_signal(method, instruments, task_id, period, composite_method,
 
 
 ## 校验70%用于选参数， 30% 用于冻结参数
-def create_signal(method, instruments, task_id, period, composite_method,
-                  composite_id):
+def create_signal(method, instruments, task_id, period, trial_id):
 
     base_path1 = os.path.join(base_path, method, instruments, 'temp', 'model',
                               str(task_id), str(period), 'rl')
     data_sets = load_er_data2(instruments=instruments,
                               task_id=task_id,
+                              trial_id=trial_id,
                               base_path=base_path1,
                               dataset='val')
     # 所有模型和品种共用同一个时间切割点，避免按各自行数切割后区间错位。
@@ -306,7 +340,8 @@ def create_signal(method, instruments, task_id, period, composite_method,
     for key1, functions in signal_functions.items():
         for key2, params in functions.items():
             for data in data_sets:
-                output_dirs = os.path.join(base_path1, "composite", data.name)
+                output_dirs = os.path.join(base_path1, str(trial_id),
+                                           "composite", data.name)
                 os.makedirs(output_dirs, exist_ok=True)
                 signal_input = data.copy()
                 signal_input["trade_time"] = pd.to_datetime(
@@ -323,7 +358,6 @@ def create_signal(method, instruments, task_id, period, composite_method,
                 signal_data = signal_input.merge(signal_dt,
                                                  on=['trade_time', 'code'])
                 signal_data = signal_data.sort_values("trade_time")
-     
 
                 optimi_signal_data = signal_data[signal_data["trade_time"] <=
                                                  split_time].copy()
@@ -357,9 +391,15 @@ def create_signal(method, instruments, task_id, period, composite_method,
 if __name__ == '__main__':
     variant = Tactix().start()
     if variant.form == 'build':
+        create_signal(method=variant.method,
+                      instruments=variant.instruments,
+                      task_id=variant.task_id,
+                      period=variant.period,
+                      trial_id=variant.trial_id)
+
+    elif variant.form == 'metrics':
         metrics_signal(method=variant.method,
                        instruments=variant.instruments,
                        task_id=variant.task_id,
                        period=variant.period,
-                       composite_method=0,
-                       composite_id=1)
+                       trial_id=variant.trial_id)
