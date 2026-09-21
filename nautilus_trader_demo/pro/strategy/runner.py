@@ -31,6 +31,7 @@ from strategy.portfolio import (
     PositionManager,
     TargetStore,
 )
+from strategy.market_health import MarketHealthGate, RecoveryConfirmation
 from strategy.ports import ExecutionClientPort, PositionProvider
 from strategy.template import StrategyContext, StrategyTemplate
 
@@ -70,17 +71,20 @@ class UnifiedStrategyRunner:
         target_store: TargetStore | None = None,
         portfolio_coordinator: PortfolioCoordinator | None = None,
         position_manager: PositionManager | None = None,
+        market_health_gate: MarketHealthGate | None = None,
     ) -> None:
         self.mode = RuntimeMode(mode)
         self._target_store = target_store or TargetStore()
         self._portfolio_coordinator = portfolio_coordinator or PortfolioCoordinator()
         self._position_manager = position_manager or PositionManager()
         self._position_provider = position_provider or self._position_manager
+        self._market_health_gate = market_health_gate or MarketHealthGate()
         self._feeds: dict[str, MarketDataFeed] = {}
         self._clients: dict[str, ExecutionClientPort] = {}
         self._registrations: dict[str, _Registration] = {}
         self._bindings: dict[tuple[str, DataType, InstrumentId], list[tuple[str, DataBinding]]] = defaultdict(list)
         self._attached_feeds: set[str] = set()
+        self._attached_health_feeds: set[str] = set()
         self._market_observers: list[Any] = []
         self._submit_lock = threading.RLock()
         self._started = False
@@ -100,12 +104,19 @@ class UnifiedStrategyRunner:
         """返回Runner正在使用的仓位与在途状态管理器。"""
         return self._position_manager
 
+    @property
+    def market_health_gate(self) -> MarketHealthGate:
+        return self._market_health_gate
+
     def add_data_feed(self, feed_id: str, feed: MarketDataFeed) -> None:
         if self._started:
             raise RuntimeError("Runner 启动后不能再添加行情源")
         if not feed_id.strip() or feed_id in self._feeds:
             raise ValueError(f"feed_id 无效或重复: {feed_id!r}")
         self._feeds[feed_id] = feed
+        snapshot = getattr(feed, "health_snapshot", None)
+        if snapshot is not None:
+            self._market_health_gate.register_feed(feed_id, snapshot)
 
     def add_execution_client(self, client: ExecutionClientPort) -> None:
         if self._started:
@@ -145,6 +156,10 @@ class UnifiedStrategyRunner:
             strategy=strategy,
             data_bindings=tuple(data_bindings),
             execution_routes=routes,
+        )
+        self._market_health_gate.register_strategy(
+            strategy.strategy_id,
+            frozenset(binding.feed_id for binding in data_bindings),
         )
 
     def start(self) -> None:
@@ -204,6 +219,11 @@ class UnifiedStrategyRunner:
                 f"{sorted(unknown_targets)}",
             )
 
+        # 行情闸门必须先于TargetStore执行。被拒绝的目标不能占用revision或污染
+        # 组合状态，否则行情恢复后同一目标无法安全重试。
+        previous_target = self._target_store.get(intent.strategy_id)
+        gate_decision = self._market_health_gate.check_target(intent, previous_target)
+
         # TargetStore先把PATCH物化为完整REPLACE快照，并统一执行revision校验。
         materialized = self._target_store.apply(intent)
         previous = self._portfolio_coordinator.strategy_contribution(intent.strategy_id)
@@ -256,9 +276,33 @@ class UnifiedStrategyRunner:
                     metadata={
                         **materialized.metadata,
                         "portfolio_revision": snapshot.revision,
+                        "market_health_mode": gate_decision.access_mode.value,
+                        "market_health_state": gate_decision.snapshot.state.value,
+                        "market_health_feeds": tuple(
+                            sorted(
+                                set(gate_decision.snapshot.unhealthy_feeds)
+                                | set(gate_decision.snapshot.affected_feeds),
+                            ),
+                        ),
                     },
                 ),
             )
+
+    def market_health_snapshot(self, strategy_id: str):
+        return self._market_health_gate.snapshot(strategy_id)
+
+    def confirm_market_recovery(
+        self,
+        strategy_id: str,
+        *,
+        operator: str,
+        reason: str,
+    ) -> RecoveryConfirmation:
+        return self._market_health_gate.confirm_recovery(
+            strategy_id,
+            operator=operator,
+            reason=reason,
+        )
 
     def position(self, strategy_id: str, target_key: str) -> Decimal:
         registration = self._registrations.get(strategy_id)
@@ -294,6 +338,15 @@ class UnifiedStrategyRunner:
                     )
 
     def _attach_feed(self, feed_id: str, feed: MarketDataFeed) -> None:
+        register_health = getattr(feed, "register_health_handler", None)
+        if callable(register_health) and feed_id not in self._attached_health_feeds:
+            register_health(
+                lambda snapshot, fid=feed_id: self._market_health_gate.on_feed_health(
+                    fid,
+                    snapshot,
+                ),
+            )
+            self._attached_health_feeds.add(feed_id)
         if feed_id not in self._attached_feeds:
             feed.register_trade_tick_handler(lambda event, fid=feed_id: self.publish(fid, event))
             feed.register_quote_tick_handler(lambda event, fid=feed_id: self.publish(fid, event))

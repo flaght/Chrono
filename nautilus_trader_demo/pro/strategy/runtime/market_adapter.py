@@ -80,6 +80,8 @@ class NautilusMarketFeedAdapter:
         feed: MarketDataFeed,
         backend: SimExecutionBackendPort,
         bindings: Sequence[MarketStreamBinding],
+        *,
+        manage_lifecycle: bool = True,
     ) -> None:
         if not adapter_id.strip():
             raise ValueError("adapter_id不能为空")
@@ -93,6 +95,7 @@ class NautilusMarketFeedAdapter:
         self.feed = feed
         self.backend = backend
         self.bindings = normalized
+        self.manage_lifecycle = manage_lifecycle
         self._lifecycle_lock = threading.RLock()
         self._process_lock = threading.RLock()
         self._error_handlers: list[Callable[[Exception, Any], None]] = []
@@ -127,7 +130,7 @@ class NautilusMarketFeedAdapter:
             self._error_handlers.append(handler)
 
     def start(self) -> None:
-        """完成订阅、启动Backend并连接Feed；重复启动安全。"""
+        """挂载转发；独立使用时还负责Backend和Feed生命周期。"""
 
         with self._lifecycle_lock:
             if self._started:
@@ -143,6 +146,11 @@ class NautilusMarketFeedAdapter:
                     fields=binding.fields,
                     **dict(binding.extra_params),
                 )
+            if not self.manage_lifecycle:
+                # UnifiedHistoricalRuntime中Backend由ExecutionClient启动，Feed由
+                # Runner连接；本适配器只需抢先注册回调以固定事件顺序。
+                self._started = True
+                return
             self.backend.start()
             # 必须在connect前开放事件入口。部分Feed会在建立连接或恢复订阅时立刻
             # 收到首包行情，若connect返回后才置位会无声丢失第一份事件。
@@ -166,6 +174,9 @@ class NautilusMarketFeedAdapter:
             # 先关闭事件闸门，但不能持锁等待Feed分派线程退出，否则分派线程若正
             # 准备进入回调会与disconnect.join形成死锁。
             self._started = False
+            if not self.manage_lifecycle:
+                self._stopped = True
+                return
         try:
             self.feed.disconnect()
         finally:

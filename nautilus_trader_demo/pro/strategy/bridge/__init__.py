@@ -4,5 +4,14 @@ from strategy.bridge.nautilus import (
     NautilusStrategyBridge,
     NautilusStrategyBridgeConfig,
 )
+from strategy.bridge.nautilus_events import (
+    NautilusStrategyEventBridge,
+    NautilusStrategyEventBridgeConfig,
+)
 
-__all__ = ["NautilusStrategyBridge", "NautilusStrategyBridgeConfig"]
+__all__ = [
+    "NautilusStrategyBridge",
+    "NautilusStrategyBridgeConfig",
+    "NautilusStrategyEventBridge",
+    "NautilusStrategyEventBridgeConfig",
+]

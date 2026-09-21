@@ -8,6 +8,10 @@ from strategy.contracts import (
     TargetPortfolio,
     TargetUpdateMode,
 )
+from strategy.bridge import (
+    NautilusStrategyEventBridge,
+    NautilusStrategyEventBridgeConfig,
+)
 from strategy.portfolio import (
     AccountReconciliationState,
     AccountTargetKey,
@@ -22,6 +26,16 @@ from strategy.portfolio import (
     TargetStore,
 )
 from strategy.ports import ExecutionClientPort, PositionProvider
+from strategy.market_health import (
+    MarketAccessMode,
+    MarketGateDecision,
+    MarketHealthGate,
+    MarketHealthRejected,
+    MarketRecoveryError,
+    RecoveryConfirmation,
+    StrategyMarketSnapshot,
+    StrategyMarketState,
+)
 from strategy.execution import (
     AccountPositionSnapshot,
     BinanceUsdtFuturesProfile,
@@ -70,6 +84,7 @@ from strategy.execution import (
     RiskViolation,
     RiskViolationCode,
     SimExecutionBackendPort,
+    SimulationExecutionClient,
     VenueSimulationProfilePort,
 )
 from strategy.persistence import (
@@ -91,6 +106,8 @@ from strategy.runtime import (
     NautilusMarketFeedAdapter,
     RuntimePort,
     SimpleReplayRuntime,
+    UnifiedHistoricalResult,
+    UnifiedHistoricalRuntime,
 )
 from strategy.template import StrategyContext, StrategyTemplate
 
@@ -127,7 +144,14 @@ __all__ = [
     "LiveExecutionBackendPort",
     "MarketStreamBinding",
     "MarketReferencePriceStore",
+    "MarketAccessMode",
+    "MarketGateDecision",
+    "MarketHealthGate",
+    "MarketHealthRejected",
+    "MarketRecoveryError",
     "NautilusExecutionAdapter",
+    "NautilusStrategyEventBridge",
+    "NautilusStrategyEventBridgeConfig",
     "NautilusLiveDriverPort",
     "NautilusLiveExecutionBackend",
     "NautilusTradingNodeDriver",
@@ -155,6 +179,7 @@ __all__ = [
     "PositionEffect",
     "PreTradeRiskManager",
     "ReferencePrice",
+    "RecoveryConfirmation",
     "RiskDecision",
     "RiskLimits",
     "RiskRejected",
@@ -171,13 +196,18 @@ __all__ = [
     "RuntimeMode",
     "StaleRevisionError",
     "StrategyContext",
+    "StrategyMarketSnapshot",
+    "StrategyMarketState",
     "StrategyTemplate",
     "SimpleReplayRuntime",
     "SimExecutionBackendPort",
+    "SimulationExecutionClient",
     "TargetExpiredError",
     "TargetPortfolio",
     "TargetStore",
     "TargetUpdateMode",
     "UnifiedStrategyRunner",
+    "UnifiedHistoricalResult",
+    "UnifiedHistoricalRuntime",
     "VenueSimulationProfilePort",
 ]

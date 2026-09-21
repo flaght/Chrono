@@ -14,7 +14,10 @@ from strategy.contracts import TargetPortfolio
 
 
 class NautilusExecutionAdapter:
-    """依托原生Strategy宿主，把单标的目标仓位协调为差额市价单。"""
+    """旧NautilusStrategyBridge专用的单标的执行兼容层。
+
+    新代码统一使用Planner、Risk和Simulation/Live Backend，不应继续扩展本类。
+    """
 
     def __init__(
         self,

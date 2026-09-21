@@ -1,4 +1,4 @@
-"""统一StrategyTemplate与Bomber/Nautilus StrategyEngine之间的桥。"""
+"""旧版StrategyTemplate与Bomber/Nautilus StrategyEngine兼容桥。"""
 
 from __future__ import annotations
 
@@ -50,10 +50,11 @@ class _BridgeContext(StrategyContext):
 
 
 class NautilusStrategyBridge(Strategy):
-    """让同一StrategyTemplate在BacktestEngine和TradingNode中运行。
+    """迁移期兼容入口；新装配不应再使用其执行职责。
 
-    原生引擎负责时钟、订阅、撮合、账户、订单状态和真实客户端；内部统一策略仍然
-    只消费逻辑data_key并输出TargetPortfolio。订单职责委托给执行适配器。
+    新的正式回测主链使用UnifiedStrategyRunner、SimulationExecutionClient和
+    NautilusSimExecutionBackend。只有仍直接托管于原生StrategyEngine的旧示例需要
+    本类；内部聚合Bar使用不带执行职责的NautilusStrategyEventBridge。
     """
 
     def __init__(

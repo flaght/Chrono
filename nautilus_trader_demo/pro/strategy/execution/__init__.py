@@ -61,6 +61,7 @@ from strategy.execution.simulation import (
     CtpFuturesBasicProfile,
     GenericVenueProfile,
     NautilusSimExecutionBackend,
+    SimulationExecutionClient,
 )
 
 __all__ = [
@@ -91,6 +92,7 @@ __all__ = [
     "NautilusLiveExecutionBackend",
     "NautilusTradingNodeDriver",
     "NautilusSimExecutionBackend",
+    "SimulationExecutionClient",
     "OrderIntent",
     "OrderLifecycleStatus",
     "OrderReportStateMachine",

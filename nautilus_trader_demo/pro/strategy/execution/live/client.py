@@ -121,8 +121,24 @@ class BackendExecutionClient:
             if request.client_id != self.client_id:
                 raise ValueError("ExecutionRequest客户端不匹配")
             orders = tuple(self.planner.plan(request))
+            health_reduce_only = (
+                request.metadata.get("market_health_mode")
+                == KillSwitchMode.REDUCE_ONLY.value
+            )
             if self.risk_manager is not None:
-                self.risk_manager.check(orders, now_ns=request.ts_event)
+                self.risk_manager.check(
+                    orders,
+                    now_ns=request.ts_event,
+                    mode_override=(
+                        KillSwitchMode.REDUCE_ONLY
+                        if health_reduce_only
+                        else None
+                    ),
+                )
+            elif health_reduce_only and orders:
+                raise RuntimeError(
+                    "行情降级期间Live执行必须配置PreTradeRiskManager以校验真实仓位",
+                )
             self._strategy_ids.add(request.strategy_id)
             for order in orders:
                 signed = order.quantity if order.side is OrderSide.BUY else -order.quantity

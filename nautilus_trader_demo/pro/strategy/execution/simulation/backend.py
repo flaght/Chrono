@@ -150,15 +150,28 @@ class NautilusSimExecutionBackend:
     def result(self) -> Any:
         return self._result
 
+    def finish(self) -> Any:
+        """结束流式撮合并生成结果，但保留Engine供报告查询。
+
+        正式Historical Runtime需要先返回结果和原生报告，随后再由stop统一释放
+        Engine。一次性``run()``已经自行结束，不会重复调用``engine.end()``。
+        """
+
+        if self._disposed:
+            raise RuntimeError("已释放的Backend不能结束运行")
+        if self._streaming and not self._finalized:
+            self.engine.end()
+            self._finalized = True
+            self._result = self.engine.get_result()
+            self._started = False
+        return self._result
+
     def stop(self) -> None:
         """结束流式运行并释放引擎；重复调用安全。"""
 
         if self._disposed:
             return
-        if self._streaming and not self._finalized:
-            self.engine.end()
-            self._finalized = True
-            self._result = self.engine.get_result()
+        self.finish()
         self.engine.dispose()
         self._disposed = True
         self._started = False

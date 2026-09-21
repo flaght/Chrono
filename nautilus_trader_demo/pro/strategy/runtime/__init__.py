@@ -2,6 +2,7 @@
 
 from strategy.runtime.base import BacktestRuntimePort, HistoricalRuntimePort, RuntimePort
 from strategy.runtime.direct import DirectLiveRuntime
+from strategy.runtime.historical import UnifiedHistoricalResult, UnifiedHistoricalRuntime
 from strategy.runtime.market_adapter import MarketStreamBinding, NautilusMarketFeedAdapter
 from strategy.runtime.nautilus import NautilusBacktestRuntime
 from strategy.runtime.replay import SimpleReplayRuntime
@@ -15,4 +16,6 @@ __all__ = [
     "NautilusMarketFeedAdapter",
     "RuntimePort",
     "SimpleReplayRuntime",
+    "UnifiedHistoricalResult",
+    "UnifiedHistoricalRuntime",
 ]

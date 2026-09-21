@@ -177,11 +177,12 @@ class PreTradeRiskManager:
         orders: Sequence[OrderIntent],
         *,
         now_ns: int,
+        mode_override: KillSwitchMode | str | None = None,
     ) -> RiskDecision:
         if now_ns < 0:
             raise ValueError("now_ns不能为负数")
         with self._lock:
-            mode = self._mode
+            mode = _stricter_mode(self._mode, mode_override)
             simulated: dict[InstrumentId, Decimal] = {}
             violations: list[RiskViolation] = []
             for order in orders:
@@ -206,8 +207,18 @@ class PreTradeRiskManager:
                 simulated[order.instrument_id] = projected
             return RiskDecision(not violations, tuple(violations))
 
-    def check(self, orders: Sequence[OrderIntent], *, now_ns: int) -> None:
-        decision = self.evaluate(orders, now_ns=now_ns)
+    def check(
+        self,
+        orders: Sequence[OrderIntent],
+        *,
+        now_ns: int,
+        mode_override: KillSwitchMode | str | None = None,
+    ) -> None:
+        decision = self.evaluate(
+            orders,
+            now_ns=now_ns,
+            mode_override=mode_override,
+        )
         if not decision.allowed:
             raise RiskRejected(decision.violations)
 
@@ -278,3 +289,18 @@ class PreTradeRiskManager:
         message: str,
     ) -> RiskViolation:
         return RiskViolation(code, order.instrument_id, message)
+
+
+def _stricter_mode(
+    configured: KillSwitchMode,
+    override: KillSwitchMode | str | None,
+) -> KillSwitchMode:
+    if override is None:
+        return configured
+    requested = KillSwitchMode(override)
+    severity = {
+        KillSwitchMode.NORMAL: 0,
+        KillSwitchMode.REDUCE_ONLY: 1,
+        KillSwitchMode.HALTED: 2,
+    }
+    return configured if severity[configured] >= severity[requested] else requested

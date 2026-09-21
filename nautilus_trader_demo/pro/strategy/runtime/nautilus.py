@@ -11,7 +11,11 @@ from strategy.contracts import RuntimeMode
 
 
 class NautilusBacktestRuntime:
-    """正式回测边界；BacktestEngine是唯一历史时钟和撮合所有者。"""
+    """旧Bridge回测兼容入口。
+
+    新代码使用UnifiedHistoricalRuntime组合Runner与NautilusSimExecutionBackend；
+    本类只为既有调用保留，不再承载新的执行能力。
+    """
 
     mode = RuntimeMode.HISTORICAL
     engine_name = "bomber.nautilus.BacktestEngine"
