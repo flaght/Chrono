@@ -107,6 +107,54 @@ class CtpTickParser:
         return datetime_to_ns(timestamp)
 
 
+class CtpQuoteParser(CtpTickParser):
+    """仅解析CTP一档买卖价；不要求Volume或LastPrice列。
+
+    截面动量的Tick输入要由QuoteTick形成MID Bar。不能为了复用成交推断器
+    而要求源文件存在无关的累计成交量字段。
+    """
+
+    def __init__(
+        self,
+        exchange: str,
+        timezone: str = "Asia/Shanghai",
+        night_session_action_day: str | None = None,
+        expected_symbol: str | None = None,
+    ) -> None:
+        super().__init__(exchange, timezone, night_session_action_day)
+        self.expected_symbol = expected_symbol
+
+    def parse(
+        self,
+        row: Mapping[str, Any],
+        context: ParserContext,
+    ) -> Iterable[ParsedEvent]:
+        symbol = required(row, "InstrumentID", context)
+        if self.expected_symbol is not None:
+            if symbol.upper() != self.expected_symbol.upper():
+                raise context.error(
+                    f"InstrumentID不匹配: {symbol} != {self.expected_symbol}",
+                )
+            symbol = self.expected_symbol
+        instrument_id = InstrumentId.from_str(f"{symbol}.{self.exchange}")
+        meta = context.require_meta(instrument_id)
+        ts_event = self._timestamp(row, context)
+        bid_price = positive(row, "BidPrice1", context)
+        ask_price = positive(row, "AskPrice1", context)
+        if bid_price > ask_price:
+            raise context.error("BidPrice1 exceeds AskPrice1")
+        quote = QuoteTick(
+            instrument_id,
+            Price(bid_price, meta.price_precision),
+            Price(ask_price, meta.price_precision),
+            Quantity(nonnegative(row, "BidVolume1", context), meta.size_precision),
+            Quantity(nonnegative(row, "AskVolume1", context), meta.size_precision),
+            ts_event,
+            ts_event,
+        )
+        return (ParsedEvent(DataType.QUOTE_TICK, instrument_id, quote),)
+
+
 def _synthetic_trade_id(symbol: str, ts_event: int, cumulative: int) -> str:
     """Return a stable 36-character ID for a trade inferred from a snapshot."""
     source = f"{symbol}|{ts_event}|{cumulative}".encode()

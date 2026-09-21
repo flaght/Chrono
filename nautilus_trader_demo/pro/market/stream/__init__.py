@@ -15,7 +15,7 @@ from market.stream.health import (
     MarketHealthState,
     StreamHealthConfig,
 )
-from market.stream.aggregation import TradeTickBarFeed
+from market.stream.aggregation import QuoteMidBarFeed, TradeTickBarFeed
 
 __all__ = [
     "StreamDataFeed",
@@ -24,6 +24,7 @@ __all__ = [
     "MarketHealthState",
     "StreamHealthConfig",
     "TradeTickBarFeed",
+    "QuoteMidBarFeed",
     "BNWSConfig",
     "BNWSStreamDataFeed",
     "CtpMdConfig",
