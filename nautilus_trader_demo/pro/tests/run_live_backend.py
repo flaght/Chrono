@@ -149,14 +149,18 @@ class _AutoFillDriver:
             order_side=order.side,
             order_quantity=order.quantity,
             position_effect=order.position_effect,
-            metadata={"strategy_id": order.strategy_id},
+            metadata={"strategy_id": order.strategy_id, "trade_id": f"{order_id}-trade"},
         )
-        self.sink(ExecutionReport(report_type=ExecutionReportType.ACCEPTED, **common))
+        self.sink(ExecutionReport(
+            report_type=ExecutionReportType.ACCEPTED,
+            report_id=f"{order_id}-accepted", sequence=1, **common,
+        ))
         self.sink(
             ExecutionReport(
                 report_type=ExecutionReportType.FILLED,
                 filled_quantity=order.quantity,
                 fill_price=Decimal("80000"),
+                report_id=f"{order_id}-filled", sequence=2,
                 **common,
             ),
         )
@@ -253,6 +257,7 @@ def test3_binance_stream_to_live_backend() -> None:
         assert driver.orders[0].side is OrderSide.BUY
         assert positions.working_quantity("binance-live", BTC_ID) == 0
         assert len(backend.reports) == 2
+        assert client.is_reconciled and not client.report_errors
     finally:
         runner.stop()
     print("E9c通过：Binance标准Stream已贯通策略、Planner、Live Backend和仓位同步")

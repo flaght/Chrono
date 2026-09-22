@@ -32,6 +32,7 @@ from strategy.portfolio import (
     TargetStore,
 )
 from strategy.market_health import MarketHealthGate, RecoveryConfirmation
+from strategy.execution.events import FillEvent, OrderUpdateEvent
 from strategy.dynamic_routes import DynamicExecutionRoute, RollPhase, SafeRollCoordinator
 from strategy.ports import ExecutionClientPort, PositionProvider
 from strategy.template import StrategyContext, StrategyTemplate
@@ -55,6 +56,12 @@ class _RuntimeContext(StrategyContext):
 
     def position(self, target_key: str) -> Decimal:
         return self._runner.position(self._strategy_id, target_key)
+
+    def account_position(self, target_key: str) -> Decimal:
+        return self._runner.account_position(self._strategy_id, target_key)
+
+    def working_quantity(self, target_key: str) -> Decimal:
+        return self._runner.working_quantity(self._strategy_id, target_key)
 
 
 class UnifiedStrategyRunner:
@@ -205,6 +212,9 @@ class UnifiedStrategyRunner:
         self._validate_configuration()
         self._bindings.clear()
         for client in self._clients.values():
+            register_events = getattr(client, "register_execution_event_handler", None)
+            if callable(register_events):
+                register_events(self._on_execution_event)
             client.start()
         for feed_id, feed in self._feeds.items():
             self._attach_feed(feed_id, feed)
@@ -470,6 +480,40 @@ class UnifiedStrategyRunner:
         if registration is None or target_key not in registration.execution_routes:
             raise ValueError(f"未知策略目标: {strategy_id}/{target_key}")
         return self._position_provider.position(strategy_id, target_key)
+
+    def _static_execution_route(self, strategy_id: str, target_key: str) -> ExecutionRoute:
+        registration = self._registrations.get(strategy_id)
+        route = None if registration is None else registration.execution_routes.get(target_key)
+        if route is None:
+            raise ValueError(f"未知策略目标: {strategy_id}/{target_key}")
+        if not isinstance(route, ExecutionRoute):
+            raise ValueError("动态路由的账户仓位可能涉及新旧合约，请按真实合约查询")
+        return route
+
+    def account_position(self, strategy_id: str, target_key: str) -> Decimal:
+        route = self._static_execution_route(strategy_id, target_key)
+        return self._position_manager.account_position(route.client_id, route.instrument_id)
+
+    def working_quantity(self, strategy_id: str, target_key: str) -> Decimal:
+        route = self._static_execution_route(strategy_id, target_key)
+        return self._position_manager.working_quantity(route.client_id, route.instrument_id)
+
+    def _on_execution_event(self, event: OrderUpdateEvent | FillEvent) -> None:
+        """仅接受本Runner已注册客户端和策略的标准执行事件。"""
+        identity = event.identity
+        registration = self._registrations.get(identity.strategy_id)
+        if identity.client_id not in self._clients or registration is None:
+            raise ValueError("执行事件客户端或策略未注册")
+        if not any(
+            route.client_id == identity.client_id
+            and (not isinstance(route, ExecutionRoute)
+                 or str(route.instrument_id) == identity.instrument_id)
+            for route in registration.execution_routes.values()
+        ):
+            raise ValueError("执行事件不属于该策略的交易路由")
+        if not registration.strategy.is_started:
+            raise RuntimeError("策略尚未启动，执行事件不能静默丢弃")
+        registration.strategy._handle_execution_event(event)
 
     def publish(self, feed_id: str, event: Any) -> None:
         """发布标准行情事件，供行情适配器和契约测试使用。"""

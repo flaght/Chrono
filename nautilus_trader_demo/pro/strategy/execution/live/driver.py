@@ -9,6 +9,7 @@ from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
 from market.basic.base import InstrumentId
 from strategy.execution.contracts import ExecutionReport, OrderIntent
+from strategy.execution.events import AccountStateEvent, ActiveOrderSnapshot
 from strategy.execution.simulation.gateway import NautilusOrderGateway
 
 
@@ -47,6 +48,8 @@ class NautilusTradingNodeDriver:
             [], Mapping[InstrumentId | str, Decimal | int | float | str]
         ] | None = None,
         ready_callback: Callable[[], bool] | None = None,
+        account_state_callback: Callable[[], AccountStateEvent] | None = None,
+        active_orders_callback: Callable[[], ActiveOrderSnapshot] | None = None,
         startup_timeout: float = 30.0,
     ) -> None:
         if not driver_id.strip():
@@ -57,6 +60,8 @@ class NautilusTradingNodeDriver:
         if startup_timeout <= 0:
             raise ValueError("startup_timeout必须大于0")
         self._ready_callback = ready_callback
+        self._account_state_callback = account_state_callback
+        self._active_orders_callback = active_orders_callback
         self._startup_timeout = startup_timeout
         self._gateway: NautilusOrderGateway | None = None
         self._thread: threading.Thread | None = None
@@ -127,3 +132,30 @@ class NautilusTradingNodeDriver:
         if positions is None:
             raise RuntimeError("reconcile_callback必须返回账户仓位映射")
         return positions
+
+    def reconcile_account_state(self) -> AccountStateEvent:
+        """资金必须来自柜台权威查询；不从持仓或模拟余额推算。"""
+        if self._account_state_callback is None:
+            raise RuntimeError("未配置权威账户资金查询回调")
+        state = self._account_state_callback()
+        if not isinstance(state, AccountStateEvent):
+            raise TypeError("账户资金查询必须返回AccountStateEvent")
+        return state
+
+    def query_account(self, native_account_id: Any) -> None:
+        """在线程安全的节点Loop上发出只读QueryAccount命令。"""
+        if not self._started or self._gateway is None:
+            raise RuntimeError("TradingNode Driver尚未启动")
+        loop = self.node.get_event_loop()
+        if loop is None or not loop.is_running():
+            raise RuntimeError("TradingNode事件循环未运行")
+        loop.call_soon_threadsafe(self._gateway.query_account, native_account_id)
+
+    def reconcile_active_orders(self) -> ActiveOrderSnapshot:
+        """只接受调用方提供的柜台全量查询；不把cache.orders_open当权威。"""
+        if self._active_orders_callback is None:
+            raise RuntimeError("未配置柜台权威活动订单查询回调")
+        snapshot = self._active_orders_callback()
+        if not isinstance(snapshot, ActiveOrderSnapshot):
+            raise TypeError("活动订单查询必须返回ActiveOrderSnapshot")
+        return snapshot

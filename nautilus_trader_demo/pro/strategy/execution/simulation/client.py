@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import threading
+from typing import Callable
 
 from strategy.contracts import ExecutionRequest
 from strategy.execution.contracts import ExecutionReport, OrderSide
+from strategy.execution.events import FillEvent, OrderUpdateEvent, map_applied_report
 from strategy.execution.order_state import (
     OrderReportStateMachine,
     OrderState,
@@ -30,10 +32,16 @@ class SimulationExecutionClient:
         backend: SimExecutionBackendPort,
         position_manager: PositionManager,
         risk_manager: PreTradeRiskManager | None = None,
+        *,
+        account_id: str | None = None,
     ) -> None:
         if client_id != backend.backend_id:
             raise ValueError("client_id必须与backend_id一致")
         self.client_id = client_id
+        # 默认保持旧版单客户端/单模拟账户语义；多账户装配须显式提供ID。
+        self.account_id = account_id if account_id is not None else client_id
+        if not isinstance(self.account_id, str) or not self.account_id.strip():
+            raise ValueError("account_id不能为空")
         self.planner = planner
         self.backend = backend
         self.position_manager = position_manager
@@ -42,7 +50,15 @@ class SimulationExecutionClient:
         self._order_states = OrderReportStateMachine(client_id)
         self._report_errors: list[OrderStateError] = []
         self._submit_lock = threading.RLock()
+        self._execution_handlers: list[Callable[[OrderUpdateEvent | FillEvent], None]] = []
         self.backend.register_report_handler(self._on_report)
+
+    def register_execution_event_handler(
+        self, handler: Callable[[OrderUpdateEvent | FillEvent], None],
+    ) -> None:
+        """和Live客户端使用同一可选双向执行事件端口。"""
+        if handler not in self._execution_handlers:
+            self._execution_handlers.append(handler)
 
     @property
     def is_started(self) -> bool:
@@ -136,6 +152,11 @@ class SimulationExecutionClient:
         self.backend.cancel_strategy(strategy_id)
 
     def _on_report(self, report: ExecutionReport) -> None:
+        with self._submit_lock:
+            self._apply_report(report)
+
+    def _apply_report(self, report: ExecutionReport) -> None:
+        previous = self._order_states.state(report.client_order_id)
         try:
             update = self._order_states.apply(report)
         except OrderStateError as error:
@@ -143,6 +164,11 @@ class SimulationExecutionClient:
             return
         if not update.applied:
             return
+        changed = (
+            previous is None
+            or previous.status is not update.state.status
+            or previous.filled_quantity != update.state.filled_quantity
+        )
         direction = 1 if update.state.side is OrderSide.BUY else -1
         if update.fill_delta:
             signed_fill = direction * update.fill_delta
@@ -163,3 +189,17 @@ class SimulationExecutionClient:
                 report.instrument_id,
                 -remaining,
             )
+        if not self._execution_handlers or not changed:
+            return
+        try:
+            order_event, fill_event = map_applied_report(
+                report, update, account_id=self.account_id,
+            )
+            for event in (order_event, fill_event):
+                if event is None:
+                    continue
+                for handler in tuple(self._execution_handlers):
+                    handler(event)
+        except Exception as error:
+            # 仿真回报已经入账，不可擅自回滚；停止继续规划目标，等待检查。
+            self._report_errors.append(OrderStateError(f"标准执行事件分发失败: {error}"))

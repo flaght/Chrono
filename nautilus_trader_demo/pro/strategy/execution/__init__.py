@@ -10,6 +10,20 @@ from strategy.execution.contracts import (
     OrderType,
     PositionEffect,
 )
+from strategy.execution.events import (
+    ActiveOrder,
+    ActiveOrderSnapshot,
+    AccountPositionEvent,
+    AccountStateEvent,
+    CurrencyBalance,
+    ExecutionIdentity,
+    ExecutionSide,
+    FillEvent,
+    FillPositionEffect,
+    InstrumentPosition,
+    OrderEventStatus,
+    OrderUpdateEvent,
+)
 from strategy.execution.nautilus import NautilusExecutionAdapter
 from strategy.execution.order_state import (
     OrderLifecycleStatus,
@@ -34,6 +48,9 @@ from strategy.execution.recording import RecordingExecutionClient
 from strategy.execution.planner import NetTargetOrderPlanner
 from strategy.execution.live import (
     BackendExecutionClient,
+    ControlledLiveExecutionClient,
+    LiveAuditRecord,
+    NautilusReportedAccountReader,
     NautilusLiveDriverPort,
     NautilusLiveExecutionBackend,
     NautilusTradingNodeDriver,
@@ -66,7 +83,19 @@ from strategy.execution.simulation import (
 )
 
 __all__ = [
+    "ActiveOrder",
+    "ActiveOrderSnapshot",
+    "AccountPositionEvent",
     "AccountPositionSnapshot",
+    "AccountStateEvent",
+    "CurrencyBalance",
+    "ExecutionIdentity",
+    "ExecutionSide",
+    "FillEvent",
+    "FillPositionEffect",
+    "InstrumentPosition",
+    "OrderEventStatus",
+    "OrderUpdateEvent",
     "ExecutionBackendKind",
     "ExecutionBackendPort",
     "ExecutionReport",
@@ -85,6 +114,9 @@ __all__ = [
     "CtpSettlementResult",
     "GenericVenueProfile",
     "BackendExecutionClient",
+    "ControlledLiveExecutionClient",
+    "LiveAuditRecord",
+    "NautilusReportedAccountReader",
     "LiveExecutionBackendPort",
     "KillSwitchMode",
     "MarketReferencePriceStore",

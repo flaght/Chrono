@@ -23,6 +23,7 @@ from strategy import (
     CtpFuturesBasicProfile,
     DataBinding,
     ExecutionBackendKind,
+    ExecutionEventSourcePort,
     ExecutionReport,
     ExecutionReportType,
     ExecutionRequest,
@@ -167,6 +168,10 @@ class _BackendProbe:
             position_effect=order.position_effect,
             report_id=f"probe-fill-{order_index}",
             sequence=1,
+            metadata={
+                "strategy_id": order.strategy_id,
+                "trade_id": f"probe-trade-{order_index}",
+            },
         )
         for handler in tuple(self.handlers):
             handler(report)
@@ -226,6 +231,123 @@ class _OneShotStrategy(StrategyTemplate):
             self.set_target("position", 1, bar.ts_event)
 
 
+class _ExecutionObserver(StrategyTemplate):
+    """P2内存探针：在回调时立即读取已经更新的账户仓位与在途量。"""
+
+    def __init__(self, strategy_id: str) -> None:
+        super().__init__(strategy_id)
+        self.observed: list[tuple[str, str, Decimal, Decimal]] = []
+
+    def on_order_update(self, event) -> None:
+        self.observed.append((
+            "order", event.status.value,
+            self.account_position("position"), self.working_quantity("position"),
+        ))
+
+    def on_fill(self, event) -> None:
+        self.observed.append((
+            "fill", event.trade_id,
+            self.account_position("position"), self.working_quantity("position"),
+        ))
+
+
+def test4_simulation_partial_fill_dispatch() -> None:
+    """P2a：模拟端与Live共用标准事件路径，重复回报不重复通知。"""
+    positions = PositionManager()
+    backend = _BackendProbe()
+    client = SimulationExecutionClient(
+        backend.backend_id, NetTargetOrderPlanner(positions), backend, positions,
+        account_id="sim-account",
+    )
+    assert isinstance(client, ExecutionEventSourcePort)
+    strategy = _ExecutionObserver("p2-alpha")
+    runner = UnifiedStrategyRunner(RuntimeMode.HISTORICAL, position_manager=positions)
+    runner.add_execution_client(client)
+    runner.add_strategy(
+        strategy, data_bindings=(),
+        execution_routes=(ExecutionRoute("position", backend.backend_id, RB),),
+    )
+
+    def emit(kind, sequence: int, *, filled: int = 0, trade_id: str | None = None):
+        metadata = {"strategy_id": strategy.strategy_id}
+        if trade_id is not None:
+            metadata["trade_id"] = trade_id
+        report = ExecutionReport(
+            backend_id=backend.backend_id,
+            client_order_id="p2-order-1",
+            instrument_id=RB,
+            report_type=kind,
+            ts_event=100 + sequence,
+            filled_quantity=filled,
+            fill_price=100 if filled else None,
+            order_side=OrderSide.BUY,
+            order_quantity=2,
+            report_id=f"p2-order-1:{sequence}",
+            sequence=sequence,
+            metadata=metadata,
+        )
+        for handler in tuple(backend.handlers):
+            handler(report)
+        return report
+
+    runner.start()
+    try:
+        strategy.set_target("position", 2, 100)
+        assert len(backend.orders) == 1
+        emit(ExecutionReportType.ACCEPTED, 1)
+        partial = emit(ExecutionReportType.PARTIALLY_FILLED, 2, filled=1, trade_id="p2-t1")
+        for handler in tuple(backend.handlers):
+            handler(partial)
+        emit(ExecutionReportType.FILLED, 3, filled=1, trade_id="p2-t2")
+        assert strategy.observed == [
+            ("order", "ACCEPTED", Decimal(0), Decimal(2)),
+            ("order", "PARTIALLY_FILLED", Decimal(1), Decimal(1)),
+            ("fill", "p2-t1", Decimal(1), Decimal(1)),
+            ("order", "FILLED", Decimal(2), Decimal(0)),
+            ("fill", "p2-t2", Decimal(2), Decimal(0)),
+        ]
+        assert not client.report_errors
+        assert positions.account_position(backend.backend_id, RB) == 2
+        strategy.set_target("position", 3, 200)
+        assert len(backend.orders) == 2
+        malformed = ExecutionReport(
+            backend_id=backend.backend_id,
+            client_order_id="p2-order-2",
+            instrument_id=RB,
+            report_type=ExecutionReportType.FILLED,
+            ts_event=201,
+            filled_quantity=1,
+            fill_price=101,
+            order_side=OrderSide.BUY,
+            order_quantity=1,
+            report_id="p2-order-2:1",
+            sequence=1,
+            metadata={"strategy_id": strategy.strategy_id},  # 缺trade_id。
+        )
+        observed_before = len(strategy.observed)
+        for handler in tuple(backend.handlers):
+            handler(malformed)
+        assert len(strategy.observed) == observed_before
+        assert positions.account_position(backend.backend_id, RB) == 3
+        assert client.report_errors
+        try:
+            client.submit_targets(ExecutionRequest(
+                strategy_id=strategy.strategy_id,
+                revision=3,
+                client_id=backend.backend_id,
+                ts_event=202,
+                targets={RB: Decimal(4)},
+                execution_policy="DIRECT",
+            ))
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("缺成交ID后模拟执行端必须拒绝继续规划目标")
+    finally:
+        runner.stop()
+    print("P2a通过：模拟端部分成交、去重、仓位回调及缺成交ID闭闸一致")
+
+
 def test2_runtime_ordering() -> None:
     """I2/I3：Runtime统一生命周期并固定先推进市场、后运行策略。"""
     log: list[str] = []
@@ -276,8 +398,25 @@ def test2_runtime_ordering() -> None:
     print("I2/I3通过：统一Historical Runtime生命周期和N→N+1事件顺序正常")
 
 
+class _ObservedEma(EmaCrossTargetStrategy):
+    """正式回测探针：策略代码仍只依赖统一模板和标准执行事件。"""
+
+    def __init__(self, strategy_id: str, config: EmaCrossConfig) -> None:
+        super().__init__(strategy_id, config)
+        self.order_events = []
+        self.fill_observations: list[tuple[object, Decimal, Decimal]] = []
+
+    def on_order_update(self, event) -> None:
+        self.order_events.append(event)
+
+    def on_fill(self, event) -> None:
+        self.fill_observations.append((
+            event, self.account_position("position"), self.working_quantity("position"),
+        ))
+
+
 def test3_real_nautilus_pipeline() -> None:
-    """I3真实引擎：StrategyTemplate不经旧Bridge也能完成目标、订单和成交。"""
+    """I3/P2b：真实引擎Bar回测中，策略事件和下一Bar成交严格对应。"""
     bars = _bars()
     feed = _ReplayFeed(bars)
     positions = PositionManager()
@@ -299,7 +438,7 @@ def test3_real_nautilus_pipeline() -> None:
             MarketReferencePriceStore(),
         ),
     )
-    strategy = EmaCrossTargetStrategy(
+    strategy = _ObservedEma(
         "i3-ema",
         EmaCrossConfig(fast_period=2, slow_period=3),
     )
@@ -330,8 +469,25 @@ def test3_real_nautilus_pipeline() -> None:
         assert not orders.empty and not fills.empty
         assert result.backend_result.total_orders == len(orders)
         assert not client.report_errors
+        assert strategy.fill_observations
+        assert len(strategy.fill_observations) == len(fills)
+        assert len(strategy.order_events) >= len(strategy.fill_observations)
+        signed_fills = sum(
+            (
+                event.quantity if event.side.value == "BUY" else -event.quantity
+                for event, _, _ in strategy.fill_observations
+            ),
+            Decimal(0),
+        )
+        assert signed_fills == positions.account_position(backend.backend_id, RB)
+        for event, observed_position, observed_working in strategy.fill_observations:
+            signal_ts = int(event.metadata["signal_ts"])
+            assert event.ts_event > signal_ts, "检测到同Bar成交/前视"
+            assert observed_position.is_finite() and observed_working.is_finite()
+        last_observed_position = strategy.fill_observations[-1][1]
+        assert last_observed_position == positions.account_position(backend.backend_id, RB)
         print(
-            "I3真实引擎通过：统一主链完成EMA目标、Nautilus订单与成交，"
+            "I3/P2b真实引擎通过：EMA目标、标准执行回调和严格下一Bar成交，"
             f"orders={len(orders)} fills={len(fills)}",
         )
     finally:
@@ -342,6 +498,7 @@ STAGES = {
     1: test1_simulation_execution_client,
     2: test2_runtime_ordering,
     3: test3_real_nautilus_pipeline,
+    4: test4_simulation_partial_fill_dispatch,
 }
 
 

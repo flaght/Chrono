@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Protocol
+from typing import Callable, Protocol, runtime_checkable
 
 from strategy.contracts import ExecutionRequest
+from strategy.execution.events import FillEvent, OrderUpdateEvent
 
 
 class ExecutionClientPort(Protocol):
@@ -20,6 +21,15 @@ class ExecutionClientPort(Protocol):
     def submit_targets(self, request: ExecutionRequest) -> None: ...
 
     def cancel_strategy(self, strategy_id: str) -> None: ...
+
+
+@runtime_checkable
+class ExecutionEventSourcePort(Protocol):
+    """可选双向能力；Recording客户端无需伪造订单或成交。"""
+
+    def register_execution_event_handler(
+        self, handler: Callable[[OrderUpdateEvent | FillEvent], None],
+    ) -> None: ...
 
 
 class PositionProvider(Protocol):

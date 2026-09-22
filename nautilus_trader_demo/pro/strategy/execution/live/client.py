@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import threading
+from typing import Callable
 
 from strategy.contracts import ExecutionRequest
 from strategy.execution.contracts import ExecutionReport, OrderSide
+from strategy.execution.events import FillEvent, OrderUpdateEvent, map_applied_report
 from strategy.execution.order_state import (
     OrderReportStateMachine,
     OrderState,
@@ -27,10 +29,16 @@ class BackendExecutionClient:
         backend: LiveExecutionBackendPort,
         position_manager: PositionManager,
         risk_manager: PreTradeRiskManager | None = None,
+        *,
+        account_id: str | None = None,
     ) -> None:
         if client_id != backend.backend_id:
             raise ValueError("client_id必须与backend_id一致")
         self.client_id = client_id
+        # 旧接口默认一个client对应一个账户；多账户适配器必须显式给出账户ID。
+        self.account_id = account_id if account_id is not None else client_id
+        if not isinstance(self.account_id, str) or not self.account_id.strip():
+            raise ValueError("account_id不能为空")
         self.planner = planner
         self.backend = backend
         self.position_manager = position_manager
@@ -41,7 +49,15 @@ class BackendExecutionClient:
         self._report_errors: list[OrderStateError] = []
         self._strategy_ids: set[str] = set()
         self._submit_lock = threading.RLock()
+        self._execution_handlers: list[Callable[[OrderUpdateEvent | FillEvent], None]] = []
         self.backend.register_report_handler(self._on_report)
+
+    def register_execution_event_handler(
+        self, handler: Callable[[OrderUpdateEvent | FillEvent], None],
+    ) -> None:
+        """可选能力；旧ExecutionClientPort与既有调用方无需修改。"""
+        if handler not in self._execution_handlers:
+            self._execution_handlers.append(handler)
 
     def start(self) -> None:
         if self._started:
@@ -175,6 +191,13 @@ class BackendExecutionClient:
         self.backend.cancel_strategy(strategy_id)
 
     def _on_report(self, report: ExecutionReport) -> None:
+        # 状态机先接受并更新仓位/在途，然后才允许对策略投递事件。
+        # 旧调用方未订阅事件时保持原有的回报处理路径。
+        with self._submit_lock:
+            self._apply_report(report)
+
+    def _apply_report(self, report: ExecutionReport) -> None:
+        previous = self._order_states.state(report.client_order_id)
         try:
             update = self._order_states.apply(report)
         except OrderStateError as error:
@@ -186,6 +209,11 @@ class BackendExecutionClient:
             return
         if not update.applied:
             return
+        changed = (
+            previous is None
+            or previous.status is not update.state.status
+            or previous.filled_quantity != update.state.filled_quantity
+        )
         direction = 1 if update.state.side is OrderSide.BUY else -1
         if update.fill_delta:
             signed_fill = direction * update.fill_delta
@@ -206,3 +234,20 @@ class BackendExecutionClient:
                 report.instrument_id,
                 -remaining,
             )
+        if not self._execution_handlers or not changed:
+            return
+        try:
+            order_event, fill_event = map_applied_report(
+                report, update, account_id=self.account_id,
+            )
+            for event in (order_event, fill_event):
+                if event is None:
+                    continue
+                for handler in tuple(self._execution_handlers):
+                    handler(event)
+        except Exception as error:
+            # 已被状态机接受的回报不能回滚；关联失败/回调异常必须关闭闸门，
+            # 等待账户和活动订单重新对账，而不是静默丢失策略通知。
+            self._report_errors.append(OrderStateError(f"标准执行事件分发失败: {error}"))
+            self._reconciled = False
+            self.position_manager.clear_account_reconciliation(self.client_id)

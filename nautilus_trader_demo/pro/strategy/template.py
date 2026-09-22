@@ -9,12 +9,17 @@ from typing import Any, Mapping, Protocol
 
 from market.basic.base import Bar, CustomBar, QuoteTick, TradeTick
 from strategy.contracts import TargetPortfolio, TargetUpdateMode
+from strategy.execution.events import FillEvent, OrderUpdateEvent
 
 
 class StrategyContext(Protocol):
     def submit(self, intent: TargetPortfolio) -> None: ...
 
     def position(self, target_key: str) -> Decimal: ...
+
+    def account_position(self, target_key: str) -> Decimal: ...
+
+    def working_quantity(self, target_key: str) -> Decimal: ...
 
 
 class StrategyTemplate(ABC):
@@ -125,6 +130,22 @@ class StrategyTemplate(ABC):
     def position(self, target_key: str) -> Decimal:
         return self._require_context().position(target_key)
 
+    def account_position(self, target_key: str) -> Decimal:
+        """按逻辑目标键查询账户真实净仓，不等同于策略独占持仓。"""
+        return self._require_context().account_position(target_key)
+
+    def working_quantity(self, target_key: str) -> Decimal:
+        """按逻辑目标键查询账户在途净数量。"""
+        return self._require_context().working_quantity(target_key)
+
+    def _handle_execution_event(self, event: OrderUpdateEvent | FillEvent) -> None:
+        if not self._started:
+            return
+        if isinstance(event, OrderUpdateEvent):
+            self.on_order_update(event)
+        else:
+            self.on_fill(event)
+
     def _require_context(self) -> StrategyContext:
         if self._context is None:
             raise RuntimeError(f"策略尚未绑定运行上下文: {self.strategy_id}")
@@ -153,4 +174,12 @@ class StrategyTemplate(ABC):
 
     def on_time(self, ts_event: int) -> None:
         """独立时钟回调；不要求任何标的在该时刻恰好产生 Bar。"""
+        pass
+
+    def on_order_update(self, event: OrderUpdateEvent) -> None:
+        """可选执行回调；仅在订单状态和账户仓位已更新后调用。"""
+        pass
+
+    def on_fill(self, event: FillEvent) -> None:
+        """可选逐笔成交回调；旧策略不重写也能原样运行。"""
         pass

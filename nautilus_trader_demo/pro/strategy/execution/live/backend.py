@@ -14,6 +14,7 @@ from strategy.execution.contracts import (
     OrderIntent,
 )
 from strategy.execution.live.driver import NautilusLiveDriverPort
+from strategy.execution.events import AccountStateEvent, ActiveOrderSnapshot
 
 
 class NautilusLiveExecutionBackend:
@@ -97,6 +98,30 @@ class NautilusLiveExecutionBackend:
             ts_event=time.time_ns(),
             positions=positions,
         )
+
+    def reconcile_account_state(self) -> AccountStateEvent:
+        """可选权威资金能力；缺失时受控客户端保持闭闸。"""
+        if not self._started:
+            raise RuntimeError("Live Backend尚未启动")
+        query = getattr(self.driver, "reconcile_account_state", None)
+        if query is None:
+            raise RuntimeError("Live Driver不支持权威账户资金查询")
+        state = query()
+        if not isinstance(state, AccountStateEvent) or state.client_id != self.backend_id:
+            raise ValueError("权威账户资金快照类型或客户端不匹配")
+        return state
+
+    def reconcile_active_orders(self) -> ActiveOrderSnapshot:
+        """可选柜台全量活动订单查询；缺失时不解除恢复闸门。"""
+        if not self._started:
+            raise RuntimeError("Live Backend尚未启动")
+        query = getattr(self.driver, "reconcile_active_orders", None)
+        if query is None:
+            raise RuntimeError("Live Driver不支持权威活动订单查询")
+        snapshot = query()
+        if not isinstance(snapshot, ActiveOrderSnapshot) or snapshot.client_id != self.backend_id:
+            raise ValueError("权威活动订单快照类型或客户端不匹配")
+        return snapshot
 
     def _receive_report(self, report: ExecutionReport) -> None:
         if report.backend_id != self.backend_id:
