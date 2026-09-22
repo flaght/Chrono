@@ -150,3 +150,7 @@ class StrategyTemplate(ABC):
 
     def on_custom_bar(self, data_key: str, bar: CustomBar) -> None:
         pass
+
+    def on_time(self, ts_event: int) -> None:
+        """独立时钟回调；不要求任何标的在该时刻恰好产生 Bar。"""
+        pass

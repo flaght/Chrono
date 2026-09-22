@@ -111,7 +111,9 @@ class CtpFuturesBasicProfile:
             asset_class=AssetClass.COMMODITY,
             currency=CNY,
             price_precision=price_precision,
-            price_increment=Price.from_str(str(price_step)),
+            # 数据表常把整数tick写成1.0；Price.from_str("1.0")会保留1位
+            # 精度，与price_precision=0冲突。只去掉无意义的尾随零。
+            price_increment=Price.from_str(format(price_step.normalize(), "f")),
             multiplier=Quantity.from_str(str(contract_multiplier)),
             lot_size=Quantity.from_int(1),
             underlying=normalized_underlying,

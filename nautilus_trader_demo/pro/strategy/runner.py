@@ -32,6 +32,7 @@ from strategy.portfolio import (
     TargetStore,
 )
 from strategy.market_health import MarketHealthGate, RecoveryConfirmation
+from strategy.dynamic_routes import DynamicExecutionRoute, RollPhase, SafeRollCoordinator
 from strategy.ports import ExecutionClientPort, PositionProvider
 from strategy.template import StrategyContext, StrategyTemplate
 
@@ -40,7 +41,8 @@ from strategy.template import StrategyContext, StrategyTemplate
 class _Registration:
     strategy: StrategyTemplate
     data_bindings: tuple[DataBinding, ...]
-    execution_routes: dict[str, ExecutionRoute]
+    execution_routes: dict[str, ExecutionRoute | DynamicExecutionRoute]
+    time_feed_ids: tuple[str, ...]
 
 
 class _RuntimeContext(StrategyContext):
@@ -72,6 +74,7 @@ class UnifiedStrategyRunner:
         portfolio_coordinator: PortfolioCoordinator | None = None,
         position_manager: PositionManager | None = None,
         market_health_gate: MarketHealthGate | None = None,
+        roll_coordinator: SafeRollCoordinator | None = None,
     ) -> None:
         self.mode = RuntimeMode(mode)
         self._target_store = target_store or TargetStore()
@@ -79,9 +82,11 @@ class UnifiedStrategyRunner:
         self._position_manager = position_manager or PositionManager()
         self._position_provider = position_provider or self._position_manager
         self._market_health_gate = market_health_gate or MarketHealthGate()
+        self._roll_coordinator = roll_coordinator or SafeRollCoordinator()
         self._feeds: dict[str, MarketDataFeed] = {}
         self._clients: dict[str, ExecutionClientPort] = {}
         self._registrations: dict[str, _Registration] = {}
+        self._has_dynamic_routes = False
         self._bindings: dict[tuple[str, DataType, InstrumentId], list[tuple[str, DataBinding]]] = defaultdict(list)
         self._attached_feeds: set[str] = set()
         self._attached_health_feeds: set[str] = set()
@@ -107,6 +112,10 @@ class UnifiedStrategyRunner:
     @property
     def market_health_gate(self) -> MarketHealthGate:
         return self._market_health_gate
+
+    @property
+    def roll_coordinator(self) -> SafeRollCoordinator:
+        return self._roll_coordinator
 
     def add_data_feed(self, feed_id: str, feed: MarketDataFeed) -> None:
         if self._started:
@@ -140,7 +149,8 @@ class UnifiedStrategyRunner:
         strategy: StrategyTemplate,
         *,
         data_bindings: tuple[DataBinding, ...],
-        execution_routes: tuple[ExecutionRoute, ...],
+        execution_routes: tuple[ExecutionRoute | DynamicExecutionRoute, ...],
+        time_feed_ids: tuple[str, ...] = (),
     ) -> None:
         if self._started:
             raise RuntimeError("Runner 启动后不能再添加策略")
@@ -152,11 +162,38 @@ class UnifiedStrategyRunner:
         routes = {route.target_key: route for route in execution_routes}
         if len(routes) != len(execution_routes):
             raise ValueError(f"策略存在重复 target_key: {strategy.strategy_id}")
+        if len(set(time_feed_ids)) != len(time_feed_ids) or any(not item.strip() for item in time_feed_ids):
+            raise ValueError(f"策略存在重复或空的时钟 feed_id: {strategy.strategy_id}")
+        dynamic = [route for route in execution_routes if isinstance(route, DynamicExecutionRoute)]
+        if dynamic:
+            if self.mode is RuntimeMode.LIVE:
+                raise ValueError("动态换月尚未接入生产级回报恢复与持久化，当前仅允许HISTORICAL")
+            # 首阶段安全边界：单逻辑目标占用专属账户；不把多腿换月误认为原子执行。
+            if len(dynamic) != 1 or len(routes) != 1:
+                raise ValueError("动态路由阶段仅支持单逻辑目标；多腿期权需独立协调策略")
+            client_id = dynamic[0].client_id
+            if any(
+                route.client_id == client_id
+                for item in self._registrations.values()
+                for route in item.execution_routes.values()
+            ):
+                raise ValueError("动态路由需要独占执行客户端")
+        else:
+            dynamic_clients = {
+                route.client_id
+                for item in self._registrations.values()
+                for route in item.execution_routes.values()
+                if isinstance(route, DynamicExecutionRoute)
+            }
+            if any(route.client_id in dynamic_clients for route in execution_routes):
+                raise ValueError("执行客户端已被动态路由独占")
         self._registrations[strategy.strategy_id] = _Registration(
             strategy=strategy,
             data_bindings=tuple(data_bindings),
             execution_routes=routes,
+            time_feed_ids=tuple(time_feed_ids),
         )
+        self._has_dynamic_routes = self._has_dynamic_routes or bool(dynamic)
         self._market_health_gate.register_strategy(
             strategy.strategy_id,
             frozenset(binding.feed_id for binding in data_bindings),
@@ -218,6 +255,15 @@ class UnifiedStrategyRunner:
                 f"策略 {intent.strategy_id} 没有这些target_key的执行路由: "
                 f"{sorted(unknown_targets)}",
             )
+
+        dynamic_route = next(
+            (route for route in registration.execution_routes.values()
+             if isinstance(route, DynamicExecutionRoute)),
+            None,
+        )
+        if dynamic_route is not None:
+            self._submit_dynamic_locked(intent, dynamic_route)
+            return
 
         # 行情闸门必须先于TargetStore执行。被拒绝的目标不能占用revision或污染
         # 组合状态，否则行情恢复后同一目标无法安全重试。
@@ -288,6 +334,121 @@ class UnifiedStrategyRunner:
                 ),
             )
 
+    def _submit_dynamic_locked(self, intent: TargetPortfolio, route: DynamicExecutionRoute) -> None:
+        # 先验证角色及as-of可用性，再提交TargetStore，避免无合约时污染目标版本。
+        selection = route.resolver.resolve(route.target_key, intent.ts_event)
+        if selection.target_key != route.target_key:
+            raise ValueError("合约解析器返回的target_key与动态路由不匹配")
+        previous = self._target_store.get(intent.strategy_id)
+        self._market_health_gate.check_target(intent, previous)
+        prior_targets = self._target_store.all()
+        materialized = self._target_store.apply(intent)
+        try:
+            self._drive_dynamic_transaction_locked(materialized, route, selection, intent.ts_event)
+        except Exception:
+            self._target_store.restore(prior_targets)
+            raise
+
+    def refresh_dynamic_routes(self, as_of_ns: int) -> None:
+        """行情或权威订单/仓位回报后推进换月；目标版本本身不变。"""
+        if as_of_ns < 0:
+            raise ValueError("as_of_ns不能为负数")
+        with self._submit_lock:
+            for strategy_id, registration in self._registrations.items():
+                route = next(
+                    (item for item in registration.execution_routes.values()
+                     if isinstance(item, DynamicExecutionRoute)),
+                    None,
+                )
+                materialized = self._target_store.get(strategy_id)
+                if route is None or materialized is None:
+                    continue
+                selection = route.resolver.resolve(route.target_key, as_of_ns)
+                if selection.target_key != route.target_key:
+                    raise ValueError("合约解析器返回的target_key与动态路由不匹配")
+                state = self._roll_coordinator.state(strategy_id, route.target_key)
+                if state is not None and state.phase is RollPhase.ACTIVE and state.active.instrument_id == selection.instrument_id:
+                    continue
+                self._drive_dynamic_transaction_locked(materialized, route, selection, as_of_ns)
+
+    def _drive_dynamic_transaction_locked(self, materialized: TargetPortfolio, route: DynamicExecutionRoute, selection, now_ns: int) -> None:
+        prior_roll = self._roll_coordinator.snapshot()
+        prior_portfolio = self._portfolio_coordinator.state()
+        try:
+            self._drive_dynamic_locked(materialized, route, selection, now_ns)
+        except Exception:
+            # 发单/撤单失败后的外部状态不一定可逆；本地恢复并关闭实盘闸门。
+            self._roll_coordinator.restore(prior_roll)
+            self._portfolio_coordinator.restore(prior_portfolio)
+            self._position_manager.mark_recovery_required(route.client_id)
+            raise
+
+    def _drive_dynamic_locked(self, materialized: TargetPortfolio, route: DynamicExecutionRoute, selection, now_ns: int) -> None:
+        current = self._roll_coordinator.state(materialized.strategy_id, route.target_key)
+        if current is None:
+            account = self._position_manager.snapshot()
+            if any(
+                key.client_id == route.client_id and quantity != 0
+                for values in (account.account_positions, account.working_quantities)
+                for key, quantity in values.items()
+            ):
+                raise RuntimeError("动态路由首次启动要求独占账户为空；已有仓位须先恢复换月状态")
+        old_id = None if current is None else current.active.instrument_id
+        position = Decimal(0) if old_id is None else self._position_manager.account_position(route.client_id, old_id)
+        working = Decimal(0) if old_id is None else self._position_manager.working_quantity(route.client_id, old_id)
+        healthy = self._market_health_gate.snapshot(materialized.strategy_id).access_mode.value == "NORMAL"
+        target_unexpired = materialized.deadline_ns is None or now_ns <= materialized.deadline_ns
+        reconciled = (
+            not self._position_manager.is_recovery_required(route.client_id)
+            and (self.mode is not RuntimeMode.LIVE
+            or (self._position_manager.is_account_reconciled(route.client_id)
+                and not self._position_manager.is_recovery_required(route.client_id)))
+        )
+        decision = self._roll_coordinator.step(
+            materialized.strategy_id,
+            selection,
+            materialized.targets[route.target_key],
+            old_position=position,
+            old_working=working,
+            allow_open=healthy and reconciled and target_unexpired,
+        )
+        client = self._clients[route.client_id]
+        if decision.cancel_strategy_orders:
+            client.cancel_strategy(materialized.strategy_id)
+        if decision.targets is None:
+            return
+        current_revision = self._portfolio_coordinator.state().strategy_revisions.get(materialized.strategy_id, 0)
+        revision = max(materialized.revision, current_revision + 1)
+        resolved = {AccountTargetKey(route.client_id, item): quantity for item, quantity in decision.targets.items()}
+        snapshot = self._portfolio_coordinator.update(
+            strategy_id=materialized.strategy_id,
+            revision=revision,
+            ts_event=now_ns,
+            targets=resolved,
+        )
+        client.submit_targets(ExecutionRequest(
+            strategy_id=materialized.strategy_id,
+            revision=revision,
+            client_id=route.client_id,
+            ts_event=now_ns,
+            targets={
+                key.instrument_id: quantity
+                for key, quantity in snapshot.targets.items()
+                if key.client_id == route.client_id
+            },
+            logical_targets=materialized.targets,
+            execution_policy=materialized.execution_policy,
+            deadline_ns=materialized.deadline_ns,
+            metadata={
+                **materialized.metadata,
+                "portfolio_revision": snapshot.revision,
+                "contract_revision": selection.revision,
+                "roll_phase": decision.phase.value,
+                "signal_ts_event": materialized.ts_event,
+                "market_health_mode": self._market_health_gate.snapshot(materialized.strategy_id).access_mode.value,
+            },
+        ))
+
     def market_health_snapshot(self, strategy_id: str):
         return self._market_health_gate.snapshot(strategy_id)
 
@@ -316,11 +477,23 @@ class UnifiedStrategyRunner:
         instrument_id = _event_instrument_id(event)
         for observer in tuple(self._market_observers):
             observer.on_market_event(event)
+        if self._has_dynamic_routes:
+            self.refresh_dynamic_routes(event.ts_event)
         key = (feed_id, data_type, instrument_id)
         for strategy_id, binding in tuple(self._bindings.get(key, ())):
             if not _bar_spec_matches(binding, event):
                 continue
             self._registrations[strategy_id].strategy._handle_event(binding.data_key, event)
+
+    def publish_time(self, feed_id: str, ts_event: int) -> None:
+        """把独立时钟事件分发给显式绑定的策略。"""
+        if not self._started:
+            return
+        if ts_event < 0:
+            raise ValueError("时钟时间不能为负")
+        for registration in tuple(self._registrations.values()):
+            if feed_id in registration.time_feed_ids:
+                registration.strategy.on_time(ts_event)
 
     def _validate_configuration(self) -> None:
         if not self._registrations:
@@ -331,6 +504,10 @@ class UnifiedStrategyRunner:
                     raise ValueError(
                         f"策略 {strategy_id} 引用了未知行情源 {binding.feed_id}",
                     )
+            for feed_id in registration.time_feed_ids:
+                feed = self._feeds.get(feed_id)
+                if feed is None or not callable(getattr(feed, "register_time_handler", None)):
+                    raise ValueError(f"策略 {strategy_id} 引用了无时钟能力的 feed {feed_id}")
             for route in registration.execution_routes.values():
                 if route.client_id not in self._clients:
                     raise ValueError(
@@ -348,6 +525,9 @@ class UnifiedStrategyRunner:
             )
             self._attached_health_feeds.add(feed_id)
         if feed_id not in self._attached_feeds:
+            register_time = getattr(feed, "register_time_handler", None)
+            if callable(register_time):
+                register_time(lambda ts, fid=feed_id: self.publish_time(fid, ts))
             feed.register_trade_tick_handler(lambda event, fid=feed_id: self.publish(fid, event))
             feed.register_quote_tick_handler(lambda event, fid=feed_id: self.publish(fid, event))
             feed.register_bar_handler(lambda event, fid=feed_id: self.publish(fid, event))

@@ -97,6 +97,24 @@ def test1_ctp_basic_profile_and_instrument() -> None:
     assert instrument.size_increment.as_decimal() == Decimal(1)
     assert instrument.margin_init == Decimal("0.10")
     assert instrument.margin_maint == Decimal("0.08")
+    # fut_basic中的minChgPriceNum常以浮点1.0存储；不能让文本形式的
+    # 尾随零把Nautilus Price精度抬成1，与合约价格精度0冲突。
+    integer_tick = profile.make_instrument(
+        "rb2705", underlying="rb", price_precision=0,
+        price_increment=Decimal("1.0"), multiplier=Decimal("10"),
+        activation_ns=_ns("2026-01-01"), expiration_ns=_ns("2027-05-01"),
+        margin_init=Decimal("0.10"), margin_maint=Decimal("0.08"),
+    )
+    assert integer_tick.price_precision == 0
+    assert integer_tick.price_increment.precision == 0
+    assert str(integer_tick.price_increment) == "1"
+    fractional_tick = profile.make_instrument(
+        "rb2706", underlying="rb", price_precision=1,
+        price_increment=Decimal("0.50"), multiplier=Decimal("10"),
+        activation_ns=_ns("2026-01-01"), expiration_ns=_ns("2027-05-01"),
+        margin_init=Decimal("0.10"), margin_maint=Decimal("0.08"),
+    )
+    assert fractional_tick.price_increment.precision == 1
     print("E7a通过：CTP基础Profile和rb期货合约规则映射正常")
 
 
@@ -265,9 +283,12 @@ STAGES = {
 
 
 def main() -> None:
-    test1_ctp_basic_profile_and_instrument()
-    test2_ctp_bar_basic_round_trip()
-
+    parser = argparse.ArgumentParser(description="CTP基础模拟执行分阶段测试")
+    parser.add_argument("--stage", choices=(*(str(i) for i in STAGES), "all"), default="all")
+    args = parser.parse_args()
+    selected = STAGES if args.stage == "all" else {int(args.stage): STAGES[int(args.stage)]}
+    for function in selected.values():
+        function()
 
 
 if __name__ == "__main__":
