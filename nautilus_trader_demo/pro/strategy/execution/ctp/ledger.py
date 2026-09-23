@@ -10,6 +10,7 @@ from typing import Mapping
 
 from market.basic.base import InstrumentId
 from strategy.execution.contracts import OrderSide, PositionEffect
+from strategy.execution.events import AccountPositionEvent
 
 
 def _decimal(value: Decimal | int | float | str) -> Decimal:
@@ -143,6 +144,31 @@ class CtpPositionLedger:
                     for instrument_id in self._positions
                 },
             )
+
+    def verify_position_event(self, event: AccountPositionEvent) -> None:
+        """只核对柜台数量；绝不以缺成本价的快照改写账本。"""
+        if not isinstance(event, AccountPositionEvent):
+            raise TypeError("CTP仓位核对需要权威账户仓位事件")
+        with self._lock:
+            actual = {
+                str(instrument_id): (
+                    position.long_today.quantity, position.long_yesterday.quantity,
+                    position.short_today.quantity, position.short_yesterday.quantity,
+                )
+                for instrument_id, position in self._positions.items()
+                if any((position.long_today.quantity, position.long_yesterday.quantity,
+                        position.short_today.quantity, position.short_yesterday.quantity))
+            }
+        reported = {}
+        for instrument_id, position in event.positions.items():
+            values = (position.long_today, position.long_yesterday,
+                      position.short_today, position.short_yesterday)
+            if any(value is None for value in values):
+                raise RuntimeError(f"CTP权威今昨仓不完整: {instrument_id}")
+            if any(values):
+                reported[instrument_id] = values
+        if actual != reported:
+            raise RuntimeError(f"CTP账本与柜台双向今昨仓不一致: ledger={actual} counter={reported}")
 
     def restore(self, state: CtpLedgerState) -> None:
         if state.trading_day is not None and not state.trading_day.strip():

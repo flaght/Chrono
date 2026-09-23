@@ -15,7 +15,8 @@ from strategy.execution.contracts import (
     OrderIntent,
 )
 from strategy.execution.ctp.native_order import make_ctp_order_insert
-from strategy.execution.events import AccountStateEvent, ActiveOrderSnapshot
+from strategy.execution.ctp.ledger import CtpPositionLedger
+from strategy.execution.events import AccountPositionEvent, AccountStateEvent, ActiveOrderSnapshot
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,8 @@ class CtpTraderTransport(Protocol):
 
     def query_positions(self) -> Mapping[InstrumentId | str, Decimal | int | str]: ...
 
+    def query_position_event(self) -> AccountPositionEvent: ...
+
     def query_account(self) -> AccountStateEvent: ...
 
     def query_active_orders(self) -> ActiveOrderSnapshot: ...
@@ -101,6 +104,7 @@ class CtpNativeTraderDriver:
         *,
         enable_test_orders: bool = False,
         disconnect_handler: Callable[[str], None] | None = None,
+        position_ledger: CtpPositionLedger | None = None,
     ) -> None:
         if not driver_id.strip() or not account_id.strip():
             raise ValueError("CTP Driver与账户ID不能为空")
@@ -113,6 +117,8 @@ class CtpNativeTraderDriver:
         self.transport = transport
         self._enable_test_orders = enable_test_orders
         self._disconnect_handler = disconnect_handler
+        self._position_ledger = position_ledger
+        self._position_verified = False
         self._sink: Callable[[ExecutionReport], None] | None = None
         self._session: CtpTraderSession | None = None
         self._connected = False
@@ -145,6 +151,7 @@ class CtpNativeTraderDriver:
     def start(self, report_sink: Callable[[ExecutionReport], None]) -> None:
         if self._connected:
             return
+        self._position_verified = False
         session = self.transport.connect(self.on_order, self.on_trade, self.on_disconnect)
         if not isinstance(session, CtpTraderSession):
             self.transport.close()
@@ -167,6 +174,7 @@ class CtpNativeTraderDriver:
         try:
             self.transport.close()
         finally:
+            self._position_verified = False
             self._connected = False
             self._session = None
             self._sink = None
@@ -177,6 +185,16 @@ class CtpNativeTraderDriver:
 
     def reconcile(self) -> Mapping[InstrumentId | str, Decimal | int | str]:
         self._require_connected()
+        self._position_verified = False
+        if self._position_ledger is not None:
+            try:
+                event = self.verify_position_ledger(self._position_ledger)
+            except Exception:
+                self._position_verified = False
+                raise
+            self._position_verified = True
+            return {instrument: position.net_quantity
+                    for instrument, position in event.positions.items()}
         positions = self.transport.query_positions()
         if positions is None:
             raise RuntimeError("CTP权威仓位查询未完成")
@@ -190,6 +208,21 @@ class CtpNativeTraderDriver:
                 or state.client_id != self.driver_id):
             raise RuntimeError("CTP权威资金查询结果无效")
         return state
+
+    def reconcile_position_detail(self) -> AccountPositionEvent:
+        self._require_connected()
+        event = self.transport.query_position_event()
+        if (not isinstance(event, AccountPositionEvent)
+                or event.account_id != self.account_id
+                or event.client_id != self.driver_id):
+            raise RuntimeError("CTP权威双向今昨仓查询结果无效")
+        return event
+
+    def verify_position_ledger(self, ledger: CtpPositionLedger) -> AccountPositionEvent:
+        """读取新柜台快照并核对本地账本；不修改仓位或交易授权。"""
+        event = self.reconcile_position_detail()
+        ledger.verify_position_event(event)
+        return event
 
     def reconcile_active_orders(self) -> ActiveOrderSnapshot:
         self._require_connected()
@@ -304,6 +337,8 @@ class CtpNativeTraderDriver:
 
     def submit_order(self, order: OrderIntent) -> None:
         self._require_connected()
+        if self._position_ledger is not None and not self._position_verified:
+            raise RuntimeError("CTP账本尚未与柜台双向今昨仓完成权威核对")
         if self._recovery_checkpoint is not None:
             raise RuntimeError("CTP活动订单关联尚未经过柜台权威快照恢复")
         if not self._enable_test_orders:
@@ -359,6 +394,7 @@ class CtpNativeTraderDriver:
 
     def on_disconnect(self, reason: int) -> None:
         self._connected = False
+        self._position_verified = False
         if self._disconnect_handler is not None:
             self._disconnect_handler(f"ctp_front_disconnected:{reason}")
 

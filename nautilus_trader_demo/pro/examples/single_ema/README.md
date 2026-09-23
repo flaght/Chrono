@@ -173,6 +173,15 @@ CTP_EMA_TIMEOUT=300 python tests/run_single_ema_online.py --stage 5
 CTP原生行情只提供Tick，因此先由`TradeTickBarFeed`聚合已收盘1分钟Bar。没有成交的
 分钟不会补零；最后尚未结束的分钟在停机时不会发出。
 
+同一链路现另有正式示例入口，仍使用相同`EmaCrossTargetStrategy`，但交易端固定为
+Recording，不会连接CTP TraderApi或发送订单：
+
+```bash
+python examples/single_ema/ema_ctp_live.py --symbol rb2610 --timeout 300
+```
+
+该示例仅在行情时段能观察到新Bar和目标；合约、最小变动价位及乘数应按实际合约设置。
+
 ## 5. Binance统一在线示例
 
 默认只接收`market.stream.bn`的Kline并记录目标，不下单：
@@ -187,22 +196,20 @@ python examples/single_ema/ema_binance_live.py --environment live
 python examples/single_ema/ema_binance_live.py --environment live --timeout 360
 ```
 
-DEMO环境启用Nautilus Binance执行客户端会发送模拟订单：
+`--enable-orders`目前在DEMO与LIVE均会被拒绝：示例尚未接入受控客户端的
+资金、全市场活动订单恢复与人工授权链。请先用默认Recording模式验证行情和信号；
+`binance_demo_readonly.py`可单独用于显式连接DEMO账户的只读对账，不会下单。
 
-```bash
-export BINANCE_DEMO_API_KEY='...'
-export BINANCE_DEMO_API_SECRET='...'
-python examples/single_ema/ema_binance_live.py --enable-orders
-```
+### 四模式验收状态
 
-真实环境必须显式双重授权：
+| 行情/执行 | CTP | Binance |
+|---|---|---|
+| 离线回测 | Bar/Tick正式模拟入口已具备；真实样本回归需按各脚本断言复测 | 期货Bar正式模拟入口已具备；真实样本回归需复测 |
+| 在线Recording | `ema_ctp_live.py`已装配，待交易时段验证 | `ema_binance_live.py`默认模式已装配，待实流验证 |
+| 在线受控交易 | 原生TdApi无网络测试至P4-CTP9，真实SimNow只读/订单联调未完成 | DEMO只读组件已具备，EMA示例受控执行装配未完成；旧下单标志已禁用 |
 
-```bash
-export BINANCE_API_KEY='...'
-export BINANCE_API_SECRET='...'
-python examples/single_ema/ema_binance_live.py \
-  --environment live --enable-orders --confirm-live
-```
+四种模式始终复用`EmaCrossTargetStrategy`；“装配入口存在”不等于真实账户
+已经验收，更不意味着当前允许真实下单。
 
 新示例的结构是：
 
@@ -213,12 +220,12 @@ BNWSStreamDataFeed
   → TargetStore / PortfolioCoordinator
   → RecordingExecutionClient
 
-或显式启用订单后：
+计划中的受控下单链路（**尚未接入本示例**）：
 
 BNWSStreamDataFeed
   → UnifiedStrategyRunner
   → EmaCrossTargetStrategy
-  → BackendExecutionClient
+  → ControlledLiveExecutionClient
   → Planner → Risk
   → NautilusLiveExecutionBackend
   → Binance Exec Client

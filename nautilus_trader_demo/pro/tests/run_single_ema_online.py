@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import time
 from decimal import Decimal
@@ -26,6 +27,7 @@ from market.basic.base import (
 )
 from market.stream import TradeTickBarFeed
 from market.stream.bn import BNWSConfig, BNWSStreamDataFeed
+from market.stream.health import StreamHealthConfig
 from strategy import (
     DataBinding,
     ExecutionRoute,
@@ -98,11 +100,25 @@ def _kline(symbol: str, minute: int, close: Decimal | int, *, closed: bool = Tru
     }
 
 
-def _wait_for_request(client: RecordingExecutionClient, timeout: float) -> None:
+def _wait_for_request(
+    client: RecordingExecutionClient,
+    timeout: float,
+    *,
+    diagnostic=None,
+    progress_seconds: float | None = None,
+) -> None:
     deadline = time.monotonic() + timeout
+    next_progress = (
+        time.monotonic() + progress_seconds
+        if progress_seconds is not None else None
+    )
     while not client.requests:
         if time.monotonic() >= deadline:
-            raise TimeoutError(f"{timeout:g}秒内EMA没有生成目标请求")
+            detail = f"；{diagnostic()}" if diagnostic is not None else ""
+            raise TimeoutError(f"{timeout:g}秒内EMA没有生成目标请求{detail}")
+        if next_progress is not None and time.monotonic() >= next_progress:
+            print(f"在线EMA等待目标: {diagnostic()}", flush=True)
+            next_progress = time.monotonic() + progress_seconds
         time.sleep(0.05)
 
 
@@ -177,6 +193,8 @@ def test1_binance_kline_conversion() -> None:
         assert str(bars[0].bar_type.instrument_id) == "BTCUSDT-PERP.BINANCE"
         assert "1-MINUTE" in str(bars[0].bar_type)
         assert bars[0].close.as_decimal() == Decimal("80001.00")
+        assert feed.message_diagnostics["kline_messages"] == 2
+        assert feed.message_diagnostics["closed_kline_messages"] == 1
     finally:
         feed.disconnect()
     print("EMA-L1通过：Binance已收盘Kline转换为标准永续Bar")
@@ -259,13 +277,21 @@ def test4_binance_real_kline_to_recording() -> None:
     instrument_id = InstrumentId.from_str(f"{symbol}{suffix}.BINANCE")
     base_url = os.getenv(
         "BN_WS_BASE_URL",
-        "wss://fstream.binance.com" if market_type == "futures" else "wss://stream.binance.com:9443",
+        "wss://fstream.binance.com/market" if market_type == "futures" else "wss://stream.binance.com:9443",
     )
-    feed = BNWSStreamDataFeed(BNWSConfig(ws_base_url=base_url, market_type=market_type))
+    # 本探针只分发已收盘的1分钟Bar；默认30秒无事件阈值会在两根Bar之间
+    # 误判断流，并使恢复闸门要求人工确认。保留闸门，但按Bar周期设置宽限。
+    feed = BNWSStreamDataFeed(
+        BNWSConfig(ws_base_url=base_url, market_type=market_type),
+        health_config=StreamHealthConfig(
+            startup_grace_seconds=90,
+            stale_after_seconds=90,
+        ),
+    )
     feed.register_instrument(_meta(instrument_id))
     fast = int(os.getenv("EMA_FAST", "2"))
     slow = int(os.getenv("EMA_SLOW", "3"))
-    runner, _, client = _build_recording_runner(
+    runner, strategy, client = _build_recording_runner(
         feed,
         instrument_id,
         strategy_id="ema-binance-live-recording",
@@ -280,7 +306,20 @@ def test4_binance_real_kline_to_recording() -> None:
     )
     runner.start()
     try:
-        _wait_for_request(client, timeout)
+        _wait_for_request(
+            client, timeout,
+            diagnostic=lambda: (
+                f"bars_seen={strategy.bars_seen} bars_used={strategy.bars_used} "
+                f"warmed_up={strategy.is_warmed_up} "
+                f"streams={sorted(feed._active_streams)} "
+                f"health={feed.health_snapshot.state.value}/"
+                f"{feed.health_snapshot.reason.value} "
+                f"health_detail={feed.health_snapshot.detail!r} "
+                f"last_ws_error={feed.last_ws_error!r} "
+                f"message_diagnostics={feed.message_diagnostics}"
+            ),
+            progress_seconds=60,
+        )
         print(f"收到EMA目标请求: {client.requests[-1]}")
     finally:
         runner.stop()
@@ -354,12 +393,113 @@ def test5_ctp_real_tick_to_recording() -> None:
     print("EMA-L5通过：CTP真实Tick聚合分钟Bar后已驱动EMA Recording链")
 
 
+def test6_timeout_diagnostic() -> None:
+    """超时必须保留诊断，不能把连接问题误报为EMA逻辑问题。"""
+    client = RecordingExecutionClient("diagnostic-only")
+    try:
+        _wait_for_request(client, 0.001, diagnostic=lambda: "bars_seen=0 health=degraded")
+    except TimeoutError as error:
+        assert "bars_seen=0" in str(error)
+        assert "health=degraded" in str(error)
+    else:
+        raise AssertionError("无目标请求应超时并给出行情诊断")
+    print("EMA-L6通过：在线超时附带Bar计数与行情健康诊断")
+
+
+def test7_binance_websocket_connectivity() -> None:
+    """短时Quote探针，先区分WebSocket连通性与分钟Kline/EMA问题。"""
+    market_type = os.getenv("BN_MARKET_TYPE", "futures").strip().lower()
+    symbol = os.getenv("BN_SYMBOL", "BTCUSDT").upper()
+    suffix = "-PERP" if market_type == "futures" else ""
+    instrument_id = InstrumentId.from_str(f"{symbol}{suffix}.BINANCE")
+    base_url = os.getenv(
+        "BN_WS_BASE_URL",
+        "wss://fstream.binance.com/public" if market_type == "futures"
+        else "wss://stream.binance.com:9443",
+    )
+    feed = BNWSStreamDataFeed(BNWSConfig(ws_base_url=base_url, market_type=market_type))
+    feed.register_instrument(_meta(instrument_id))
+    quotes = []
+    feed.register_quote_tick_handler(quotes.append)
+    feed.subscribe(instrument_id, DataType.QUOTE_TICK)
+    timeout = float(os.getenv("BN_WS_PROBE_TIMEOUT", "20"))
+    if timeout <= 0:
+        raise ValueError("BN_WS_PROBE_TIMEOUT必须大于0")
+    feed.connect()
+    try:
+        print(
+            f"Binance WebSocket短探针: {instrument_id} "
+            f"streams={sorted(feed._active_streams)} timeout={timeout:g}s"
+        )
+        deadline = time.monotonic() + timeout
+        while not quotes and time.monotonic() < deadline:
+            time.sleep(0.05)
+        snapshot = feed.health_snapshot
+        print(
+            f"Binance连接诊断: quotes={len(quotes)} "
+            f"health={snapshot.state.value}/{snapshot.reason.value} "
+            f"detail={snapshot.detail!r} last_ws_error={feed.last_ws_error!r}"
+        )
+        if not quotes:
+            raise TimeoutError("Binance最优报价短探针未收到事件；先排查WebSocket连接")
+    finally:
+        feed.disconnect()
+    print("EMA-L7通过：Binance WebSocket最优报价流可达")
+
+
+def test8_binance_kline_path_probe() -> None:
+    """绕过Feed，验证期货新端点的Public报价和Market Kline。"""
+    import websocket
+
+    base_url = os.getenv("BN_WS_BASE_URL", "wss://fstream.binance.com").rstrip("/")
+    if base_url.endswith(("/public", "/market")):
+        base_url = base_url.rsplit("/", 1)[0]
+    symbol = os.getenv("BN_SYMBOL", "BTCUSDT").strip().lower()
+    timeout = float(os.getenv("BN_WS_PATH_TIMEOUT", "12"))
+    if timeout <= 0:
+        raise ValueError("BN_WS_PATH_TIMEOUT必须大于0")
+    stream = f"{symbol}@kline_1m"
+    paths = (
+        ("public-bookTicker", f"/public/stream?streams={symbol}@bookTicker"),
+        ("market-kline", f"/market/stream?streams={stream}"),
+        ("market-raw-kline", f"/market/ws/{stream}"),
+    )
+    for label, path in paths:
+        opened = False
+        received = False
+        event_type = None
+        closed = None
+        error = None
+        ws = None
+        try:
+            ws = websocket.create_connection(f"{base_url}{path}", timeout=timeout)
+            opened = True
+            payload = json.loads(ws.recv())
+            data = payload.get("data", payload)
+            received = True
+            event_type = data.get("e")
+            closed = (data.get("k") or {}).get("x") if event_type == "kline" else None
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+        finally:
+            if ws is not None:
+                ws.close()
+        print(
+            f"Binance路径探针 {label}: opened={opened} received={received} "
+            f"event_type={event_type!r} kline_closed={closed!r} error={error!r}",
+            flush=True,
+        )
+
+
 STAGES = {
     1: test1_binance_kline_conversion,
     2: test2_binance_kline_to_recording,
     3: test3_ctp_tick_aggregation_to_recording,
     4: test4_binance_real_kline_to_recording,
     5: test5_ctp_real_tick_to_recording,
+    6: test6_timeout_diagnostic,
+    7: test7_binance_websocket_connectivity,
+    8: test8_binance_kline_path_probe,
 }
 
 

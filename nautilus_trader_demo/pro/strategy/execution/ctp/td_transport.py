@@ -12,9 +12,11 @@ from market.basic.base import InstrumentId
 from strategy.execution.ctp.native_driver import CtpTraderSession
 from strategy.execution.events import (
     AccountStateEvent,
+    AccountPositionEvent,
     ActiveOrder,
     ActiveOrderSnapshot,
     CurrencyBalance,
+    InstrumentPosition,
 )
 
 
@@ -81,6 +83,7 @@ class CtpTdApiTransport:
         self._on_trade: Callable[[Mapping[str, Any]], None] | None = None
         self._on_disconnect: Callable[[int], None] | None = None
         self._account_revision = 0
+        self._position_revision = 0
         self._orders_revision = 0
         self._last_orders: dict[str, dict[str, Any]] = {}
         self._insert_requests: dict[int, dict[str, Any]] = {}
@@ -370,6 +373,57 @@ class CtpTdApiTransport:
             signed = quantity if direction == "2" else -quantity
             positions[instrument] = positions.get(instrument, Decimal(0)) + signed
         return positions
+
+    def query_position_event(self) -> AccountPositionEvent:
+        """重新查询柜台全量双向今昨仓；缺字段时不伪造权威快照。"""
+        self._require_ready()
+        rows = self._request("positions", "reqQryInvestorPosition", {
+            "BrokerID": self.broker_id, "InvestorID": self.investor_id,
+        })
+        totals: dict[str, dict[str, Decimal]] = {}
+        for row in rows:
+            if (str(row.get("BrokerID", "")) != self.broker_id
+                    or str(row.get("InvestorID", "")) != self.investor_id):
+                raise RuntimeError("CTP仓位回报账户不匹配")
+            symbol, venue = str(row.get("InstrumentID", "")), str(row.get("ExchangeID", ""))
+            direction = str(row.get("PosiDirection", ""))
+            if not symbol or not venue or direction not in {"2", "3"}:
+                raise RuntimeError("CTP仓位回报缺少合约、交易所或多空方向")
+            if row.get("Position") is None or row.get("TodayPosition") is None:
+                raise RuntimeError("CTP仓位回报缺少总仓或今仓")
+            try:
+                quantity = Decimal(str(row["Position"]))
+                today = Decimal(str(row["TodayPosition"]))
+            except (ArithmeticError, ValueError, TypeError) as exc:
+                raise RuntimeError("CTP仓位数量无效") from exc
+            if (not quantity.is_finite() or not today.is_finite()
+                    or quantity < 0 or today < 0 or today > quantity
+                    or quantity != quantity.to_integral_value()
+                    or today != today.to_integral_value()):
+                raise RuntimeError("CTP仓位今昨数量无效")
+            instrument = f"{symbol}.{venue}"
+            values = totals.setdefault(instrument, {
+                "long_today": Decimal(0), "long_yesterday": Decimal(0),
+                "short_today": Decimal(0), "short_yesterday": Decimal(0),
+            })
+            side = "long" if direction == "2" else "short"
+            values[f"{side}_today"] += today
+            values[f"{side}_yesterday"] += quantity - today
+        positions = {}
+        for instrument, values in totals.items():
+            long_quantity = values["long_today"] + values["long_yesterday"]
+            short_quantity = values["short_today"] + values["short_yesterday"]
+            positions[instrument] = InstrumentPosition(
+                long_quantity - short_quantity, long_quantity, short_quantity,
+                values["long_today"], values["long_yesterday"],
+                values["short_today"], values["short_yesterday"],
+            )
+        event = AccountPositionEvent(
+            self.client_id, self.account_id, self._position_revision + 1,
+            time.time_ns(), positions,
+        )
+        self._position_revision = event.revision
+        return event
 
     def query_account(self) -> AccountStateEvent:
         self._require_ready()

@@ -70,11 +70,31 @@ class BNWSStreamDataFeed(StreamDataFeed):
         self._ws_app: Any = None
         self._net_thread: threading.Thread | None = None
         self._last_ws_error: str | None = None
+        self._diagnostic_lock = threading.Lock()
+        self._ws_open = False
+        self._ws_messages = 0
+        self._kline_messages = 0
+        self._closed_kline_messages = 0
+        self._message_errors = 0
+        self._last_message_error: str | None = None
 
     @property
     def last_ws_error(self) -> str | None:
         """返回最近一次 WebSocket 错误，供监控和测试诊断。"""
         return self._last_ws_error
+
+    @property
+    def message_diagnostics(self) -> dict[str, Any]:
+        """只暴露计数和错误类型，不输出账户数据或完整行情报文。"""
+        with self._diagnostic_lock:
+            return {
+                "ws_open": self._ws_open,
+                "ws_messages": self._ws_messages,
+                "kline_messages": self._kline_messages,
+                "closed_kline_messages": self._closed_kline_messages,
+                "message_errors": self._message_errors,
+                "last_message_error": self._last_message_error,
+            }
 
     def _start_network_client(self) -> None:
         try:
@@ -101,14 +121,21 @@ class BNWSStreamDataFeed(StreamDataFeed):
 
         def on_open(ws: Any) -> None:
             del ws
+            with self._diagnostic_lock:
+                self._ws_open = True
             logger.info("Binance WebSocket 已连接")
 
         def on_message(ws: Any, message: str) -> None:
             del ws
+            with self._diagnostic_lock:
+                self._ws_messages += 1
             try:
                 data = json.loads(message)
                 self.on_ws_message(data.get("data", data))
-            except Exception:
+            except Exception as exc:
+                with self._diagnostic_lock:
+                    self._message_errors += 1
+                    self._last_message_error = f"{type(exc).__name__}: {exc}"
                 logger.exception("Binance WebSocket 报文处理失败")
 
         def on_error(ws: Any, error: Any) -> None:
@@ -119,6 +146,8 @@ class BNWSStreamDataFeed(StreamDataFeed):
 
         def on_close(ws: Any, status: Any, message: Any) -> None:
             del ws
+            with self._diagnostic_lock:
+                self._ws_open = False
             if not self._stop_event.is_set():
                 self.report_stream_interruption(
                     f"Binance WebSocket关闭: status={status} message={message}",
@@ -130,6 +159,13 @@ class BNWSStreamDataFeed(StreamDataFeed):
             )
 
         self._last_ws_error = None
+        with self._diagnostic_lock:
+            self._ws_open = False
+            self._ws_messages = 0
+            self._kline_messages = 0
+            self._closed_kline_messages = 0
+            self._message_errors = 0
+            self._last_message_error = None
         self._ws_app = websocket.WebSocketApp(
             ws_url,
             on_open=on_open,
@@ -153,6 +189,8 @@ class BNWSStreamDataFeed(StreamDataFeed):
             thread.join(timeout=2.0)
         self._ws_app = None
         self._net_thread = None
+        with self._diagnostic_lock:
+            self._ws_open = False
         logger.info("Binance WebSocket 已安全断开")
 
     def _on_subscription_added(self, request: SubscriptionRequest) -> None:
@@ -248,9 +286,13 @@ class BNWSStreamDataFeed(StreamDataFeed):
 
         # 3. 已收盘Kline。进行中的x=false帧会不断覆盖，不能送入策略。
         elif event_type == "kline":
+            with self._diagnostic_lock:
+                self._kline_messages += 1
             kline = data.get("k") or {}
             if not kline.get("x", False):
                 return
+            with self._diagnostic_lock:
+                self._closed_kline_messages += 1
             symbol = str(kline.get("s") or data.get("s") or "").upper()
             if not symbol:
                 raise ValueError("Binance Kline缺少symbol")

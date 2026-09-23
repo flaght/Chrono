@@ -2,8 +2,8 @@
 """统一积木链的Binance在线EMA示例。
 
 默认使用``market.stream.bn``接收已收盘Kline，并把目标发送到
-``RecordingExecutionClient``，绝不会下单。只有显式传入``--enable-orders``才会
-装配Nautilus Binance执行客户端；LIVE环境还必须再传``--confirm-live``。
+``RecordingExecutionClient``，绝不会下单。受控执行端尚未完成本示例装配，
+因此当前拒绝``--enable-orders``，不能绕开权威对账与人工授权。
 """
 
 from __future__ import annotations
@@ -60,12 +60,10 @@ def _environment(name: str) -> BinanceEnvironment:
 def _check_execution_authorization(environment: str, enabled: bool, confirm_live: bool) -> None:
     if not enabled:
         return
-    if environment == "live" and not confirm_live:
-        raise SystemExit("LIVE真实下单必须同时传入 --enable-orders --confirm-live")
-    prefix = "BINANCE_DEMO" if environment == "demo" else "BINANCE"
-    missing = [name for name in (f"{prefix}_API_KEY", f"{prefix}_API_SECRET") if not os.getenv(name)]
-    if missing:
-        raise SystemExit(f"启用下单前必须设置环境变量: {', '.join(missing)}")
+    raise SystemExit(
+        "Binance EMA在线示例尚未接入受控执行客户端；--enable-orders暂时禁用。"
+        "请使用Recording模式，勿绕过权威资金/活动订单对账与人工授权。"
+    )
 
 
 def _node_initialized(node: TradingNode, instrument_id: InstrumentId) -> bool:
