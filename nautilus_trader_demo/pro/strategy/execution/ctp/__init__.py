@@ -11,7 +11,9 @@ from strategy.execution.ctp.ledger import (
 )
 from strategy.execution.ctp.native_order import make_ctp_order_insert
 from strategy.execution.ctp.native_driver import (
+    CtpDriverCheckpoint,
     CtpNativeTraderDriver,
+    CtpOrderAssociation,
     CtpTraderSession,
     CtpTraderTransport,
 )
@@ -35,6 +37,8 @@ __all__ = [
     "CtpSettlementResult",
     "make_ctp_order_insert",
     "CtpNativeTraderDriver",
+    "CtpDriverCheckpoint",
+    "CtpOrderAssociation",
     "CtpTraderSession",
     "CtpTraderTransport",
     "CtpTdApiTransport",

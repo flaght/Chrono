@@ -48,6 +48,7 @@ from strategy.market_health import (
     StrategyMarketState,
 )
 from strategy.execution import (
+    AmbiguousOrderSubmission,
     ActiveOrder,
     ActiveOrderSnapshot,
     AccountPositionEvent,
@@ -139,6 +140,7 @@ from strategy.runtime import (
 from strategy.template import StrategyContext, StrategyTemplate
 
 __all__ = [
+    "AmbiguousOrderSubmission",
     "ActiveOrder",
     "ActiveOrderSnapshot",
     "AccountPositionEvent",

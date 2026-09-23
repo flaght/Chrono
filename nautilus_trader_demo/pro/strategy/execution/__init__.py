@@ -1,6 +1,7 @@
 """统一目标到模拟撮合器或真实交易端的执行边界。"""
 
 from strategy.execution.contracts import (
+    AmbiguousOrderSubmission,
     AccountPositionSnapshot,
     ExecutionBackendKind,
     ExecutionReport,
@@ -83,6 +84,7 @@ from strategy.execution.simulation import (
 )
 
 __all__ = [
+    "AmbiguousOrderSubmission",
     "ActiveOrder",
     "ActiveOrderSnapshot",
     "AccountPositionEvent",

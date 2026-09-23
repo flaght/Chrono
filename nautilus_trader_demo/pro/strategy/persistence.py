@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from contextlib import ExitStack
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -12,10 +13,19 @@ import tempfile
 import threading
 import time
 from typing import Any, Mapping
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from strategy.execution.live.client import BackendExecutionClient
 
 from market.basic.base import InstrumentId
 from strategy.contracts import TargetPortfolio, TargetUpdateMode
-from strategy.execution.contracts import OrderSide
+from strategy.execution.contracts import OrderIntent, OrderSide
+from strategy.execution.ctp.native_driver import (
+    CtpDriverCheckpoint,
+    CtpNativeTraderDriver,
+    CtpOrderAssociation,
+)
 from strategy.execution.ctp.ledger import (
     CtpLedgerState,
     CtpPositionLedger,
@@ -170,6 +180,7 @@ class RuntimeStateManager:
         *,
         order_machines: Mapping[str, OrderReportStateMachine] | None = None,
         ctp_ledgers: Mapping[str, CtpPositionLedger] | None = None,
+        ctp_drivers: Mapping[str, CtpNativeTraderDriver] | None = None,
     ) -> None:
         self.repository = repository
         self.target_store = target_store
@@ -177,6 +188,8 @@ class RuntimeStateManager:
         self.position_manager = position_manager
         self.order_machines = dict(order_machines or {})
         self.ctp_ledgers = dict(ctp_ledgers or {})
+        self.ctp_drivers = dict(ctp_drivers or {})
+        self._ctp_submit_locks: dict[str, Any] = {}
         self._generation = 0
         self._lock = threading.RLock()
 
@@ -184,8 +197,76 @@ class RuntimeStateManager:
     def generation(self) -> int:
         return self._generation
 
+    def enable_ctp_autosave(
+        self, client_id: str, client: BackendExecutionClient,
+    ) -> None:
+        """报单写前落盘、柜台回报后落盘；失败时由Driver关闭闸门。"""
+        driver = self.ctp_drivers.get(client_id)
+        machine = self.order_machines.get(client_id)
+        if (
+            driver is None or machine is None
+            or client.client_id != client_id
+            or client.order_state_machine is not machine
+            or client.position_manager is not self.position_manager
+            or getattr(client.backend, "driver", None) is not driver
+        ):
+            raise ValueError("CTP自动保存要求同一客户端、订单状态机、仓位与Driver")
+
+        def before_send(order_id: str, intent: OrderIntent) -> None:
+            with client._submit_lock:
+                machine.register_pending(order_id, intent)
+                try:
+                    self.save()
+                except Exception:
+                    machine.discard_pending(order_id)
+                    raise
+
+        def on_unsent(order_id: str) -> None:
+            with client._submit_lock:
+                if machine.state(order_id) is not None:
+                    machine.discard_pending(order_id)
+
+        def save_after_transition() -> None:
+            with client._submit_lock:
+                self.save()
+
+        # 同步发送失败时，客户端先撤回在途量，再保存修正后的检查点。
+        client.register_submit_failure_handler(save_after_transition)
+        driver.bind_durability(before_send, save_after_transition, on_unsent)
+        self._ctp_submit_locks[client_id] = client._submit_lock
+
     def save(self) -> PersistedState:
+        # 所有保存路径按“客户端提交锁 → Manager锁”排序，防止柜台回调与外部保存交叉。
+        with ExitStack() as stack:
+            for client_id in sorted(self._ctp_submit_locks):
+                stack.enter_context(self._ctp_submit_locks[client_id])
+            return self._save_with_manager_lock()
+
+    def _save_with_manager_lock(self) -> PersistedState:
         with self._lock:
+            driver_checkpoints = {
+                client_id: driver.checkpoint()
+                for client_id, driver in self.ctp_drivers.items()
+            }
+            for client_id in self.ctp_drivers:
+                if client_id not in self.order_machines:
+                    raise StatePersistenceError("CTP Driver缺少同客户端订单状态机")
+                checkpoint = driver_checkpoints[client_id]
+                local = {
+                    item.state.client_order_id: item.state
+                    for item in self.order_machines[client_id].checkpoints()
+                    if not item.state.status.is_terminal
+                }
+                associated = {item.client_order_id: item for item in checkpoint.orders}
+                if local.keys() != associated.keys() or any(
+                    local[key].filled_quantity != item.filled_quantity
+                    or local[key].order_quantity != item.intent.quantity
+                    or local[key].instrument_id != item.intent.instrument_id
+                    or local[key].side != item.intent.side
+                    or (local[key].last_sequence or 0) != item.sequence
+                    for key, item in associated.items()
+                ):
+                    raise StatePersistenceError("CTP Driver与订单状态机尚未达到同一状态，拒绝保存")
             payload = {
                 "targets": _encode_targets(self.target_store.all()),
                 "portfolio": _encode_portfolio(self.portfolio_coordinator.state()),
@@ -197,6 +278,10 @@ class RuntimeStateManager:
                 "ctp_ledgers": {
                     account_id: _encode_ctp_ledger(ledger.state())
                     for account_id, ledger in sorted(self.ctp_ledgers.items())
+                },
+                "ctp_drivers": {
+                    client_id: _encode_ctp_driver(checkpoint)
+                    for client_id, checkpoint in sorted(driver_checkpoints.items())
                 },
             }
             persisted = self.repository.save(
@@ -217,10 +302,13 @@ class RuntimeStateManager:
             positions = _decode_positions(payload.get("positions"))
             order_payload = payload.get("orders")
             ledger_payload = payload.get("ctp_ledgers")
+            driver_payload = payload.get("ctp_drivers", {})
             if not isinstance(order_payload, dict) or set(order_payload) != set(self.order_machines):
                 raise StatePersistenceError("订单状态机集合与持久化快照不一致")
             if not isinstance(ledger_payload, dict) or set(ledger_payload) != set(self.ctp_ledgers):
                 raise StatePersistenceError("CTP账本集合与持久化快照不一致")
+            if not isinstance(driver_payload, dict) or set(driver_payload) != set(self.ctp_drivers):
+                raise StatePersistenceError("CTP Driver集合与持久化快照不一致")
             orders = {
                 client_id: _decode_orders(order_payload[client_id])
                 for client_id in self.order_machines
@@ -229,6 +317,29 @@ class RuntimeStateManager:
                 account_id: _decode_ctp_ledger(ledger_payload[account_id])
                 for account_id in self.ctp_ledgers
             }
+            drivers = {
+                client_id: _decode_ctp_driver(driver_payload[client_id])
+                for client_id in self.ctp_drivers
+            }
+            for client_id, checkpoint in drivers.items():
+                if checkpoint.driver_id != client_id or client_id not in orders:
+                    raise StatePersistenceError("CTP Driver检查点缺少同客户端订单状态机")
+                local = {
+                    item.state.client_order_id: item.state
+                    for item in orders[client_id] if not item.state.status.is_terminal
+                }
+                associated = {
+                    item.client_order_id: item for item in checkpoint.orders
+                }
+                if local.keys() != associated.keys() or any(
+                    local[key].filled_quantity != item.filled_quantity
+                    or local[key].order_quantity != item.intent.quantity
+                    or local[key].instrument_id != item.intent.instrument_id
+                    or local[key].side != item.intent.side
+                    or (local[key].last_sequence or 0) != item.sequence
+                    for key, item in associated.items()
+                ):
+                    raise StatePersistenceError("CTP Driver关联与订单状态机检查点不一致")
 
             old_targets = self.target_store.all()
             old_portfolio = self.portfolio_coordinator.state()
@@ -240,6 +351,7 @@ class RuntimeStateManager:
             old_ledgers = {
                 key: ledger.state() for key, ledger in self.ctp_ledgers.items()
             }
+            staged_drivers: list[CtpNativeTraderDriver] = []
             try:
                 self.target_store.restore(targets)
                 self.portfolio_coordinator.restore(portfolio)
@@ -261,9 +373,16 @@ class RuntimeStateManager:
                     for client_id, checkpoints in orders.items()
                     if any(not item.state.status.is_terminal for item in checkpoints)
                 )
+                # CTP即使本地记录为空，也要查询柜台确认没有未知活动订单。
+                recovery_clients.update(self.ctp_drivers)
                 for client_id in recovery_clients:
                     self.position_manager.mark_recovery_required(client_id)
+                for key, driver in self.ctp_drivers.items():
+                    driver.stage_recovery(drivers[key])
+                    staged_drivers.append(driver)
             except Exception:
+                for driver in staged_drivers:
+                    driver.discard_staged_recovery()
                 self.target_store.restore(old_targets)
                 self.portfolio_coordinator.restore(old_portfolio)
                 self.position_manager.restore(old_positions)
@@ -509,6 +628,71 @@ def _decode_orders(value: Any) -> tuple[OrderStateCheckpoint, ...]:
             seen_keys=tuple(item["seen_keys"]),
         )
         for item in value
+    )
+
+
+def _encode_ctp_driver(checkpoint: CtpDriverCheckpoint) -> dict[str, Any]:
+    return {
+        "driver_id": checkpoint.driver_id,
+        "account_id": checkpoint.account_id,
+        "broker_id": checkpoint.broker_id,
+        "investor_id": checkpoint.investor_id,
+        "trading_day": checkpoint.trading_day,
+        "next_ref": checkpoint.next_ref,
+        "orders": [
+            {
+                "order_ref": item.order_ref,
+                "client_order_id": item.client_order_id,
+                "filled_quantity": str(item.filled_quantity),
+                "sequence": item.sequence,
+                "accepted": item.accepted,
+                "seen_trades": [list(key) for key in item.seen_trades],
+                "intent": {
+                    "strategy_id": item.intent.strategy_id,
+                    "backend_id": item.intent.backend_id,
+                    "instrument_id": str(item.intent.instrument_id),
+                    "side": item.intent.side.value,
+                    "quantity": str(item.intent.quantity),
+                    "order_type": item.intent.order_type.value,
+                    "price": None if item.intent.price is None else str(item.intent.price),
+                    "position_effect": item.intent.position_effect.value,
+                    "reduce_only": item.intent.reduce_only,
+                    "metadata": _json_value(item.intent.metadata),
+                },
+            }
+            for item in checkpoint.orders
+        ],
+    }
+
+
+def _decode_ctp_driver(value: Any) -> CtpDriverCheckpoint:
+    if not isinstance(value, dict) or not isinstance(value.get("orders"), list):
+        raise StateCorruptionError("CTP Driver检查点格式无效")
+    records = []
+    for item in value["orders"]:
+        raw = item["intent"]
+        records.append(CtpOrderAssociation(
+            order_ref=item["order_ref"],
+            client_order_id=item["client_order_id"],
+            intent=OrderIntent(
+                strategy_id=raw["strategy_id"], backend_id=raw["backend_id"],
+                instrument_id=InstrumentId.from_str(raw["instrument_id"]),
+                side=raw["side"], quantity=Decimal(raw["quantity"]),
+                order_type=raw["order_type"],
+                price=None if raw["price"] is None else Decimal(raw["price"]),
+                position_effect=raw["position_effect"],
+                reduce_only=raw["reduce_only"],
+                metadata=_restore_json_value(raw["metadata"]),
+            ),
+            filled_quantity=Decimal(item["filled_quantity"]),
+            sequence=item["sequence"], accepted=item["accepted"],
+            seen_trades=tuple(tuple(key) for key in item["seen_trades"]),
+        ))
+    return CtpDriverCheckpoint(
+        driver_id=value["driver_id"], account_id=value["account_id"],
+        broker_id=value["broker_id"], investor_id=value["investor_id"],
+        trading_day=value["trading_day"], next_ref=value["next_ref"],
+        orders=tuple(records),
     )
 
 

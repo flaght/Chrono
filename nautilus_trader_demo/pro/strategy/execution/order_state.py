@@ -12,6 +12,7 @@ from market.basic.base import InstrumentId
 from strategy.execution.contracts import (
     ExecutionReport,
     ExecutionReportType,
+    OrderIntent,
     OrderSide,
 )
 
@@ -124,6 +125,31 @@ class OrderReportStateMachine:
                 OrderStateCheckpoint(record.snapshot(), tuple(sorted(record.seen_keys)))
                 for record in self._orders.values()
             )
+
+    def register_pending(self, client_order_id: str, intent: OrderIntent) -> None:
+        """柜台请求发送前登记待确认订单，供同代写前检查点使用。"""
+        if not client_order_id.strip() or intent.backend_id != self.backend_id:
+            raise OrderStateError("待确认订单的ID或Backend不匹配")
+        with self._lock:
+            if client_order_id in self._orders:
+                raise OrderStateError("待确认订单ID重复")
+            self._orders[client_order_id] = _OrderRecord(
+                backend_id=self.backend_id,
+                client_order_id=client_order_id,
+                instrument_id=intent.instrument_id,
+                side=intent.side,
+                order_quantity=intent.quantity,
+            )
+
+    def discard_pending(self, client_order_id: str) -> None:
+        """仅在发送请求确定失败且未收到任何柜台回报时撤销登记。"""
+        with self._lock:
+            record = self._orders.get(client_order_id)
+            if record is None or record.status is not OrderLifecycleStatus.PENDING:
+                raise OrderStateError("订单已有柜台状态，不能撤销待确认登记")
+            if record.seen_keys or record.last_sequence is not None:
+                raise OrderStateError("订单已有柜台回报，不能撤销待确认登记")
+            del self._orders[client_order_id]
 
     def restore(self, checkpoints: Sequence[OrderStateCheckpoint]) -> None:
         restored: dict[str, _OrderRecord] = {}

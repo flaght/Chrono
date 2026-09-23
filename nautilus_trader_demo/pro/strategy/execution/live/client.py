@@ -50,7 +50,14 @@ class BackendExecutionClient:
         self._strategy_ids: set[str] = set()
         self._submit_lock = threading.RLock()
         self._execution_handlers: list[Callable[[OrderUpdateEvent | FillEvent], None]] = []
+        self._submit_failure_handler: Callable[[], None] | None = None
         self.backend.register_report_handler(self._on_report)
+
+    def register_submit_failure_handler(self, handler: Callable[[], None]) -> None:
+        """发送请求同步失败、撤回在途量后保存修正后的状态。"""
+        if self._started or self._submit_failure_handler is not None:
+            raise RuntimeError("提交失败处理器只能在客户端启动前绑定一次")
+        self._submit_failure_handler = handler
 
     def register_execution_event_handler(
         self, handler: Callable[[OrderUpdateEvent | FillEvent], None],
@@ -165,12 +172,23 @@ class BackendExecutionClient:
                 )
                 try:
                     self.backend.submit_order(order)
-                except Exception:
+                except Exception as error:
+                    if getattr(error, "order_may_be_live", False):
+                        self._reconciled = False
+                        self.position_manager.mark_recovery_required(self.client_id)
+                        raise
                     self.position_manager.adjust_working_quantity(
                         self.client_id,
                         order.instrument_id,
                         -signed,
                     )
+                    if self._submit_failure_handler is not None:
+                        try:
+                            self._submit_failure_handler()
+                        except Exception:
+                            self._reconciled = False
+                            self.position_manager.clear_account_reconciliation(self.client_id)
+                            raise
                     raise
 
     def set_risk_mode(

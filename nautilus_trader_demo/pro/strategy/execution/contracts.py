@@ -50,6 +50,12 @@ class ExecutionReportType(str, Enum):
     CANCELED = "CANCELED"
 
 
+class AmbiguousOrderSubmission(RuntimeError):
+    """柜台回报已到达，但发送调用仍失败；订单状态须以柜台查询为准。"""
+
+    order_may_be_live = True
+
+
 @dataclass(frozen=True)
 class AccountPositionSnapshot:
     """交易柜台返回的账户级权威净仓快照。"""
