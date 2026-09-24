@@ -7,11 +7,20 @@ experiment_setups:
     form: recent
     split: fixed # 固定 scale 比例
 
+  "factors_rbb_gentic":
+    method: ricso2
+    task_id: 134001
+    instruments: hcb
+    session: 20260906
+    period: 5
+    corr_threshold: 0
+    count: 600
+
   "factors_hcb_scope":  # 2.2.1.scope_valid_factors.py
     method: ricso2
     task_id: 134001
     instruments: hcb
-    session: 20260503
+    session: 20260906
     period: 5
     form: "first"
 
@@ -19,8 +28,35 @@ experiment_setups:
     method: ricso2
     task_id: 134001
     instruments: hcb
-    session: 20260503
+    session: 20260906
     period: 5
-    form: recent
+    form: test #splits
     filename: choose.csv
+
+  
+  "preprocess_hcb_data":  # 3.0.1.preprocess_data.py
+    method: ricso2
+    task_id: 134001
+    instruments: hcb
+    period: 5
+    form: prepare
+    name: cohort_pro
+
+
+  "factors_hcb_gentic_micro":
+    method: ricso2
+    task_id: 134002
+    instruments: hcb
+    session: 20260905
+    period: 5
+    corr_threshold: 0
+    count: 0
+
+  "factors_hcb_scope_micro":  # 2.2.1.scope_valid_factors.py
+    method: ricso2
+    task_id: 134002
+    instruments: hcb
+    session: 20260905
+    period: 5
+    form: "first"
 

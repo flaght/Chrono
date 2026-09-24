@@ -1,6 +1,6 @@
 def get_dates(method):
     if method == 'bisco1':
-        return '2012-01-01', '2018-01-01'
+        return '2025-04-01', '2025-04-30'
     if method == 'ricso2':
         return '2012-01-01', '2026-04-30'
     elif method == 'ricso3':

@@ -15,7 +15,7 @@ from ultron.factor.genetic.geneticist.operators import *
 from kdutils.macro2 import *
 from lib.iux001 import fetch_data, merging_data1
 from lib.aux001 import calc_expression
-from lib.cux001 import FactorEvaluate1
+from lib.cuv001 import FactorEvaluate1
 
 leg_mappping = {"rbb": ["hcb"], "ims": ["ics"]}
 
@@ -66,10 +66,8 @@ def load_factors(method,
                         str(session))
     filename = os.path.join(
         dirs, "programs_{0}_{1}.feather".format(str(task_id), str(session)))
-    pdb.set_trace()
     programs = pd.read_feather(filename)
-    pdb.set_trace()
-    programs = programs[programs['final_fitness'] > 0.02][[
+    programs = programs[programs['final_fitness'] > 0.001][[
         'name', 'formual', 'final_fitness'
     ]]
     programs = programs[['name', 'formual', 'final_fitness']]
@@ -90,7 +88,6 @@ def valid_programs(method,
                             task_id=task_id,
                             instruments=instruments,
                             datasets=datasets)
-    pdb.set_trace()
     mix_columns = list(set(features) & set(total_data.columns))
     if len(mix_columns) <= 0:
         print("not any features!!!!")
@@ -231,9 +228,9 @@ def run1(method,
         sategory='gentic',
         dategory='eligible',
         datasets=datasets,
-        calmar=2,
+        calmar=1.2,
         sharpe2=1.2,
-        abs_ic=0.02,
+        abs_ic=0.01,
         is_compare=False)
 
 

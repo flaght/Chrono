@@ -134,9 +134,9 @@ class FactorEvaluate1(object):
         """
         self.resample_data['ic'] = self.resample_data[self.ret_name].rolling(
             window=self.roll_win,
-            min_periods=5).corr(self.resample_data[self.factor_name])
+            min_periods=5).corr(self.resample_data['f_scaled'])
         total_ic = self.resample_data[self.ret_name].corr(
-            self.resample_data[self.factor_name])
+            self.resample_data['f_scaled'])
         self.resample_data['cumsum_ic'] = self.resample_data['ic'].cumsum()
         ic_mean = self.resample_data['ic'].mean()
         ic_std = self.resample_data['ic'].std()

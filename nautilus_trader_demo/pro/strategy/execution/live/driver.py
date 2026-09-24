@@ -1,0 +1,101 @@
+"""Nautilus实时节点Driver协议和TradingNode实现。"""
+
+from __future__ import annotations
+
+import threading
+from decimal import Decimal
+from typing import Any, Callable, Mapping, Protocol, runtime_checkable
+
+from market.basic.base import InstrumentId
+from strategy.execution.contracts import ExecutionReport, OrderIntent
+from strategy.execution.simulation.gateway import NautilusOrderGateway
+
+
+@runtime_checkable
+class NautilusLiveDriverPort(Protocol):
+    """Live Backend依赖的最小Nautilus驱动边界。"""
+
+    driver_id: str
+
+    def start(self, report_sink: Callable[[ExecutionReport], None]) -> None: ...
+
+    def stop(self) -> None: ...
+
+    def submit_order(self, order: OrderIntent) -> None: ...
+
+    def cancel_strategy(self, strategy_id: str) -> None: ...
+
+    def reconcile(
+        self,
+    ) -> Mapping[InstrumentId | str, Decimal | int | float | str]: ...
+
+
+class NautilusTradingNodeDriver:
+    """拥有一个已配置但尚未build的TradingNode。
+
+    调用方负责在构造本Driver前向node注册Binance等Data/Exec Client Factory。
+    Driver只添加统一订单Gateway、build节点、启动线程并负责停止释放。
+    """
+
+    def __init__(
+        self,
+        driver_id: str,
+        node: Any,
+        *,
+        reconcile_callback: Callable[
+            [], Mapping[InstrumentId | str, Decimal | int | float | str]
+        ] | None = None,
+    ) -> None:
+        if not driver_id.strip():
+            raise ValueError("driver_id不能为空")
+        self.driver_id = driver_id
+        self.node = node
+        self._reconcile_callback = reconcile_callback
+        self._gateway: NautilusOrderGateway | None = None
+        self._thread: threading.Thread | None = None
+        self._started = False
+
+    def start(self, report_sink: Callable[[ExecutionReport], None]) -> None:
+        if self._started:
+            return
+        gateway = NautilusOrderGateway(self.driver_id, report_sink)
+        self.node.trader.add_strategy(gateway)
+        self.node.build()
+        self._gateway = gateway
+        self._thread = threading.Thread(
+            target=self.node.run,
+            name=f"{self.driver_id}-TradingNode",
+            daemon=True,
+        )
+        self._thread.start()
+        self._started = True
+
+    def stop(self) -> None:
+        if not self._started:
+            return
+        try:
+            self.node.stop()
+            if self._thread is not None and self._thread.is_alive():
+                self._thread.join(timeout=10.0)
+        finally:
+            self.node.dispose()
+            self._started = False
+
+    def submit_order(self, order: OrderIntent) -> None:
+        if self._gateway is None:
+            raise RuntimeError("TradingNode Driver尚未启动")
+        self._gateway.enqueue(order)
+
+    def cancel_strategy(self, strategy_id: str) -> None:
+        if self._gateway is not None:
+            self._gateway.cancel_strategy_orders(strategy_id)
+
+    def reconcile(self) -> Mapping[InstrumentId | str, Decimal | int | float | str]:
+        # TradingNode启动时的原生reconciliation由LiveExecEngineConfig控制。
+        # 运行期主动对账由调用方注入，避免猜测不同Bomber版本的私有API。
+        if self._reconcile_callback is None:
+            raise RuntimeError("未配置运行期reconcile_callback")
+        positions = self._reconcile_callback()
+        if positions is None:
+            raise RuntimeError("reconcile_callback必须返回账户仓位映射")
+        return positions

@@ -10,7 +10,8 @@ from kdutils.macro2 import *
 
 from lumina.genetic.util import create_id
 from lib.iux001 import aggregation_data, merging_data1
-from lib.cux001 import FactorEvaluate1
+#from lib.cux001 import FactorEvaluate1
+from lib.cuv001 import FactorEvaluate1
 from lib.aux001 import calc_expression
 
 

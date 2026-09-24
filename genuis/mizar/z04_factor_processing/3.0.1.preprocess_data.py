@@ -31,7 +31,7 @@ def prepare(method, instruments, task_id, period, name):
         period=period,
         name="final_{0}".format(name),
         features=[])
-
+    pdb.set_trace()
     train_return = fetch_temp_returns(method=method,
                                       instruments=instruments,
                                       category='returns',

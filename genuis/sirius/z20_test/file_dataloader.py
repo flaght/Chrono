@@ -27,6 +27,7 @@ def dataloader(file_path: Union[str, Path]) -> pl.LazyFrame:
     返回:
         pl.LazyFrame: 原样保留文件中的字段名和字段类型
     """
+    df_lazy = pl.scan_ipc(file_path)
     path = Path(file_path).expanduser()
     if not path.is_file():
         raise FileNotFoundError(f"文件不存在: {path}")
