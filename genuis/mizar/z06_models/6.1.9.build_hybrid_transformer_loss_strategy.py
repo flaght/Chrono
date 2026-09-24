@@ -312,7 +312,7 @@ if __name__ == "__main__":
               train_id=variant.train_id,
               feature_id=variant.feature_id,
               regime_id=variant.regime_id,
-              trial_id=10002)
+              trial_id=variant.trial_id)
     elif variant.form == "predict":
         predict(method=variant.method,
                 instruments=variant.instruments,

@@ -113,6 +113,7 @@ experiment_setups:
     instruments: rbb
     period: 5
     form: "forecast"
+    env_id: 10001
     trial_id: 10002 # forecast 模式 指定训练不同组
     split: "test"# forecast 模式 指定不同数据集
     inference_batch_size: 4096
