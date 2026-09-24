@@ -9,8 +9,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from strategy.execution.ctp.native_driver import CtpNativeTraderDriver
-from strategy.execution.ctp.td_transport import CtpTdApiTransport
+from trader.execution.ctp.native_driver import CtpNativeTraderDriver
+from trader.execution.ctp.td_transport import CtpTdApiTransport
 
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -38,6 +38,8 @@ def build_readonly_driver(
         app_id=os.getenv("CTP_APP_ID", ""),
         auth_code=os.getenv("CTP_AUTH_CODE", ""),
         flow_path=os.getenv("CTP_TD_FLOW_PATH", "/tmp/bomber-ctp-td-readonly"),
+        production_mode=os.getenv("CTP_PRODUCTION_MODE", "true").lower()
+        in {"1", "true", "yes", "on"},
         timeout_seconds=timeout,
         td_api_base=td_api_base,
     )
@@ -58,24 +60,29 @@ def main() -> None:
         parser.error("--timeout必须大于零")
     driver = build_readonly_driver(timeout=args.timeout)
     print("连接CTP TraderApi只读探针：将执行登录、结算确认与三项权威查询；不发单")
+    transport = driver.transport
+    print(
+        f"CTP连接配置: TD={transport.front} broker={transport.broker_id} "
+        f"user=***{transport.investor_id[-2:]} "
+        f"app_id={transport.app_id or '<empty>'} "
+        f"auth_code={'configured' if transport.auth_code else 'missing'} "
+        f"password={'configured' if transport.password else 'missing'}"
+    )
     driver.start(lambda report: None)
     try:
-        position_event = driver.reconcile_position_detail()
+        print("CTP登录及结算确认完成，查询净仓")
+        positions = driver.reconcile()
+        print("CTP净仓查询完成，查询资金")
         account = driver.reconcile_account_state()
+        print("CTP资金查询完成，查询活动订单")
         orders = driver.reconcile_active_orders()
         print(
-            f"CTP只读结果: position_revision={position_event.revision} "
-            f"instruments={len(position_event.positions)} "
+            f"CTP只读结果: instruments={len(positions)} "
             f"account_revision={account.revision} currencies={tuple(account.balances)} "
             f"orders_revision={orders.revision} active_orders={len(orders.orders)}"
         )
-        for instrument, position in position_event.positions.items():
-            print(
-                f"仓位 {instrument}: long_today={position.long_today} "
-                f"long_yesterday={position.long_yesterday} "
-                f"short_today={position.short_today} "
-                f"short_yesterday={position.short_yesterday}"
-            )
+        for instrument, quantity in positions.items():
+            print(f"净仓 {instrument}: {quantity}")
     finally:
         driver.stop()
 

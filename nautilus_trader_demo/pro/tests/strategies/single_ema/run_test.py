@@ -16,7 +16,7 @@ from market.basic.base import (  # noqa: E402
     SubscriptionRequest,
     make_bar,
 )
-from strategy import (  # noqa: E402
+from trader import (  # noqa: E402
     DataBinding,
     ExecutionRequest,
     ExecutionRoute,

@@ -8,7 +8,7 @@ from typing import Protocol
 
 from datahub import ResearchDataUnavailable, RoleSnapshot
 from market.basic.base import Bar
-from strategy.template import StrategyTemplate
+from trader.template import StrategyTemplate
 
 from .role_signal import RoleCrossEvent, RoleCrossSignal
 

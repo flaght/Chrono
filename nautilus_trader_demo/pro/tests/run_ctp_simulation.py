@@ -25,7 +25,7 @@ from bomber.model.identifiers import InstrumentId, TraderId
 from market.basic.base import DataType, InstrumentMeta
 from market.replay.base import FileReplayFeed
 from market.replay.parsers.bar import BarColumns, MappedBarParser
-from strategy import (
+from trader import (
     CtpFuturesBasicProfile,
     ExecutionReportType,
     NautilusSimExecutionBackend,

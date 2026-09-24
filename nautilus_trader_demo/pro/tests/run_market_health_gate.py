@@ -17,7 +17,7 @@ from market.basic.base import (
     make_bar,
 )
 from market.stream.health import StreamHealthMonitor
-from strategy import (
+from trader import (
     BackendExecutionClient,
     DataBinding,
     ExecutionRequest,
@@ -36,7 +36,7 @@ from strategy import (
     TargetPortfolio,
     UnifiedStrategyRunner,
 )
-from strategy.execution.risk import MarketReferencePriceStore
+from trader.execution.risk import MarketReferencePriceStore
 
 
 RB = InstrumentId.from_str("rb2701.SHFE")

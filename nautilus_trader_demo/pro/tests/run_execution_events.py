@@ -6,7 +6,7 @@ import argparse
 from dataclasses import FrozenInstanceError, replace
 from decimal import Decimal
 
-from strategy.execution.events import (
+from trader.execution.events import (
     AccountPositionEvent,
     AccountStateEvent,
     CurrencyBalance,

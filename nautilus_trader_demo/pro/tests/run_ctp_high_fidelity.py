@@ -11,7 +11,7 @@ from decimal import Decimal
 from bomber.model.enums import OmsType
 from bomber.model.identifiers import InstrumentId
 
-from strategy import (
+from trader import (
     CtpClosePlanner,
     CtpCommissionRule,
     CtpExecutionAccounting,

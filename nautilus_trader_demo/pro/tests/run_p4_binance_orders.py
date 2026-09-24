@@ -6,7 +6,7 @@ import asyncio
 import threading
 from decimal import Decimal
 
-from strategy.execution.live.binance_orders import (
+from trader.execution.live.binance_orders import (
     BinanceHttpActiveOrderReader,
     BinanceNativeOpenOrdersBinding,
 )

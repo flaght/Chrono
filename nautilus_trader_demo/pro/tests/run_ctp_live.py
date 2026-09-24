@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import tempfile
 import time
@@ -513,7 +514,8 @@ def test5() -> None:
         logger.info("停止正式 CTP Feed")
         feed.disconnect()
 
-# 当前默认只运行最高层的正式Feed测试。排查底层问题时可临时调用test1～test4，
-# 顺序应始终从低层到高层，避免把动态库问题误判为账号或数据转换问题。
 if __name__ == "__main__":
-    test5()
+    parser = argparse.ArgumentParser(description="CTP行情链路分层探针；不连接交易前置")
+    parser.add_argument("--stage", choices=("1", "2", "3", "4", "5"), default="5")
+    args = parser.parse_args()
+    {"1": test1, "2": test2, "3": test3, "4": test4, "5": test5}[args.stage]()

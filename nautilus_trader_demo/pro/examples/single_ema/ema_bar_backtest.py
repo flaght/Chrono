@@ -16,7 +16,7 @@ from bomber.model.identifiers import TraderId
 
 
 
-from strategy import (
+from trader import (
     BinanceUsdtFuturesProfile,
     CtpFuturesBasicProfile,
     DataBinding,

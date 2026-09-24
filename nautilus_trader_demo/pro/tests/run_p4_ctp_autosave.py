@@ -6,12 +6,12 @@ from pathlib import Path
 import tempfile
 
 from market.basic.base import InstrumentId
-from strategy.contracts import ExecutionRequest
-from strategy.execution.ctp.native_driver import CtpNativeTraderDriver
-from strategy.execution.live.backend import NautilusLiveExecutionBackend
-from strategy.execution.live.client import BackendExecutionClient
-from strategy.persistence import JsonStateStore, RuntimeStateManager
-from strategy.portfolio import PortfolioCoordinator, PositionManager, TargetStore
+from trader.contracts import ExecutionRequest
+from trader.execution.ctp.native_driver import CtpNativeTraderDriver
+from trader.execution.live.backend import NautilusLiveExecutionBackend
+from trader.execution.live.client import BackendExecutionClient
+from trader.persistence import JsonStateStore, RuntimeStateManager
+from trader.portfolio import PortfolioCoordinator, PositionManager, TargetStore
 from run_p4_ctp_driver import FakeTraderTransport, _intent, _raw
 
 

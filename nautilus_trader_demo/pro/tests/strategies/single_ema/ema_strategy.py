@@ -10,7 +10,7 @@ from decimal import Decimal
 
 from bomber.indicators import ExponentialMovingAverage
 from market.basic.base import Bar
-from strategy import StrategyTemplate
+from trader import StrategyTemplate
 
 def _decimal(value: Decimal | int | float | str) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value))

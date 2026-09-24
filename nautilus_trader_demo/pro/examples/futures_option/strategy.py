@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from market.basic.base import Bar
-from strategy import StrategyTemplate, TargetUpdateMode
+from trader import StrategyTemplate, TargetUpdateMode
 
 
 @dataclass(frozen=True)

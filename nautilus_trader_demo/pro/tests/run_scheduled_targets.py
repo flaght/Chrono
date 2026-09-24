@@ -85,10 +85,10 @@ def test2_strategy() -> None:
 def test3_runner() -> None:
     from examples.scheduled_targets.scheduled_strategy import ScheduledTargetStrategy
     from market.basic.base import InstrumentId
-    from strategy.contracts import ExecutionRoute, RuntimeMode
-    from strategy.execution.recording import RecordingExecutionClient
-    from strategy.runner import UnifiedStrategyRunner
-    from strategy.scheduling import ManualClockFeed
+    from trader.contracts import ExecutionRoute, RuntimeMode
+    from trader.execution.recording import RecordingExecutionClient
+    from trader.runner import UnifiedStrategyRunner
+    from trader.scheduling import ManualClockFeed
 
     feed = ManualClockFeed()
     client = RecordingExecutionClient("recording")
@@ -115,7 +115,7 @@ def test3_runner() -> None:
 
 def test4_replay_order() -> None:
     from market.basic.base import InstrumentId, make_bar
-    from strategy.scheduling import TimedFileReplayFeed
+    from trader.scheduling import TimedFileReplayFeed
 
     instrument = InstrumentId.from_str("rb2609.SHFE")
     events = (

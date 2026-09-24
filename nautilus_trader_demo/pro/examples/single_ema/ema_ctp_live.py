@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import time
 from decimal import Decimal
@@ -15,7 +16,7 @@ from examples.single_ema.strategies import EmaCrossConfig, EmaCrossTargetStrateg
 from market.basic.base import DataType, InstrumentId, InstrumentMeta
 from market.stream import TradeTickBarFeed
 from market.stream.ctp import CtpLiveDataFeed, CtpMdConfig
-from strategy import (
+from trader import (
     DataBinding, ExecutionRoute, RecordingExecutionClient, RuntimeMode,
     UnifiedStrategyRunner,
 )
@@ -88,30 +89,69 @@ def main() -> None:
     parser.add_argument("--price-increment", default="1")
     parser.add_argument("--multiplier", default="10")
     parser.add_argument("--timeout", type=float, default=300.0)
+    parser.add_argument("--ready-timeout", type=float, default=60.0)
     args = parser.parse_args()
     if not args.symbol:
         parser.error("必须通过--symbol或CTP_SYMBOL指定合约")
-    if args.timeout <= 0:
-        parser.error("--timeout必须大于0")
+    if args.timeout <= 0 or args.ready_timeout <= 0:
+        parser.error("--timeout和--ready-timeout必须大于0")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args.symbol = args.symbol.strip()
     args.exchange = args.exchange.strip().upper()
     runner, strategy, client = build_runner(args)
-    print(f"启动CTP在线EMA：{args.symbol}.{args.exchange}，仅Recording，不下单")
+    feed = runner._feeds["ctp-bars"]
+    upstream = feed.upstream
+    counts = {"quotes": 0, "trades": 0, "bars": 0}
+
+    def count(kind):
+        def observe(event):
+            counts[kind] += 1
+        return observe
+
+    upstream.register_quote_tick_handler(count("quotes"))
+    upstream.register_trade_tick_handler(count("trades"))
+    feed.register_bar_handler(count("bars"))
+    print(
+        f"启动CTP在线EMA：{args.symbol}.{args.exchange} "
+        f"MD={upstream.config.front}，仅Recording，不下单",
+        flush=True,
+    )
     runner.start()
     reported = 0
+    next_status = time.monotonic() + 30
     try:
+        if not upstream.wait_until_ready(args.ready_timeout):
+            health = upstream.health_snapshot
+            raise RuntimeError(
+                f"CTP行情在{args.ready_timeout:g}秒内未完成登录和订阅: "
+                f"health={health.state.value} reason={health.reason.value}; "
+                "查看上方CTP前置连接、登录及订阅日志"
+            )
+        print(f"CTP行情已登录并提交订阅: {args.symbol}.{args.exchange}", flush=True)
         deadline = time.monotonic() + args.timeout
         while time.monotonic() < deadline:
             requests = client.requests
             for request in requests[reported:]:
                 print(f"EMA目标请求: {request}")
             reported = len(requests)
+            if time.monotonic() >= next_status:
+                health = upstream.health_snapshot
+                print(
+                    f"CTP行情状态: quotes={counts['quotes']} trades={counts['trades']} "
+                    f"closed_bars={counts['bars']} bars_seen={strategy.bars_seen} "
+                    f"health={health.state.value} reason={health.reason.value}"
+                )
+                next_status = time.monotonic() + 30
             time.sleep(min(0.5, max(0, deadline - time.monotonic())))
     except KeyboardInterrupt:
         pass
     finally:
         runner.stop()
-    print(f"已停止：bars_seen={strategy.bars_seen} targets={len(client.requests)}")
+    print(
+        f"已停止：quotes={counts['quotes']} trades={counts['trades']} "
+        f"closed_bars={counts['bars']} bars_seen={strategy.bars_seen} "
+        f"targets={len(client.requests)}"
+    )
 
 
 if __name__ == "__main__":

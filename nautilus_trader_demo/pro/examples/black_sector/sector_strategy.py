@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from datahub.sector_roles import SectorDataUnavailable, SectorRoleStore
 from market.basic.base import Bar
-from strategy.template import StrategyTemplate
+from trader.template import StrategyTemplate
 
 from .sector_signal import BlackSectorSignal, SectorSignal
 

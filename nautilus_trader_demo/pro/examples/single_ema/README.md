@@ -1,6 +1,6 @@
 # 第一类策略：单标的EMA
 
-具体策略位于`examples/single_ema/strategies`；框架目录`strategy`只存放通用Runtime、
+具体策略位于`examples/single_ema/strategies`；框架目录`trader`存放通用Runtime、
 Portfolio、Risk和Execution能力。CTP、Binance、离线与在线装配均复用同一个
 `EmaCrossTargetStrategy`。
 
@@ -173,70 +173,88 @@ CTP_EMA_TIMEOUT=300 python tests/run_single_ema_online.py --stage 5
 CTP原生行情只提供Tick，因此先由`TradeTickBarFeed`聚合已收盘1分钟Bar。没有成交的
 分钟不会补零；最后尚未结束的分钟在停机时不会发出。
 
-同一链路现另有正式示例入口，仍使用相同`EmaCrossTargetStrategy`，但交易端固定为
-Recording，不会连接CTP TraderApi或发送订单：
+## 5. Binance U本位期货在线EMA
+
+同一EMA策略默认仅记录目标，不连接交易账户，也不下单：
 
 ```bash
-python examples/single_ema/ema_ctp_live.py --symbol rb2610 --timeout 300
+PYTHONPATH=. python examples/single_ema/ema_binance_live.py --timeout 360
 ```
 
-该示例仅在行情时段能观察到新Bar和目标；合约、最小变动价位及乘数应按实际合约设置。
-
-## 5. Binance统一在线示例
-
-默认只接收`market.stream.bn`的Kline并记录目标，不下单：
+DEMO受控下单须使用专用DEMO凭据，并同时给出两个开关：
 
 ```bash
-python examples/single_ema/ema_binance_live.py --environment live
+export BINANCE_DEMO_API_KEY='...'
+export BINANCE_DEMO_API_SECRET='...'
+PYTHONPATH=. python examples/single_ema/ema_binance_live.py \
+  --environment demo --enable-orders --confirm-demo --timeout 360
 ```
 
-限制运行时间可使用：
+此路径使用`ControlledLiveExecutionClient`、全市场仓位读取、全市场普通/Algo活动订单
+权威查询与周期性资金查询。首次自动启动仅接受确认空仓、无活动订单的DEMO账户；
+旧订单或已有仓位必须先人工对账。当前入口**不支持真实资金报单**。限额参数可在命令行
+收紧；默认单笔最多0.001、目标绝对仓位最多0.002，订单与仓位名义金额上限分别为
+200和400 USDT。DEMO是否实际接单、部分成交、撤单及重连恢复仍需连接验收。
+
+## 6. CTP SimNow在线EMA
+
+默认Recording行情链：
 
 ```bash
-python examples/single_ema/ema_binance_live.py --environment live --timeout 360
+PYTHONPATH=. python examples/single_ema/ema_ctp_live.py --timeout 300
 ```
 
-`--enable-orders`目前在DEMO与LIVE均会被拒绝：示例尚未接入受控客户端的
-资金、全市场活动订单恢复与人工授权链。请先用默认Recording模式验证行情和信号；
-`binance_demo_readonly.py`可单独用于显式连接DEMO账户的只读对账，不会下单。
+柜台只读查询：
 
-### 四模式验收状态
-
-| 行情/执行 | CTP | Binance |
-|---|---|---|
-| 离线回测 | Bar/Tick正式模拟入口已具备；真实样本回归需按各脚本断言复测 | 期货Bar正式模拟入口已具备；真实样本回归需复测 |
-| 在线Recording | `ema_ctp_live.py`已装配，待交易时段验证 | `ema_binance_live.py`默认模式已装配，待实流验证 |
-| 在线受控交易 | 原生TdApi无网络测试至P4-CTP9，真实SimNow只读/订单联调未完成 | DEMO只读组件已具备，EMA示例受控执行装配未完成；旧下单标志已禁用 |
-
-四种模式始终复用`EmaCrossTargetStrategy`；“装配入口存在”不等于真实账户
-已经验收，更不意味着当前允许真实下单。
-
-新示例的结构是：
-
-```text
-BNWSStreamDataFeed
-  → UnifiedStrategyRunner
-  → EmaCrossTargetStrategy
-  → TargetStore / PortfolioCoordinator
-  → RecordingExecutionClient
-
-计划中的受控下单链路（**尚未接入本示例**）：
-
-BNWSStreamDataFeed
-  → UnifiedStrategyRunner
-  → EmaCrossTargetStrategy
-  → ControlledLiveExecutionClient
-  → Planner → Risk
-  → NautilusLiveExecutionBackend
-  → Binance Exec Client
+```bash
+cd market/native/ctp/binding
+uv pip install --reinstall --no-cache .
+python smoke_test_td.py
+cd ../../../..
+PYTHONPATH=. python examples/single_ema/ctp_td_readonly.py --connect
 ```
 
-不再使用旧`NautilusStrategyBridge`作为策略执行路径。
+交易前置使用项目自有`bomber_ctp_td`扩展，需先在Linux部署环境构建；
+不再依赖`vnpy_ctp` Python包。安装和API smoke test均不会连接或报单。
+
+在启动EMA自动交易前，先用`ctp_simnow_order_probe.py`验证单笔限价报单。
+该探针要求账户完全空仓且无活动订单；现有仓位未处理前会拒绝发单。
+先不带限价和提交开关运行账户预检：
+
+```bash
+CTP_TD_ADDRESS='tcp://182.254.243.31:30001' CTP_PRODUCTION_MODE=1 \
+python -u examples/single_ema/ctp_simnow_order_probe.py \
+  --symbol rb2701 --exchange SHFE --side BUY \
+  --price-increment 1 --multiplier 10
+```
+
+预检通过后，从交易终端核对同一合约当日涨跌停价与价格步长，选择范围内的测试限价，并在命令末尾增加
+`--price <测试限价> --submit --confirm-simnow`，才会发送1手限价开仓单。
+探针等待3秒后尝试撤销未成交部分并查询活动订单；若成交会留下仓位，
+不会自动反向平仓，必须人工核对。柜台拒单时探针将以错误状态退出，
+拒单不代表报单链路验收通过。测试账户应由此探针独占。
+
+受控SimNow报单入口复用同一`EmaCrossTargetStrategy`，从配置读取交易前置，
+要求BrokerID 9999、登录账户匹配且合约属于SHFE/INE。须设置`CTP_TD_ADDRESS`、
+`CTP_MD_ADDRESS`、`CTP_BROKER_ID`、`CTP_ACCOUNT_ID`、`CTP_PASSWORD`、
+`CTP_SYMBOL`及正确的合约价格步长、乘数，认证账户另设`CTP_APP_ID`和
+`CTP_AUTH_CODE`。下例仅展示启动方式，合约参数必须与柜台一致：
+
+```bash
+PYTHONPATH=. python examples/single_ema/ema_ctp_simnow.py \
+  --symbol rb2704 --exchange SHFE --price-increment 1 --multiplier 10 \
+  --enable-orders --confirm-simnow --timeout 300
+```
+
+该入口先完成登录、结算确认、权威资金/净仓/双向总仓和活动订单查询。初始账户
+必须完全空仓且没有活动订单；存在旧仓或旧单时拒绝自动接管。EMA目标由
+`CtpClosePlanner`决定开平今昨仓，再加有界限价；下单前检查单笔手数、账户绝对
+仓位、名义金额及行情时效。运行时资金和多空总仓会周期性核对；断线或不一致闭闸。
+当前不持久化运行中的订单关联与今昨仓成本，因此有仓位或活动订单时不可直接重启
+自动交易，须人工对账。SimNow真实报单、成交、撤单和恢复尚待交易时段验收。
 
 ## 安全边界
 
-- 在线测试阶段4/5以及Binance示例默认模式都不会下单；
-- `--enable-orders`会在DEMO环境发送模拟订单；
-- LIVE下单还要求`--confirm-live`；
-- 示例默认设置订单数量、绝对仓位、订单名义金额、持仓名义金额和行情时效限制；
-- EMA示例只用于验证架构闭环，不代表具有可投入资金的收益能力。
+Recording只证明行情到目标链；无网络测试不等于柜台验收。两端订单模式均默认关闭，
+真实资金路径没有解锁开关。正常停机时会发送撤单并短暂查询柜台活动订单；
+若查询失败或仍有活动订单，必须人工核对，不能假定已发委托撤销。

@@ -5,9 +5,9 @@ from __future__ import annotations
 from decimal import Decimal
 
 from market.basic.base import InstrumentId
-from strategy.execution.contracts import ExecutionReportType, OrderIntent
-from strategy.execution.ctp.native_driver import CtpNativeTraderDriver, CtpTraderSession
-from strategy.execution.events import AccountStateEvent, ActiveOrderSnapshot, CurrencyBalance
+from trader.execution.contracts import ExecutionReportType, OrderIntent
+from trader.execution.ctp.native_driver import CtpNativeTraderDriver, CtpTraderSession
+from trader.execution.events import AccountStateEvent, ActiveOrderSnapshot, CurrencyBalance
 
 
 class FakeTraderTransport:

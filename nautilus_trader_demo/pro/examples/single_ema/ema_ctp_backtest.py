@@ -20,7 +20,7 @@ from market.basic.base import DataType, InstrumentMeta
 from market.replay.base import FileReplayFeed
 from market.replay.parsers.bar import BarColumns, MappedBarParser
 from market.replay.parsers.tick import CtpTickParser
-from strategy import (
+from trader import (
     CtpFuturesBasicProfile,
     DataBinding,
     ExecutionRoute,
@@ -38,7 +38,7 @@ from strategy import (
     UnifiedHistoricalRuntime,
     UnifiedStrategyRunner,
 )
-from strategy.bridge import (
+from trader.bridge import (
     NautilusStrategyEventBridge,
     NautilusStrategyEventBridgeConfig,
 )

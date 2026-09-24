@@ -26,7 +26,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 from market.basic.base import InstrumentId  # noqa: E402
-from strategy import (  # noqa: E402
+from trader import (  # noqa: E402
     AccountTargetKey,
     DataBinding,
     ExecutionRequest,

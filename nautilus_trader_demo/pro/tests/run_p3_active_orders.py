@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from strategy import ActiveOrder, ActiveOrderSnapshot, ExecutionReportType
+from trader import ActiveOrder, ActiveOrderSnapshot, ExecutionReportType
 from tests.run_p3_controlled_live import BTC, build_client, report, request
 
 

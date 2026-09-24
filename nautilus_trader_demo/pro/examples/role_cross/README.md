@@ -12,7 +12,7 @@ M3a提取`example06/07`共有的穿越信号：主力角色复权价由下向上
 `examples/role_cross/local_input.py`只负责这次试验的文件加载，不是DataHub API；
 `datahub/temporal.py`提供格式无关的Provider与时间契约。将来正式DataHub
 替换文件Provider即可；
-`strategy/dynamic_routes.py`仍只负责真实目标路由和换月，不读复权数据。
+`trader/dynamic_routes.py`仍只负责真实目标路由和换月，不读复权数据。
 `examples/role_cross/role_signal.py`是纯信号，`role_strategy.py`是策略模板适配层；
 `tests/strategies/role_cross/run_bar_probe.py`只做真实Bar到记录型客户端
 的M3b探针；`examples/role_cross/run_backtest.py`才是基础模拟回测装配。

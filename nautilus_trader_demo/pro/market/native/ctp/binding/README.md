@@ -1,8 +1,15 @@
-# bomber_ctp_md
+# bomber-ctp
 
-这是从仓库内 `3rd/vnpy_ctp` 抽取的**仅行情** pybind11 绑定。Python
-模块名为 `bomber_ctp_md`，不会安装或导入 `vnpy`、`vnpy_ctp`，也不包含交易
-接口。抽取源码保留原 MIT 许可证；CTP SDK 本身的授权条件仍以供应商为准。
+本目录构建两个项目内的 pybind11 模块：`bomber_ctp_md` 提供行情 API，
+`bomber_ctp_td` 提供 TraderApi。TD 绑定由项目直接实现，仅使用本目录中的
+CTP SDK 头文件与动态库，不编译或导入 vn.py / vnpy_ctp 的交易绑定源码。
+TD 接口声明在 `src/bomber_ctp_td.hpp`，实现与 Python 注册在
+`src/bomber_ctp_td.cpp`。
+MD 绑定仍保留较早迁入的生成代码，后续可单独重写。CTP SDK 的授权条件
+以供应商为准。
+
+发行包名是 `bomber-ctp`；安装一次会生成两个独立的 Python 扩展模块
+`bomber_ctp_md` 和 `bomber_ctp_td`。
 
 当前 Demo 只为实际部署使用的 Linux x86-64 环境提供构建配置。
 
@@ -17,14 +24,19 @@ print("machine:", platform.machine())
 print("pointer_bits:", struct.calcsize("P") * 8)
 PY
 
-file ../../../../3rd/vnpy_ctp/vnpy_ctp/api/libthostmduserapi_se.so
+file libthostmduserapi_se.so
+file libthosttraderapi_se.so
 ```
 
 预期是 Python 3.12、`x86_64`、64 位，CTP 动态库为 ELF x86-64。
 
 ## 2. 编译安装
 
+`0.1.0` 版本的发行包名为 `bomber-ctp-md`。同步本目录的新配置后，
+先移除旧发行包，再安装包含 MD 和 TD 的 `bomber-ctp`：
+
 ```bash
+uv pip uninstall bomber-ctp-md
 uv pip install .
 ```
 
@@ -38,15 +50,13 @@ uv pip install --reinstall --no-cache .
 
 ```bash
 python smoke_test.py
+python smoke_test_td.py
 ```
 
-这个测试只验证扩展导入、CTP 动态库加载、API 版本、对象创建/释放和未初始化
-调用保护，不会连接行情前置，也不需要账号密码。
+两个测试只验证扩展导入、CTP 动态库加载和基本 API 能力，不连接任何前置，
+不需要账号密码，也不会报单。
 
-构建会复用 `/pro/3rd/vnpy_ctp/vnpy_ctp/api` 中已经存在的官方 CTP 头文件和
-`libthostmduserapi_se.so`。后续可把官方 SDK 放到独立的 `vendor/ctp` 目录，
-并相应修改 `ctp_api_dir`，避免目录名继续带有 vn.py。
-
-相较原绑定，此副本已经做了三项最低限度修正：任务指针默认初始化、固定长度
-CTP 字符数组的有界复制、停止标志/队列终止的线程同步。它仍是一个简化候选，
-正式生产前应继续增加有界原生队列以及停止时未处理任务的释放策略。
+构建只读取本目录 `include/ctp` 中的官方 CTP 头文件和上述两份 SDK 动态库。
+TD 自有绑定只映射当前交易传输层需要的字段；请求字符串超过 CTP 字段长度时
+直接拒绝，回调先复制原生结构，再由专用线程调用 Python。回调队列溢出时
+发送断线通知，使上层停止交易。

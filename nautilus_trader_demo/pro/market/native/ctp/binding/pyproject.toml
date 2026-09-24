@@ -1,7 +1,7 @@
 [project]
-name = "bomber-ctp-md"
-version = "0.1.0"
-description = "Bomber project-owned CTP market-data binding"
+name = "bomber-ctp"
+version = "0.1.1"
+description = "Bomber project-owned CTP market-data and trader bindings"
 requires-python = ">=3.10"
 
 [build-system]

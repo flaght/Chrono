@@ -5,8 +5,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 from market.basic.base import InstrumentId
-from strategy.execution.contracts import OrderIntent, PositionEffect
-from strategy.execution.ctp.native_order import make_ctp_order_insert
+from trader.execution.contracts import OrderIntent, PositionEffect
+from trader.execution.ctp.native_order import make_ctp_order_insert
 
 
 def _order(effect: PositionEffect, **changes) -> OrderIntent:

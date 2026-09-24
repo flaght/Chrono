@@ -14,13 +14,13 @@ from examples.scheduled_targets.execution_audit import audit_schedule_execution,
 from examples.scheduled_targets.scheduled_strategy import ScheduledTargetStrategy
 from market.basic.base import DataType
 from market.replay.parsers.bar import BarColumns, MappedBarParser
-from strategy import (
+from trader import (
     ExecutionRoute, MarketStreamBinding, NautilusMarketFeedAdapter,
     NautilusSimExecutionBackend, NetTargetOrderPlanner, PositionManager,
     RuntimeMode, SimulationExecutionClient, UnifiedHistoricalRuntime,
     UnifiedStrategyRunner,
 )
-from strategy.scheduling import TimedFileReplayFeed
+from trader.scheduling import TimedFileReplayFeed
 
 
 DEFAULT_TARGETS = Path(__file__).with_name("positions_20260728.csv")

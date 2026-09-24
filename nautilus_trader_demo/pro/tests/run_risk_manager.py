@@ -6,7 +6,7 @@ import argparse
 from decimal import Decimal
 
 from market.basic.base import InstrumentId, InstrumentMeta, make_quote_tick
-from strategy import (
+from trader import (
     BackendExecutionClient,
     ExecutionRequest,
     KillSwitchMode,

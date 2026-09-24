@@ -25,7 +25,7 @@ from bomber.config import LiveExecEngineConfig, LoggingConfig, TradingNodeConfig
 from bomber.live.node import TradingNode
 from bomber.model.identifiers import InstrumentId, TraderId
 
-from strategy import (
+from trader import (
     ControlledLiveExecutionClient,
     MarketReferencePriceStore,
     NautilusLiveExecutionBackend,
@@ -36,7 +36,7 @@ from strategy import (
     PreTradeRiskManager,
     RiskLimits,
 )
-from strategy.execution.live.binance_orders import (
+from trader.execution.live.binance_orders import (
     BinanceHttpActiveOrderReader,
     BinanceNativeOpenOrdersBinding,
 )
@@ -60,10 +60,16 @@ def _positions(node: TradingNode):
     return positions
 
 
-def build_readonly_client(symbol: str):
+def build_readonly_client(symbol: str, *, allow_demo_orders: bool = False):
     instrument_id = InstrumentId.from_str(f"{symbol.upper()}-PERP.BINANCE")
     # 仓位对账不能只加载BTC一个合约，否则其他持仓可能因合约未知而被遗漏。
     provider = BinanceInstrumentProviderConfig(load_all=True)
+    exec_config = BinanceExecClientConfig(
+        account_type=BinanceAccountType.USDT_FUTURES,
+        environment=BinanceEnvironment.DEMO,
+        instrument_provider=provider,
+        max_retries=3,
+    )
     node = TradingNode(config=TradingNodeConfig(
         trader_id=TraderId("P3-DEMO-READONLY-001"),
         logging=LoggingConfig(log_level="INFO"),
@@ -76,12 +82,7 @@ def build_readonly_client(symbol: str):
             environment=BinanceEnvironment.DEMO,
             instrument_provider=provider,
         )},
-        exec_clients={BINANCE: BinanceExecClientConfig(
-            account_type=BinanceAccountType.USDT_FUTURES,
-            environment=BinanceEnvironment.DEMO,
-            instrument_provider=provider,
-            max_retries=3,
-        )},
+        exec_clients={BINANCE: exec_config},
         timeout_connection=30.0,
         timeout_reconciliation=30.0,
         timeout_portfolio=30.0,
@@ -135,8 +136,12 @@ def build_readonly_client(symbol: str):
     client = ControlledLiveExecutionClient(
         "binance-demo", NetTargetOrderPlanner(positions), backend, positions, risk,
         account_id="binance-demo",
-        # 本探针永远只读；即使误调用arm_demo也无法打开下单闸门。
-        demo_environment_check=lambda: False,
+        # 默认只读；订单示例显式传入allow_demo_orders才可能在完成对账后授权。
+        demo_environment_check=lambda: (
+            allow_demo_orders
+            and exec_config.environment is BinanceEnvironment.DEMO
+            and node.portfolio.account(BINANCE) is not None
+        ),
     )
     return client, driver
 

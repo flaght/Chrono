@@ -22,7 +22,7 @@ from bomber.model.identifiers import TraderId
 from market.basic.base import DataType, InstrumentMeta
 from market.replay.base import FileReplayFeed
 from market.replay.parsers.bar import BinanceKlineParser, BinanceMarketType
-from strategy import (
+from trader import (
     BinanceUsdtFuturesProfile,
     ExecutionReportType,
     NautilusSimExecutionBackend,

@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from market.basic.base import DataType, InstrumentId, InstrumentMeta, QuoteTick
 from market.stream.bn import BNWSStreamDataFeed
-from strategy import (
+from trader import (
     BackendExecutionClient,
     DataBinding,
     ExecutionReport,

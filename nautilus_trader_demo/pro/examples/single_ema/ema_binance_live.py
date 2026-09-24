@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""统一积木链的Binance在线EMA示例。
-
-默认使用``market.stream.bn``接收已收盘Kline，并把目标发送到
-``RecordingExecutionClient``，绝不会下单。受控执行端尚未完成本示例装配，
-因此当前拒绝``--enable-orders``，不能绕开权威对账与人工授权。
-"""
-
+"""Binance U本位期货 EMA：默认Recording，显式授权后仅允许DEMO下单。"""
 from __future__ import annotations
 
 import argparse
@@ -15,258 +9,160 @@ from decimal import Decimal
 from pathlib import Path
 
 from dotenv import load_dotenv
-
-from bomber.adapters.binance import (
-    BINANCE,
-    BinanceAccountType,
-    BinanceDataClientConfig,
-    BinanceExecClientConfig,
-    BinanceInstrumentProviderConfig,
-    BinanceLiveDataClientFactory,
-    BinanceLiveExecClientFactory,
-)
-from bomber.adapters.binance.common.enums import BinanceEnvironment
-from bomber.config import LiveExecEngineConfig, LoggingConfig, TradingNodeConfig
-from bomber.live.node import TradingNode
-from bomber.model.identifiers import InstrumentId, TraderId
-
+from bomber.model.identifiers import InstrumentId
+from examples.single_ema.binance_demo_readonly import build_readonly_client
 from examples.single_ema.strategies import EmaCrossConfig, EmaCrossTargetStrategy
 from market.basic.base import DataType, InstrumentMeta
 from market.stream.bn import BNWSConfig, BNWSStreamDataFeed
-from strategy import (
-    BackendExecutionClient,
-    DataBinding,
-    ExecutionRoute,
-    MarketReferencePriceStore,
-    NautilusLiveExecutionBackend,
-    NautilusTradingNodeDriver,
-    NetTargetOrderPlanner,
-    PositionManager,
-    PreTradeRiskManager,
-    RecordingExecutionClient,
-    RiskLimits,
-    RuntimeMode,
-    UnifiedStrategyRunner,
-)
+from market.stream.health import StreamHealthConfig
+from trader import (DataBinding, ExecutionRoute, MarketReferencePriceStore,
+                      PreTradeRiskManager, RecordingExecutionClient, RiskLimits,
+                      RuntimeMode, UnifiedStrategyRunner)
 
-
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-
-
-def _environment(name: str) -> BinanceEnvironment:
-    return BinanceEnvironment.DEMO if name == "demo" else BinanceEnvironment.LIVE
-
-
-def _check_execution_authorization(environment: str, enabled: bool, confirm_live: bool) -> None:
-    if not enabled:
-        return
-    raise SystemExit(
-        "Binance EMA在线示例尚未接入受控执行客户端；--enable-orders暂时禁用。"
-        "请使用Recording模式，勿绕过权威资金/活动订单对账与人工授权。"
-    )
-
-
-def _node_initialized(node: TradingNode, instrument_id: InstrumentId) -> bool:
-    initialized = getattr(node.portfolio, "initialized", False)
-    if callable(initialized):
-        initialized = initialized()
-    return bool(initialized) and node.cache.instrument(instrument_id) is not None
-
-
-def _account_positions(node: TradingNode, instrument_id: InstrumentId):
-    return {instrument_id: Decimal(str(node.portfolio.net_position(instrument_id)))}
-
-
-def _build_execution_client(args, instrument_id, positions, prices):
-    if not args.enable_orders:
-        client = RecordingExecutionClient("recording-only")
-        return client, None
-
-    environment = _environment(args.environment)
-    provider = BinanceInstrumentProviderConfig(load_ids=frozenset([instrument_id]))
-    node = TradingNode(
-        config=TradingNodeConfig(
-            trader_id=TraderId("EMA-LIVE-001"),
-            logging=LoggingConfig(log_level="INFO"),
-            exec_engine=LiveExecEngineConfig(
-                reconciliation=True,
-                graceful_shutdown_on_exception=True,
-            ),
-            # 该原生Data Client只服务TradingNode的合约加载、账户估值和对账；
-            # EMA策略行情仍唯一来自外部BNWSStreamDataFeed。
-            data_clients={
-                BINANCE: BinanceDataClientConfig(
-                    account_type=BinanceAccountType.USDT_FUTURES,
-                    environment=environment,
-                    instrument_provider=provider,
-                ),
-            },
-            exec_clients={
-                BINANCE: BinanceExecClientConfig(
-                    account_type=BinanceAccountType.USDT_FUTURES,
-                    environment=environment,
-                    instrument_provider=provider,
-                    max_retries=3,
-                ),
-            },
-            timeout_connection=30.0,
-            timeout_reconciliation=30.0,
-            timeout_portfolio=30.0,
-            timeout_disconnection=10.0,
-            timeout_post_stop=5.0,
-        ),
-    )
-    node.add_data_client_factory(BINANCE, BinanceLiveDataClientFactory)
-    node.add_exec_client_factory(BINANCE, BinanceLiveExecClientFactory)
-    driver = NautilusTradingNodeDriver(
-        "binance-live",
-        node,
-        reconcile_callback=lambda: _account_positions(node, instrument_id),
-        ready_callback=lambda: _node_initialized(node, instrument_id),
-        startup_timeout=60.0,
-    )
-    backend = NautilusLiveExecutionBackend("binance-live", driver)
-    limits = RiskLimits(
-        max_order_quantity=Decimal(args.max_order_quantity),
-        max_abs_position=Decimal(args.max_position),
-        max_order_notional=Decimal(args.max_order_notional),
-        max_abs_position_notional=Decimal(args.max_position_notional),
-        max_market_age_ns=180 * 1_000_000_000,
-    )
-    client = BackendExecutionClient(
-        backend.backend_id,
-        NetTargetOrderPlanner(positions),
-        backend,
-        positions,
-        risk_manager=PreTradeRiskManager(
-            backend.backend_id,
-            positions,
-            prices,
-            instrument_limits={instrument_id: limits},
-        ),
-    )
-    return client, backend
+load_dotenv(Path(__file__).resolve().parents[2] / '.env')
 
 
 def build_runner(args):
-    _check_execution_authorization(args.environment, args.enable_orders, args.confirm_live)
-    symbol = args.symbol.upper()
-    instrument_id = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
-    default_ws = (
-        "wss://demo-fstream.binance.com"
-        if args.environment == "demo"
-        else "wss://fstream.binance.com"
-    )
+    if args.enable_orders:
+        if args.environment != 'demo' or not args.confirm_demo:
+            raise SystemExit('仅允许DEMO报单，须同时指定 --enable-orders --confirm-demo')
+        missing = [name for name in ('BINANCE_DEMO_API_KEY', 'BINANCE_DEMO_API_SECRET')
+                   if not os.getenv(name)]
+        if missing:
+            raise SystemExit('缺少DEMO凭据: ' + ', '.join(missing))
+    elif args.confirm_demo:
+        raise SystemExit('--confirm-demo 只能和 --enable-orders 一起使用')
+    instrument_id = InstrumentId.from_str(f'{args.symbol.upper()}-PERP.BINANCE')
+    # 使用已验证的U本位期货公开行情；DEMO凭据仅交给TradingNode。
     feed = BNWSStreamDataFeed(
-        BNWSConfig(
-            ws_base_url=args.ws_base_url or os.getenv("BN_WS_BASE_URL", default_ws),
-            market_type="futures",
-        ),
-        source_id="BINANCE_EMA_KLINE",
+        BNWSConfig(ws_base_url=args.ws_base_url or 'wss://fstream.binance.com/market',
+                   market_type='futures'),
+        source_id='BINANCE_EMA_KLINE',
+        health_config=StreamHealthConfig(startup_grace_seconds=90,
+                                         stale_after_seconds=90),
     )
-    feed.register_instrument(
-        InstrumentMeta(
-            instrument_id=instrument_id,
-            price_precision=args.price_precision,
-            size_precision=args.size_precision,
-            price_increment=Decimal(args.price_increment),
-            multiplier=Decimal(1),
-            currency="USDT",
-            exchange="BINANCE",
-        ),
-    )
-    positions = PositionManager()
+    feed.register_instrument(InstrumentMeta(
+        instrument_id=instrument_id, price_precision=args.price_precision,
+        size_precision=args.size_precision,
+        price_increment=Decimal(args.price_increment), multiplier=Decimal(1),
+        currency='USDT', exchange='BINANCE'))
     prices = MarketReferencePriceStore()
-    client, backend = _build_execution_client(args, instrument_id, positions, prices)
-    strategy = EmaCrossTargetStrategy(
-        "ema-binance-live",
-        EmaCrossConfig(
-            fast_period=args.fast,
-            slow_period=args.slow,
-            long_quantity=Decimal(args.quantity),
-            short_quantity=-Decimal(args.quantity),
-            skip_single_price=False,
-        ),
-    )
-    runner = UnifiedStrategyRunner(RuntimeMode.LIVE, position_manager=positions)
+    driver = None
+    if args.enable_orders:
+        client, driver = build_readonly_client(args.symbol, allow_demo_orders=True)
+        client.risk_manager = PreTradeRiskManager(
+            client.client_id, client.position_manager, prices,
+            instrument_limits={instrument_id: RiskLimits(
+                max_order_quantity=Decimal(args.max_order_quantity),
+                max_abs_position=Decimal(args.max_position),
+                max_order_notional=Decimal(args.max_order_notional),
+                max_abs_position_notional=Decimal(args.max_position_notional),
+                max_market_age_ns=180 * 1_000_000_000,
+            )},
+        )
+    else:
+        client = RecordingExecutionClient('recording-only')
+    strategy = EmaCrossTargetStrategy('ema-binance-live', EmaCrossConfig(
+        fast_period=args.fast, slow_period=args.slow,
+        long_quantity=Decimal(args.quantity),
+        short_quantity=-Decimal(args.quantity), skip_single_price=False))
+    runner = UnifiedStrategyRunner(RuntimeMode.LIVE,
+                                   position_manager=(client.position_manager
+                                                     if args.enable_orders else None))
     runner.add_market_observer(prices)
-    runner.add_data_feed("binance-kline", feed)
+    runner.add_data_feed('binance-kline', feed)
     runner.add_execution_client(client)
     runner.add_strategy(
         strategy,
-        data_bindings=(
-            DataBinding(
-                "primary_bar",
-                "binance-kline",
-                instrument_id,
-                DataType.BAR,
-                args.interval.upper(),
-            ),
-        ),
-        execution_routes=(
-            ExecutionRoute("position", client.client_id, instrument_id),
-        ),
+        data_bindings=(DataBinding('primary_bar', 'binance-kline', instrument_id,
+                                   DataType.BAR, args.interval.upper()),),
+        execution_routes=(ExecutionRoute('position', client.client_id, instrument_id),),
     )
-    return runner, strategy, client, backend, instrument_id
+    return runner, strategy, client, driver, instrument_id
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="统一积木链Binance在线EMA策略")
-    parser.add_argument("--environment", choices=("demo", "live"), default="demo")
-    parser.add_argument("--symbol", default="BTCUSDT")
-    parser.add_argument(
-        "--interval",
-        choices=("1-MINUTE", "3-MINUTE", "5-MINUTE", "15-MINUTE", "30-MINUTE", "1-HOUR"),
-        default="1-MINUTE",
-    )
-    parser.add_argument("--fast", type=int, default=3)
-    parser.add_argument("--slow", type=int, default=5)
-    parser.add_argument("--quantity", default="0.001")
-    parser.add_argument("--price-precision", type=int, default=2)
-    parser.add_argument("--size-precision", type=int, default=6)
-    parser.add_argument("--price-increment", default="0.01")
-    parser.add_argument("--ws-base-url")
-    parser.add_argument("--timeout", type=float, default=0.0, help="0表示运行到Ctrl+C")
-    parser.add_argument("--enable-orders", action="store_true")
-    parser.add_argument("--confirm-live", action="store_true")
-    parser.add_argument("--max-order-quantity", default="0.01")
-    parser.add_argument("--max-position", default="0.02")
-    parser.add_argument("--max-order-notional", default="2000")
-    parser.add_argument("--max-position-notional", default="3000")
+def main():
+    parser = argparse.ArgumentParser(description='Binance U本位期货EMA')
+    parser.add_argument('--environment', choices=('demo', 'live'), default='demo')
+    parser.add_argument('--symbol', default='BTCUSDT')
+    parser.add_argument('--interval', choices=('1-MINUTE', '3-MINUTE', '5-MINUTE',
+                        '15-MINUTE', '30-MINUTE', '1-HOUR'), default='1-MINUTE')
+    parser.add_argument('--fast', type=int, default=3)
+    parser.add_argument('--slow', type=int, default=5)
+    parser.add_argument('--quantity', default='0.001')
+    parser.add_argument('--price-precision', type=int, default=2)
+    parser.add_argument('--size-precision', type=int, default=6)
+    parser.add_argument('--price-increment', default='0.01')
+    parser.add_argument('--ws-base-url')
+    parser.add_argument('--timeout', type=float, default=0.0)
+    parser.add_argument('--enable-orders', action='store_true')
+    parser.add_argument('--confirm-demo', action='store_true')
+    parser.add_argument('--max-order-quantity', default='0.001')
+    parser.add_argument('--max-position', default='0.002')
+    parser.add_argument('--max-order-notional', default='200')
+    parser.add_argument('--max-position-notional', default='400')
     args = parser.parse_args()
-
-    runner, strategy, client, backend, instrument_id = build_runner(args)
-    mode = "统一Live Backend真实执行" if args.enable_orders else "Recording-only，不下单"
-    print(
-        f"启动Binance {args.environment.upper()} EMA：instrument={instrument_id} "
-        f"bar={args.interval.upper()} fast={args.fast} slow={args.slow} mode={mode}",
-    )
-    runner.start()
+    if args.fast <= 0 or args.slow <= args.fast or Decimal(args.quantity) <= 0:
+        parser.error('EMA周期或目标数量无效')
+    runner, strategy, client, driver, instrument_id = build_runner(args)
+    if args.enable_orders:
+        client.start()
+        try:
+            # 首次运行只接受完整空活动订单与空仓；恢复旧订单另走人工对账。
+            orders = driver.reconcile_active_orders()
+            if orders.orders:
+                raise RuntimeError('DEMO账户存在活动订单，拒绝自动启动策略')
+            positions = client.position_manager.snapshot().account_positions
+            if any(quantity != 0 for quantity in positions.values()):
+                raise RuntimeError('DEMO账户存在持仓，拒绝自动启动策略')
+            client.arm_demo(client.DEMO_CONFIRMATION)
+        except BaseException:
+            client.stop()
+            raise
+    print(f'Binance EMA: {instrument_id} mode={"DEMO订单" if args.enable_orders else "Recording"}')
     started = time.monotonic()
-    recorded = 0
     reported = 0
+    requests_seen = 0
+    next_heartbeat = time.monotonic() + 10
     try:
+        runner.start()
         while args.timeout <= 0 or time.monotonic() - started < args.timeout:
-            if isinstance(client, RecordingExecutionClient):
-                requests = client.requests
-                for request in requests[recorded:]:
-                    print(f"Recording目标请求: {request}")
-                recorded = len(requests)
-            elif backend is not None:
-                reports = backend.reports
+            if args.enable_orders:
+                reports = client.backend.reports
                 for report in reports[reported:]:
-                    print(f"执行回报: {report}")
+                    print(f'执行回报: {report}')
                 reported = len(reports)
-            time.sleep(0.5)
+                if not driver.node.is_running():
+                    client.mark_disconnected('trading_node_stopped')
+                    raise RuntimeError('DEMO交易节点已停止')
+                if time.monotonic() >= next_heartbeat:
+                    client.refresh_account_state()
+                    next_heartbeat = time.monotonic() + 10
+            else:
+                requests = client.requests
+                for request in requests[requests_seen:]:
+                    print(f'Recording目标请求: {request}')
+                requests_seen = len(requests)
+            time.sleep(1 if args.enable_orders else 0.5)
     except KeyboardInterrupt:
-        print("收到Ctrl+C，停止EMA在线策略")
+        pass
     finally:
+        if args.enable_orders:
+            try:
+                client.set_risk_mode('HALTED', cancel_active_orders=True)
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if not driver.reconcile_active_orders().orders:
+                        break
+                    time.sleep(1)
+                else:
+                    print('停机时柜台仍有活动订单，必须人工核对')
+            except Exception as error:
+                client.disarm('shutdown_query_failed')
+                print(f'停机撤单或查询未完成，必须人工核对: {error}')
         runner.stop()
-    print(
-        f"Binance EMA已停止: bars_seen={strategy.bars_seen} "
-        f"bars_used={strategy.bars_used} last_target={strategy.last_target}",
-    )
+    print(f'已停止: bars_seen={strategy.bars_seen} bars_used={strategy.bars_used}')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

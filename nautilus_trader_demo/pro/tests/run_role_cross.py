@@ -61,7 +61,7 @@ def test2_runner() -> None:
         Bar, DataType, InstrumentId, InstrumentMeta, MarketDataFeed,
         SubscriptionRequest, make_bar,
     )
-    from strategy import (
+    from trader import (
         DataBinding, ExecutionRoute, RecordingExecutionClient,
         RuntimeMode, UnifiedStrategyRunner,
     )
@@ -142,7 +142,7 @@ def test3_dynamic_roll() -> None:
         Bar, DataType, InstrumentId, InstrumentMeta, MarketDataFeed,
         SubscriptionRequest, make_bar,
     )
-    from strategy import (
+    from trader import (
         ContractAssignment, DataBinding, DynamicExecutionRoute,
         PositionManager, RecordingExecutionClient, RuntimeMode,
         ScheduledContractResolver, UnifiedStrategyRunner,
@@ -264,7 +264,7 @@ def test4_simulation_backend() -> None:
         Bar, DataType, InstrumentId, InstrumentMeta, MarketDataFeed,
         SubscriptionRequest, make_bar,
     )
-    from strategy import (
+    from trader import (
         ContractAssignment, CtpFuturesBasicProfile, DataBinding,
         DynamicExecutionRoute, MarketReferencePriceStore, MarketStreamBinding,
         NautilusMarketFeedAdapter, NautilusSimExecutionBackend,

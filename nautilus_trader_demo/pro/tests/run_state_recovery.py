@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 
 from market.basic.base import InstrumentId
-from strategy import (
+from trader import (
     AccountTargetKey,
     BackendExecutionClient,
     ConcurrentStateWriteError,

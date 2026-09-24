@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from strategy.execution.ctp.td_transport import CtpTdApiTransport
+from trader.execution.ctp.td_transport import CtpTdApiTransport
 
 
 class FakeTdApi:
@@ -14,7 +14,9 @@ class FakeTdApi:
         self.account_error = False
         self.exited = False
 
-    def createFtdcTraderApi(self, flow_path):
+    def createFtdcTraderApi(self, flow_path, production_mode):
+        assert flow_path.endswith("/")
+        assert production_mode is True
         self.request_names.append("create")
 
     def subscribePrivateTopic(self, mode):

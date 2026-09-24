@@ -19,7 +19,7 @@ from market.basic.base import (
     SubscriptionRequest,
     make_bar,
 )
-from strategy import (
+from trader import (
     CtpFuturesBasicProfile,
     DataBinding,
     ExecutionBackendKind,

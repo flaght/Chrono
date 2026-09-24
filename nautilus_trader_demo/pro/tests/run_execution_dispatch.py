@@ -6,7 +6,7 @@ import argparse
 from decimal import Decimal
 
 from market.basic.base import InstrumentId
-from strategy import (
+from trader import (
     BackendExecutionClient,
     ExecutionReport,
     ExecutionReportType,
@@ -18,7 +18,7 @@ from strategy import (
     StrategyTemplate,
     UnifiedStrategyRunner,
 )
-from strategy.execution.contracts import AccountPositionSnapshot
+from trader.execution.contracts import AccountPositionSnapshot
 
 
 RB = InstrumentId.from_str("rb2704.SHFE")

@@ -19,7 +19,7 @@ from bomber.model.identifiers import InstrumentId, TraderId
 from bomber.model.instruments import FuturesContract
 
 from market.basic.base import InstrumentMeta, make_bar
-from strategy import (
+from trader import (
     ExecutionReport,
     ExecutionReportType,
     GenericVenueProfile,

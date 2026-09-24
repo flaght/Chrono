@@ -16,7 +16,7 @@ from examples.role_cross.role_strategy import RoleCrossTargetStrategy
 from market.basic.base import DataType, InstrumentId, InstrumentMeta
 from market.replay.base import FileReplayFeed
 from market.replay.parsers.bar import FixedInstrumentBarParser
-from strategy import (
+from trader import (
     DataBinding, ExecutionRoute, RecordingExecutionClient,
     RuntimeMode, UnifiedStrategyRunner,
 )

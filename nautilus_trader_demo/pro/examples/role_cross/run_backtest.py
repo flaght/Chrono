@@ -22,7 +22,7 @@ from examples.role_cross.role_strategy import RoleCrossConfig, RoleCrossTargetSt
 from market.basic.base import DataType, InstrumentMeta
 from market.replay.base import FileReplayFeed
 from market.replay.parsers.bar import FixedInstrumentBarParser
-from strategy import (
+from trader import (
     ContractAssignment,
     CtpFuturesBasicProfile,
     DataBinding,

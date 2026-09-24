@@ -6,11 +6,11 @@ from decimal import Decimal
 from pathlib import Path
 import tempfile
 
-from strategy.execution.ctp.native_driver import CtpNativeTraderDriver
-from strategy.execution.events import ActiveOrder, ActiveOrderSnapshot
-from strategy.execution.order_state import OrderReportStateMachine
-from strategy.persistence import JsonStateStore, RuntimeStateManager, StatePersistenceError
-from strategy.portfolio import PortfolioCoordinator, PositionManager, TargetStore
+from trader.execution.ctp.native_driver import CtpNativeTraderDriver
+from trader.execution.events import ActiveOrder, ActiveOrderSnapshot
+from trader.execution.order_state import OrderReportStateMachine
+from trader.persistence import JsonStateStore, RuntimeStateManager, StatePersistenceError
+from trader.portfolio import PortfolioCoordinator, PositionManager, TargetStore
 from run_p4_ctp_driver import FakeTraderTransport, _intent, _raw
 
 

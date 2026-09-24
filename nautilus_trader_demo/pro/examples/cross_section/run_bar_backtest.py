@@ -23,7 +23,7 @@ from market.replay.parsers.bar import (
     BinanceMarketType,
     MappedBarParser
 )
-from strategy import (
+from trader import (
     CtpFuturesBasicProfile,
     BinanceUsdtFuturesProfile,
     DataBinding,

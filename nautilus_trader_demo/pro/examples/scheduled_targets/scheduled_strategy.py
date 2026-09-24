@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from datahub.target_schedule import TargetScheduleStore
-from strategy.contracts import TargetUpdateMode
-from strategy.template import StrategyTemplate
+from trader.contracts import TargetUpdateMode
+from trader.template import StrategyTemplate
 
 
 @dataclass(frozen=True)

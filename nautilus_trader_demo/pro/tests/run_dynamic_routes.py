@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from market.basic.base import InstrumentId
-from strategy import (
+from trader import (
     ContractAssignment,
     ContractUnavailable,
     DynamicExecutionRoute,

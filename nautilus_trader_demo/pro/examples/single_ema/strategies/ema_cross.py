@@ -8,7 +8,7 @@ from decimal import Decimal
 from bomber.indicators import ExponentialMovingAverage
 
 from market.basic.base import Bar
-from strategy.template import StrategyTemplate
+from trader.template import StrategyTemplate
 
 
 def _decimal(value: Decimal | int | float | str) -> Decimal:

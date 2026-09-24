@@ -15,8 +15,8 @@ from market.basic.base import (
     SubscriptionRequest,
     make_bar,
 )
-from strategy import DataBinding, ExecutionRoute, RecordingExecutionClient, RuntimeMode, UnifiedStrategyRunner
-from strategy.bar_sync import BarSynchronizer
+from trader import DataBinding, ExecutionRoute, RecordingExecutionClient, RuntimeMode, UnifiedStrategyRunner
+from trader.bar_sync import BarSynchronizer
 
 
 INSTRUMENTS = tuple(InstrumentId.from_str(name) for name in (

@@ -27,7 +27,7 @@ from market.basic.base import (
     make_trade_tick,
 )
 from market.stream.base import StreamDataFeed
-from strategy import (
+from trader import (
     CtpFuturesBasicProfile,
     ExecutionBackendKind,
     ExecutionReportType,
@@ -199,7 +199,7 @@ def _wait_until(predicate, message: str, timeout: float = 5.0) -> None:
 def test2_async_stream_to_nautilus_round_trip() -> None:
     """E8b：异步Feed队列驱动真实Nautilus撮合、成交回报和仓位归零。"""
 
-    from strategy import NautilusSimExecutionBackend
+    from trader import NautilusSimExecutionBackend
 
     profile = CtpFuturesBasicProfile(
         starting_balance=Decimal("1000000"),

@@ -24,7 +24,7 @@ from market.basic.base import DataType, InstrumentMeta
 from datahub import MinimalDataHub
 
 
-from strategy import (
+from trader import (
     ContractAssignment,
     CtpFuturesBasicProfile,
     DataBinding,

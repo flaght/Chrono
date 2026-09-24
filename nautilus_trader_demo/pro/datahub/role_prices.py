@@ -1,4 +1,4 @@
-"""DataHub四角色因果复权价；只处理参考数据，不接管行情或下单。
+"""DataHub 因果角色复权价；只处理参考数据，不接管行情或下单。
 
 每日角色来自上一交易日的日终表。换约优先使用来源交易日旧、新真实合约
 的同日收盘价；若旧合约已到期，显式配置后才允许回退至最近一个共同交易日。
@@ -43,12 +43,15 @@ class RoleAssignment:
     effective_ns: int
     available_ns: int
     contracts: Mapping[str, str]
+    roles: tuple[str, ...] = ROLES
 
     def __post_init__(self) -> None:
         if self.source_day >= self.trading_day or self.effective_ns < 0 or self.available_ns < 0:
             raise ValueError("角色表必须来自此前交易日，时间不能为负")
-        if set(self.contracts) != set(ROLES) or any(not value for value in self.contracts.values()):
-            raise ValueError("角色表必须含main、secondary、near、far的真实合约")
+        if (not self.roles or len(set(self.roles)) != len(self.roles)
+                or set(self.contracts) != set(self.roles)
+                or any(not value for value in self.contracts.values())):
+            raise ValueError(f"角色表必须包含这些角色的真实合约: {self.roles}")
         object.__setattr__(self, "contracts", MappingProxyType(dict(self.contracts)))
 
 
@@ -66,7 +69,7 @@ class RolePrice:
 
 
 class RolePriceStore:
-    """四角色复权价as-of查询；不产生可成交Bar和Instrument。
+    """角色复权价 as-of 查询；不产生可成交 Bar 和 Instrument。
 
     因子采用从样本起点向前累计的固定锚点。若外部pcr_cumfactor的锚点不同，
     应比较相邻日因子比值，而不是比较累计因子的绝对值。
@@ -87,6 +90,9 @@ class RolePriceStore:
         if not assignments:
             raise ValueError("至少需要一条角色记录")
         ordered = tuple(sorted(assignments, key=lambda row: row.effective_ns))
+        self.roles = ordered[0].roles
+        if any(row.roles != self.roles for row in ordered):
+            raise ValueError("同一角色研究序列的角色集合必须一致")
         if len({row.trading_day for row in ordered}) != len(ordered):
             raise ValueError("角色表交易日重复")
         if any(b.effective_ns <= a.effective_ns or b.trading_day <= a.trading_day
@@ -114,7 +120,7 @@ class RolePriceStore:
         previous: RoleAssignment | None = None
         for assignment in ordered:
             by_role: dict[str, tuple[Decimal, Decimal] | None] = {}
-            for role in ROLES:
+            for role in self.roles:
                 single = Decimal(1)
                 previous_factor = None if previous is None else factors[-1][role]
                 cumulative = (Decimal(1) if previous is None else
@@ -187,7 +193,7 @@ class RolePriceStore:
 
     def factor_at(self, as_of_ns: int, role: str) -> tuple[Decimal, Decimal]:
         """返回指定角色的（本次换约因子，样本起点以来累计因子）。"""
-        if role not in ROLES:
+        if role not in self.roles:
             raise KeyError(role)
         self.assignment_at(as_of_ns)
         index = bisect_right(self._effective_times, as_of_ns) - 1
@@ -204,7 +210,7 @@ class RolePriceStore:
         assignment = self.assignment_at(as_of_ns)
         index = bisect_right(self._effective_times, as_of_ns) - 1
         result: dict[str, RolePrice] = {}
-        for role in ROLES:
+        for role in self.roles:
             instrument = assignment.contracts[role]
             times = self._close_times.get(instrument, ())
             position = bisect_right(times, as_of_ns) - 1
