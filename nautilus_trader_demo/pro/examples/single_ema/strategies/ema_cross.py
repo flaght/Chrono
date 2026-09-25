@@ -26,6 +26,7 @@ class EmaCrossConfig:
     long_quantity: Decimal = Decimal(1)
     short_quantity: Decimal = Decimal(-1)
     skip_single_price: bool = True
+    repeat_target_each_bar: bool = False
 
     def __post_init__(self) -> None:
         if not self.data_key.strip():
@@ -101,7 +102,7 @@ class EmaCrossTargetStrategy(StrategyTemplate):
             if self._fast.value >= self._slow.value
             else self.config.short_quantity
         )
-        if target == self._last_target:
+        if target == self._last_target and not self.config.repeat_target_each_bar:
             return
         self._last_target = target
         self.set_target(

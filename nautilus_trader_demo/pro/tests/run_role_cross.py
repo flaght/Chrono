@@ -207,12 +207,15 @@ def test3_dynamic_roll() -> None:
         for item in ids
     }
 
+    def push_bar(feed: ManualBarFeed, item: InstrumentId, timestamp: int, price: int) -> None:
+        feed.push(make_bar(
+            item, price, price + 1, price - 1, price, 1, timestamp,
+            meta=metas[item], bar_type="1-MINUTE",
+        ))
+
     def push_frame(feed: ManualBarFeed, timestamp: int, prices: tuple[int, ...]) -> None:
         for item, price in zip(ids, prices):
-            feed.push(make_bar(
-                item, price, price + 1, price - 1, price, 1, timestamp,
-                meta=metas[item], bar_type="1-MINUTE",
-            ))
+            push_bar(feed, item, timestamp, price)
 
     feed = ManualBarFeed("ROLE_ROLL_BARS")
     client = RecordingRollClient()
@@ -240,11 +243,15 @@ def test3_dynamic_roll() -> None:
         positions.set_account_position(client.client_id, old_main, 1)
         push_frame(feed, 300, (105, 100, 90, 100))
         assert client.cancels == [strategy.strategy_id]
-        assert any(request.targets.get(old_main) == 0 for request in client.requests)
         assert all(request.targets.get(new_main, Decimal(0)) == 0 for request in client.requests)
         assert len(strategy.signal_events) == 1  # 没有新穿越，目标仍应迁往新主力。
+        # 旧合约的本帧Bar先触发撤单；须等下一份旧合约行情确认在途量为零，
+        # 才能发送平旧仓目标。其他合约的同帧Bar不能代替这一步。
+        push_bar(feed, old_main, 301, 105)
+        assert client.requests[-1].targets[old_main] == 0
+        assert all(request.targets.get(new_main, Decimal(0)) == 0 for request in client.requests)
         positions.set_account_position(client.client_id, old_main, 0)
-        runner.refresh_dynamic_routes(301)
+        push_bar(feed, new_main, 302, 105)
         assert client.requests[-1].targets[old_main] == 0
         assert client.requests[-1].targets[new_main] == 1
         assert runner.target_store.get(strategy.strategy_id).targets["rb_main"] == 1

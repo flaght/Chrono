@@ -71,7 +71,7 @@ class FakeDemoDriver:
         self.report_sink(report)
 
 
-def build_client(*, demo_verified: bool = True):
+def build_client(*, demo_verified: bool = True, **client_kwargs):
     positions = PositionManager()
     prices = MarketReferencePriceStore()
     prices.update(BTC, 80_000, 100)
@@ -90,6 +90,7 @@ def build_client(*, demo_verified: bool = True):
         "demo-client", NetTargetOrderPlanner(positions), backend, positions, risk,
         account_id="demo-account",
         demo_environment_check=lambda: demo_verified,
+        **client_kwargs,
     )
     return client, driver, positions, risk
 
@@ -232,9 +233,41 @@ def test3_disconnect_and_failed_query() -> None:
     print("P3c通过：断线/活动订单/资金失败均闭闸，重连仍需重新授权")
 
 
+def test4_wall_clock_request_age() -> None:
+    """回放行情即使与回放信号时间一致，也不得驱动在线报单。"""
+    stale, stale_driver, _, _ = build_client(
+        max_request_wall_age_ns=10, wall_clock_ns=lambda: 1_000,
+    )
+    stale.start()
+    try:
+        stale.arm_demo(ControlledLiveExecutionClient.DEMO_CONFIRMATION)
+        try:
+            stale.submit_targets(request(1))
+        except RuntimeError as error:
+            assert "事件时间与当前时间" in str(error)
+        else:
+            raise AssertionError("旧回放信号不得发送在线订单")
+        assert not stale_driver.orders and not stale.is_armed
+    finally:
+        stale.stop()
+
+    fresh, fresh_driver, _, _ = build_client(
+        max_request_wall_age_ns=10, wall_clock_ns=lambda: 110,
+    )
+    fresh.start()
+    try:
+        fresh.arm_demo(ControlledLiveExecutionClient.DEMO_CONFIRMATION)
+        fresh.submit_targets(request(2))
+        assert len(fresh_driver.orders) == 1
+    finally:
+        fresh.stop()
+    print("P3d通过：回放时间戳闭闸，新鲜信号仍可提交")
+
+
 STAGES = {"read_only": test1_read_only_and_authorization,
           "reports": test2_report_and_risk,
-          "reconnect": test3_disconnect_and_failed_query}
+          "reconnect": test3_disconnect_and_failed_query,
+          "wall_clock": test4_wall_clock_request_age}
 
 
 def main() -> None:

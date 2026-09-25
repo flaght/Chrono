@@ -1,12 +1,9 @@
 from dataclasses import dataclass
 
 from trader import (
-    BacktestRuntimePort,
     DirectLiveRuntime,
-    ReplayRuntimePort,
     RuntimeMode,
     RuntimePort,
-    SimpleReplayRuntime,
 )
 
 
@@ -42,3 +39,7 @@ def test1_direct_live_runtime() -> None:
     assert runner.stop_calls == 1
     assert runner.replay_calls == 0
     print("N1通过：DirectLiveRuntime正确委托LIVE Runner生命周期")
+
+
+if __name__ == "__main__":
+    test1_direct_live_runtime()

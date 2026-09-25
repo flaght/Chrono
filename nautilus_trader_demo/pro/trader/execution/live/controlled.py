@@ -35,12 +35,18 @@ class ControlledLiveExecutionClient(BackendExecutionClient):
         self,
         *args,
         demo_environment_check: Callable[[], bool],
+        max_request_wall_age_ns: int | None = None,
+        wall_clock_ns: Callable[[], int] = time.time_ns,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         if self.risk_manager is None:
             raise ValueError("P3受控在线客户端必须配置PreTradeRiskManager")
+        if max_request_wall_age_ns is not None and max_request_wall_age_ns <= 0:
+            raise ValueError("请求墙钟时效必须大于零")
         self._demo_environment_check = demo_environment_check
+        self._max_request_wall_age_ns = max_request_wall_age_ns
+        self._wall_clock_ns = wall_clock_ns
         self._armed = False
         self._account_state: AccountStateEvent | None = None
         self._last_account_revision = 0
@@ -251,6 +257,15 @@ class ControlledLiveExecutionClient(BackendExecutionClient):
                 self._armed = False
                 self._record("ORDER_BLOCKED", "not_armed_or_not_demo_or_query_in_flight")
                 raise PermissionError("P3客户端处于只读模式或DEMO环境未核实")
+            if self._max_request_wall_age_ns is not None:
+                age_ns = self._wall_clock_ns() - request.ts_event
+                if abs(age_ns) > self._max_request_wall_age_ns:
+                    self._armed = False
+                    self._record("ORDER_BLOCKED", f"request_wall_age_ns={age_ns}")
+                    raise RuntimeError(
+                        f"执行请求事件时间与当前时间相差{age_ns}ns，超过"
+                        f"{self._max_request_wall_age_ns}ns；已关闭DEMO下单授权"
+                    )
             try:
                 super().submit_targets(request)
             except Exception as error:

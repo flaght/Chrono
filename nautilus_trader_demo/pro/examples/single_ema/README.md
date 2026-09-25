@@ -81,6 +81,16 @@ export PYTHONPATH=.
 
 ## 1. 策略逻辑和内存正式回测
 
+目录或导入迁移后的批量离线回归可在`pro`目录运行：
+
+```bash
+PYTHONPATH=. python tests/run_offline_regression.py
+```
+
+该入口逐项运行框架、EMA、CTP假柜台和Binance模拟测试，汇总失败项；
+实时行情和交易前置测试始终跳过，休市不影响离线回归。
+历史行情文件已部署时可增加`--with-data`运行文件回放测试。
+
 ```bash
 python tests/strategies/single_ema/run_test.py
 python tests/run_unified_historical_runtime.py --stage 3
@@ -218,7 +228,9 @@ PYTHONPATH=. python examples/single_ema/ctp_td_readonly.py --connect
 不再依赖`vnpy_ctp` Python包。安装和API smoke test均不会连接或报单。
 
 在启动EMA自动交易前，先用`ctp_simnow_order_probe.py`验证单笔限价报单。
-该探针要求账户完全空仓且无活动订单；现有仓位未处理前会拒绝发单。
+默认要求账户完全空仓且无活动订单。第二套环境若复制了其他合约的旧仓位，
+可显式加`--allow-other-positions`；测试合约仍必须空仓，整个账户仍必须无活动订单。
+探针会在发单前后核对其他合约的多/空仓位是否保持不变。
 先不带限价和提交开关运行账户预检：
 
 ```bash
@@ -234,6 +246,55 @@ python -u examples/single_ema/ctp_simnow_order_probe.py \
 不会自动反向平仓，必须人工核对。柜台拒单时探针将以错误状态退出，
 拒单不代表报单链路验收通过。测试账户应由此探针独占。
 
+第二套环境可先用`CTP_TD_ADDRESS='tcp://182.254.243.31:40001'`执行上述预检，
+并在命令末尾加`--allow-other-positions`。若账户有`rb2610`旧仓而测试`rb2701`，
+预检会显示旧仓；选择价格时须依据第二套环境同一合约的有效涨跌停范围。
+预检通过后，填入核对过的限价，再追加`--submit --confirm-simnow`验证柜台回报和撤单。
+若使用`--price "$TEST_LIMIT_PRICE"`，须先在同一个 shell 中设置该变量；未设置时
+shell 会传入空字符串，探针会在发单前拒绝。可用以下交互方式输入并检查：
+
+```bash
+printf '请输入第二套环境 rb2701 涨跌停范围内、符合价格步长的限价: '
+read -r TEST_LIMIT_PRICE
+CTP_TD_ADDRESS='tcp://182.254.243.31:40001' CTP_PRODUCTION_MODE=1 \
+python -u examples/single_ema/ctp_simnow_order_probe.py \
+  --symbol rb2701 --exchange SHFE --side BUY \
+  --price-increment 1 --multiplier 10 --allow-other-positions \
+  --price "$TEST_LIMIT_PRICE" --submit --confirm-simnow
+```
+
+若测试单成交，须人工处理新增的测试合约仓位；探针不会自动平仓。
+
+要同时验证开仓成交、平今成交及最终空仓，可显式启用往返模式。先核对第二套
+环境同一合约的买一、卖一及涨跌停价，输入两个符合价格步长的限价。买开限价
+须有成交机会，卖平今限价也须有成交机会；限价单仍不能保证成交。该模式只在
+柜台确认开仓恰好成交1手且无活动订单后才发送反向平今单。任何阶段未成交、
+被拒或查询不一致，探针会报错并尝试撤单；若留仓须人工核对处理。
+
+可在发单前用第二套环境原始行情探针查看最新买卖盘及涨跌停价：
+
+```bash
+CTP_MD_ADDRESS='tcp://182.254.243.31:40011' CTP_SYMBOL=rb2701 \
+CTP_PRODUCTION_MODE=1 python -u tests/run_ctp_live.py --stage 4
+```
+
+`BUY OPEN`限价至少要有机会触及当时的卖一，随后`SELL CLOSE_TODAY`限价
+至少要有机会触及当时的买一；两者仍须处于该环境的涨跌停范围内。行情可能变化，
+因此探针以成交回报和柜台仓位为最终依据。
+
+```bash
+printf '输入买开限价: '
+read -r OPEN_PRICE
+printf '输入卖平今限价: '
+read -r CLOSE_PRICE
+CTP_TD_ADDRESS='tcp://182.254.243.31:40001' CTP_PRODUCTION_MODE=1 \
+python -u examples/single_ema/ctp_simnow_order_probe.py \
+  --symbol rb2701 --exchange SHFE --side BUY \
+  --price-increment 1 --multiplier 10 --allow-other-positions \
+  --price "$OPEN_PRICE" --close-price "$CLOSE_PRICE" \
+  --round-trip --submit --confirm-simnow
+```
+
 受控SimNow报单入口复用同一`EmaCrossTargetStrategy`，从配置读取交易前置，
 要求BrokerID 9999、登录账户匹配且合约属于SHFE/INE。须设置`CTP_TD_ADDRESS`、
 `CTP_MD_ADDRESS`、`CTP_BROKER_ID`、`CTP_ACCOUNT_ID`、`CTP_PASSWORD`、
@@ -241,17 +302,38 @@ python -u examples/single_ema/ctp_simnow_order_probe.py \
 `CTP_AUTH_CODE`。下例仅展示启动方式，合约参数必须与柜台一致：
 
 ```bash
-PYTHONPATH=. python examples/single_ema/ema_ctp_simnow.py \
-  --symbol rb2704 --exchange SHFE --price-increment 1 --multiplier 10 \
+CTP_MD_ADDRESS='tcp://182.254.243.31:30011' \
+CTP_TD_ADDRESS='tcp://182.254.243.31:30001' \
+CTP_PRODUCTION_MODE=1 PYTHONPATH=. \
+python -u examples/single_ema/ema_ctp_simnow.py \
+  --symbol rb2701 --exchange SHFE --price-increment 1 --multiplier 10 \
   --enable-orders --confirm-simnow --timeout 300
 ```
 
 该入口先完成登录、结算确认、权威资金/净仓/双向总仓和活动订单查询。初始账户
 必须完全空仓且没有活动订单；存在旧仓或旧单时拒绝自动接管。EMA目标由
 `CtpClosePlanner`决定开平今昨仓，再加有界限价；下单前检查单笔手数、账户绝对
-仓位、名义金额及行情时效。运行时资金和多空总仓会周期性核对；断线或不一致闭闸。
+仓位、名义金额及行情时效。CTP在线EMA额外要求信号事件时间与当前墙钟相差不超过
+120秒；第二套环境的旧行情回放不能触发自动报单。运行时资金和多空总仓会周期性核对；断线或不一致闭闸。
+SimNow示例会在每根Bar重申目标；遇到反手时先提交明确的平今/平昨单，
+等柜台成交回报更新账本后，下一根Bar才尝试开反向仓。在途委托期间不叠单。
 当前不持久化运行中的订单关联与今昨仓成本，因此有仓位或活动订单时不可直接重启
-自动交易，须人工对账。SimNow真实报单、成交、撤单和恢复尚待交易时段验收。
+自动交易，须人工对账。第二套环境的报单接受与撤单已验收；成交、平仓、
+第一套环境的EMA受控执行及重启恢复仍需分别验证。
+
+从单笔探针走到EMA受控自动交易只需以下验收：
+
+1. 在Linux运行`PYTHONPATH=. python tests/run_ctp_simnow_order_probe.py`和
+   `PYTHONPATH=. python tests/run_ctp_ema_staging.py`。
+2. 在第二套环境执行上述一手往返测试，确认两笔`FILLED`、无活动订单、
+   `rb2701`回到空仓、其他合约仓位不变。失败时先人工对账，不继续自动交易。
+3. 在第一套环境的交易时段，用只读探针核对账户完全空仓、无活动订单；
+   用`ema_ctp_live.py`确认`rb2701`的Bar时间与当前时间相差不超过120秒。
+4. 再运行上面的第一套环境EMA命令做一次300秒受控测试。结束后重新运行
+   只读探针核对活动订单和仓位；若有仓位，人工平仓后才能再次启动。
+
+这四步通过即可结束首次SimNow接入验收；长期无人值守运行仍需加入活动订单和
+今昨仓账本的持久化恢复，当前入口会拒绝带仓或带活动订单重启。
 
 ## 安全边界
 

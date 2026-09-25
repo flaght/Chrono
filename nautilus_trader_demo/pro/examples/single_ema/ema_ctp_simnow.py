@@ -17,7 +17,7 @@ from trader import (ControlledLiveExecutionClient, DataBinding, ExecutionRoute,
                       MarketReferencePriceStore, NautilusLiveExecutionBackend,
                       PositionManager, PreTradeRiskManager, RiskLimits, RuntimeMode,
                       UnifiedStrategyRunner)
-from trader.execution.contracts import OrderSide, OrderType
+from trader.execution.contracts import OrderSide, OrderType, PositionEffect
 from trader.execution.ctp import (CtpClosePlanner, CtpExecutionAccounting,
                                     CtpNativeTraderDriver, CtpPositionLedger,
                                     CtpTdApiTransport)
@@ -44,9 +44,18 @@ class CtpLimitPlanner:
 
     def plan(self, request):
         result = []
-        for order in self._planner.plan(request):
+        planned = tuple(self._planner.plan(request))
+        closing_instruments = {
+            order.instrument_id for order in planned
+            if order.position_effect is not PositionEffect.OPEN
+        }
+        for order in planned:
             if self._positions.working_quantity(request.client_id, order.instrument_id):
-                raise RuntimeError('CTP同合约尚有在途订单，拒绝叠加报单')
+                continue
+            # A reversal closes the old side first. The next bar repeats the
+            # target after the close fill updates the position ledger.
+            if order.position_effect is PositionEffect.OPEN and order.instrument_id in closing_instruments:
+                continue
             reference = self._prices.get(order.instrument_id)
             if reference is None:
                 raise RuntimeError('CTP缺少行情参考价，拒绝报单')
@@ -111,6 +120,7 @@ def build_runner(args):
     client = ControlledLiveExecutionClient(
         'ctp-simnow', planner, backend, positions, risk, account_id=investor,
         demo_environment_check=lambda: driver.is_simnow_session,
+        max_request_wall_age_ns=120 * 1_000_000_000,
     )
     holder['client'] = client
     accounting = CtpExecutionAccounting(ledger, {instrument: multiplier})
@@ -129,7 +139,7 @@ def build_runner(args):
     strategy = EmaCrossTargetStrategy('ema-ctp-simnow', EmaCrossConfig(
         fast_period=args.fast, slow_period=args.slow,
         long_quantity=Decimal(args.quantity), short_quantity=-Decimal(args.quantity),
-        skip_single_price=False))
+        skip_single_price=False, repeat_target_each_bar=True))
     runner = UnifiedStrategyRunner(RuntimeMode.LIVE, position_manager=positions)
     runner.add_market_observer(prices)
     runner.add_data_feed('ctp-bars', feed)
