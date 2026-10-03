@@ -1,10 +1,12 @@
 from pathlib import Path
-import pdb
-
+import pdb,os
+from datetime import datetime
 import polars as pl
+
 
 from lib.data.loader.data1 import load_basis_lazy, load_returns
 from z03_mining.miner.evolution import EvolutionConfig, Launcher
+from z03_mining.miner.evaluate import TimeSeriesEvaluationConfig
 
 period = 5
 return_name = f"spot_ret_{period}h"
@@ -13,7 +15,10 @@ symbol = "BTCUSDT"
 futures_dir = f"z21_orchestrator/data/{symbol}/basic/futures"
 spot_dir = f"z21_orchestrator/data/{symbol}/basic/spot"
 returns_file = f"z21_orchestrator/data/{symbol}/returns/spot.feather"
-output_dir = f"z21_orchestrator/results/{period}"
+
+
+
+output_dir = f"z03_mining/results/{period}"
 
 if __name__ == "__main__":
     basis_lazy = load_basis_lazy(
@@ -41,6 +46,13 @@ if __name__ == "__main__":
         periods=(period,),
     )
 
+    evaluation_config = TimeSeriesEvaluationConfig(
+        resampling_win=period,
+        roll_win=15,
+        fee=0.0,
+        scale_method='roll_zscore'
+    )
+
     
     features = [col for col in basis_lazy.collect_schema().names() if col not in ["trade_time", "code"]]
     return_column  = f"spot_ret_{period}h"
@@ -50,11 +62,11 @@ if __name__ == "__main__":
         mode='free',
         config=config,
         operator_config= None,
+        evaluation_config=evaluation_config,
     )
-    pdb.set_trace()
     result = miner.optimize(combined_lazy, top_n=10)
-    if True:
-        output = Path('./temp')
-        output.parent.mkdir(parents=True, exist_ok=True)
-        result.write_ipc(output)
+    name = f"1{datetime.now():%y%m%d%H%S%f}"
+    base_dirs = os.makedirs(os.path.join(output_dir, 'evolution'), exist_ok=True)
+    filename = os.path.join(base_dirs, f"{name}.parent")
+    result.write_ipc(filename)
     print(result)

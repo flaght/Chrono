@@ -96,10 +96,8 @@ def evaluate_formula(
     observations = prepared.height
     if observations < min_observations:
         return _empty_metrics(observations)
-
     # 延迟导入，避免仅使用公式模块时加载绘图等评估依赖。
     from lib.evaluate.cux001 import FactorEvaluatePolars
-    pdb.set_trace()
     evaluator = FactorEvaluatePolars(
         prepared,
         resampling_win=config.resampling_win,
