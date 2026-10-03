@@ -8,7 +8,7 @@ import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 import polars as pl
-import feature.utils.formula as ops
+import lib.process.formula as ops
 
 
 MiningMode = Literal["free", "directed"]

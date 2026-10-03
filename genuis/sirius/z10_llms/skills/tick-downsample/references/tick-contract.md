@@ -1,6 +1,6 @@
 # Orion Tick 降频到 1 分钟 Bar 特征契约
 
-本契约依据 [docs/tick_downsample_1min_features.md](../../../docs/tick_downsample_1min_features.md) 制定，是使用纯 Polars Lazy 范式将原始 500ms CTP Tick 快照降频聚合为 1 分钟 Bar 基础字段及微观结构因子的实现规范。
+本契约是使用纯 Polars Lazy 范式将原始 500ms CTP Tick 快照降频聚合为 1 分钟 Bar 基础字段及微观结构因子的实现规范。
 
 ---
 

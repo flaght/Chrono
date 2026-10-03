@@ -200,7 +200,6 @@ def returns_save(return_data: pl.LazyFrame, method: str, task_id: str):
 def run(method, task_id):
     #dirs = os.path.join(base_path, method, 'basic', task_id)
     #file_name = os.path.join(dirs, "raw_basic.feather")
-    pdb.set_trace()
     file_name = "/workspace/worker/pj/Chrono/genuis/orion/records/cicso0/basic/1000201201/raw_basic.feather"
     raw_data = pl.from_arrow(pf.read_table(file_name)).lazy()
 

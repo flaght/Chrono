@@ -1,7 +1,4 @@
 # BN 处理KLine数据
-from lib.utils.ttimes import get_dates
-from lib.utils.tactix import Tactix
-from lib.utils.macro import *
 import pdb
 import os
 import pandas as pd
@@ -9,6 +6,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+from lib.utils.macro import *
+from lib.utils.tactix import Tactix
+from lib.utils.ttimes import get_dates
 
 
 def load_raw_data(category, source, period, start_date, end_date):
@@ -16,6 +16,7 @@ def load_raw_data(category, source, period, start_date, end_date):
         bn_raw_path, f"{source}_data", BN_FUTURES_MAP[category], category, 'klines',
         period) if category != 'spot' else os.path.join(
             bn_raw_path, f"{source}_data", category, 'klines', period)
+    pdb.set_trace()
     file_path = Path(file_path)
     pdb.set_trace()
     all_dfs = []
@@ -43,9 +44,14 @@ def load_raw_data(category, source, period, start_date, end_date):
 
     if all_dfs:
         final_data = pd.concat(all_dfs, ignore_index=True)
-        final_data['trade_time'] = pd.to_datetime(final_data['trade_time'],
-                                                  errors='coerce',
-                                                  format='ISO8601')
+        # 币安源数据为 UTC 毫秒时间戳，转换为东八区（北京时间 UTC+8）与国内客户端一致
+        unit = 'us' if category == 'spot' else 'ms'
+        if 'trade_time' in final_data.columns:
+            final_data['trade_time'] = (
+                pd.to_datetime(final_data['open_time'], unit=unit, utc=True)
+                .dt.tz_convert('Asia/Shanghai')
+                .dt.tz_localize(None)  # 去掉时区信息，保留本地时间字符串格式，保证 feather 兼容
+            )
         final_data = final_data.sort_values(['code', 'trade_time'])
     return final_data if len(all_dfs) > 0 else pd.DataFrame()
 
@@ -62,8 +68,9 @@ def start(method, category, task_id):
     os.makedirs(output_dirs, exist_ok=True)
     filename = os.path.join(output_dirs, f"kline_{category}.feather")
     print(filename)
-    final_data.drop(['open_time', 'ignore'],
-                    axis=1).reset_index().to_feather(filename)
+    drop_cols = [c for c in ['open_time', 'ignore'] if c in final_data.columns]
+    final_data.drop(columns=drop_cols).reset_index(
+        drop=True).to_feather(filename)
 
 
 if __name__ == '__main__':

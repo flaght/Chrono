@@ -9,7 +9,7 @@
     Volume, Turnover, AveragePrice, BidPrice1, BidVolume1, AskPrice1,
     AskVolume1, OpenInterest, UpperLimitPrice, LowerLimitPrice
 
-规范对标: docs/tick_downsample_1min_features.md
+规范对标: references/tick-contract.md
 """
 
 from __future__ import annotations

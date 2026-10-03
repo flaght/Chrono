@@ -1,6 +1,6 @@
 """按输入数据类型分派因子评估器。"""
 
-import math
+import math,pdb
 from dataclasses import dataclass
 from numbers import Number
 from typing import Literal
@@ -45,7 +45,7 @@ def ensure_evaluation_supported(evaluation_type: EvaluationType) -> None:
         )
 
 
-def _empty_metrics(observations: int = 0) -> dict[str, float | int]:
+def _empty_metrics(observations: int = 0) -> dict[str, object]:
     """生成样本不足时的兼容评分字段。"""
     return {
         "ic_mean": 0.0, "abs_ic_mean": 0.0, "ic_sharpe": 0.0,
@@ -67,10 +67,10 @@ def evaluate_formula(
     formula: Formula,
     *,
     return_column: str,
-    evaluation_type: EvaluationType | None = None,
+    evaluation_type: EvaluationType = None,
     min_observations: int = 100,
-    compiler: FormulaCompiler | None = None,
-    time_series_config: TimeSeriesEvaluationConfig | None = None,
+    compiler: FormulaCompiler = None,
+    time_series_config: TimeSeriesEvaluationConfig = None,
 ) -> dict[str, object]:
     """评估候选公式；目前仅实现单标时序因子评估。"""
     evaluation_type = evaluation_type or detect_evaluation_type(df_lazy)
@@ -98,8 +98,8 @@ def evaluate_formula(
         return _empty_metrics(observations)
 
     # 延迟导入，避免仅使用公式模块时加载绘图等评估依赖。
-    from evaluate.cux001 import FactorEvaluatePolars
-
+    from lib.evaluate.cux001 import FactorEvaluatePolars
+    pdb.set_trace()
     evaluator = FactorEvaluatePolars(
         prepared,
         resampling_win=config.resampling_win,
