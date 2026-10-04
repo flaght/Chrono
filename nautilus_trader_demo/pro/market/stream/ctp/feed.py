@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,6 +64,18 @@ class CtpLiveDataFeed(StreamDataFeed):
         self._subscribed_symbols: set[str] = set()
         self._ready = threading.Event()
         self._lock = threading.RLock()
+        self._latest_trading_day: str | None = None
+        self._latest_receive_monotonic_ns: int | None = None
+
+    @property
+    def latest_trading_day(self) -> str | None:
+        with self._lock:
+            return self._latest_trading_day
+
+    @property
+    def latest_receive_monotonic_ns(self) -> int | None:
+        with self._lock:
+            return self._latest_receive_monotonic_ns
 
     def register_instrument(self, meta: InstrumentMeta) -> None:
         super().register_instrument(meta)
@@ -118,6 +131,8 @@ class CtpLiveDataFeed(StreamDataFeed):
         self._converter.reset()
         with self._lock:
             self._subscribed_symbols.clear()
+            self._latest_trading_day = None
+            self._latest_receive_monotonic_ns = None
 
     def _on_subscription_added(self, request: SubscriptionRequest) -> None:
         self._validate_request(request)
@@ -148,6 +163,8 @@ class CtpLiveDataFeed(StreamDataFeed):
         self._ready.clear()
         with self._lock:
             self._subscribed_symbols.clear()
+            self._latest_trading_day = None
+            self._latest_receive_monotonic_ns = None
         self.report_stream_interruption(f"CTP行情前置断开: reason={reason}")
         logger.warning("CTP 行情前置断开: reason=%s；等待底层 API 自动重连", reason)
 
@@ -206,7 +223,12 @@ class CtpLiveDataFeed(StreamDataFeed):
             logger.warning("忽略缺少 InstrumentMeta 的 CTP 行情: %s", instrument_id)
             return
         try:
-            for event in self._converter.convert(data, instrument_id, meta):
+            events = tuple(self._converter.convert(data, instrument_id, meta))
+            trading_day = str(data.get("TradingDay") or "").strip()
+            with self._lock:
+                self._latest_trading_day = trading_day or None
+                self._latest_receive_monotonic_ns = time.monotonic_ns()
+            for event in events:
                 if self._event_is_subscribed(instrument_id, event):
                     self.enqueue_event(event)
         except Exception:

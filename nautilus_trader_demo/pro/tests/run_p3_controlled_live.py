@@ -71,7 +71,7 @@ class FakeDemoDriver:
         self.report_sink(report)
 
 
-def build_client(*, demo_verified: bool = True, **client_kwargs):
+def build_client(*, demo_verified: bool = True, demo_check=None, **client_kwargs):
     positions = PositionManager()
     prices = MarketReferencePriceStore()
     prices.update(BTC, 80_000, 100)
@@ -89,7 +89,7 @@ def build_client(*, demo_verified: bool = True, **client_kwargs):
     client = ControlledLiveExecutionClient(
         "demo-client", NetTargetOrderPlanner(positions), backend, positions, risk,
         account_id="demo-account",
-        demo_environment_check=lambda: demo_verified,
+        demo_environment_check=demo_check or (lambda: demo_verified),
         **client_kwargs,
     )
     return client, driver, positions, risk
@@ -264,10 +264,36 @@ def test4_wall_clock_request_age() -> None:
     print("P3d通过：回放时间戳闭闸，新鲜信号仍可提交")
 
 
+def test5_explicit_replay_gate() -> None:
+    """显式回放模式可用旧事件时间，但MD/TD核验丢失后立即闭闸。"""
+    ready = {"value": True}
+    client, driver, _, _ = build_client(
+        demo_check=lambda: ready["value"],
+        max_request_wall_age_ns=None, wall_clock_ns=lambda: 1_000,
+    )
+    client.start()
+    try:
+        client.arm_demo(ControlledLiveExecutionClient.DEMO_CONFIRMATION)
+        client.submit_targets(request(1))
+        assert len(driver.orders) == 1
+        ready["value"] = False
+        try:
+            client.submit_targets(request(2, revision=2))
+        except PermissionError:
+            pass
+        else:
+            raise AssertionError("回放MD/TD核验失效后仍可下单")
+        assert len(driver.orders) == 1 and not client.is_armed
+    finally:
+        client.stop()
+    print("P3e通过：显式回放授权可接收旧信号，MD/TD核验失效即闭闸")
+
+
 STAGES = {"read_only": test1_read_only_and_authorization,
           "reports": test2_report_and_risk,
           "reconnect": test3_disconnect_and_failed_query,
-          "wall_clock": test4_wall_clock_request_age}
+          "wall_clock": test4_wall_clock_request_age,
+          "replay": test5_explicit_replay_gate}
 
 
 def main() -> None:

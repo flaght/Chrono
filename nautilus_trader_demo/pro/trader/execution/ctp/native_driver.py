@@ -101,6 +101,7 @@ class CtpNativeTraderDriver:
         *,
         enable_test_orders: bool = False,
         enable_simnow_orders: bool = False,
+        max_session_orders: int | None = None,
         disconnect_handler: Callable[[str], None] | None = None,
     ) -> None:
         if not driver_id.strip() or not account_id.strip():
@@ -109,6 +110,8 @@ class CtpNativeTraderDriver:
             raise ValueError("启用CTP报单必须配置断线闭闸回调")
         if enable_test_orders and enable_simnow_orders:
             raise ValueError("假柜台与SimNow报单不能同时开启")
+        if max_session_orders is not None and max_session_orders <= 0:
+            raise ValueError("CTP会话报单上限必须为正整数")
         if enable_test_orders and not getattr(transport, "is_test_transport", False):
             raise ValueError("测试报单开关只允许假柜台传输；真实TdApi仍保持禁单")
         if enable_simnow_orders:
@@ -124,12 +127,15 @@ class CtpNativeTraderDriver:
         self.transport = transport
         self._enable_test_orders = enable_test_orders or enable_simnow_orders
         self._enable_simnow_orders = enable_simnow_orders
+        self._max_session_orders = max_session_orders
+        self._submitted_orders = 0
         self._disconnect_handler = disconnect_handler
         self._sink: Callable[[ExecutionReport], None] | None = None
         self._session: CtpTraderSession | None = None
         self._connected = False
         self._next_ref = 0
         self._orders: dict[str, tuple[str, OrderIntent]] = {}
+        self._venue_order_ids: dict[str, str] = {}
         self._sequences: dict[str, int] = {}
         self._filled: dict[str, Decimal] = {}
         self._seen_trades: set[tuple[str, str, str]] = set()
@@ -149,6 +155,14 @@ class CtpNativeTraderDriver:
             and session is not None and session.broker_id == "9999"
             and session.investor_id == self.account_id
         )
+
+    @property
+    def trading_day(self) -> str | None:
+        return None if self._session is None else self._session.trading_day
+
+    @property
+    def submitted_orders(self) -> int:
+        return self._submitted_orders
 
     def bind_durability(
         self,
@@ -331,6 +345,8 @@ class CtpNativeTraderDriver:
             raise RuntimeError("原生CTP Driver默认禁单；本阶段只读")
         if order.backend_id != self.driver_id:
             raise ValueError("CTP订单Backend不匹配")
+        if self._max_session_orders is not None and self._submitted_orders >= self._max_session_orders:
+            raise RuntimeError(f"CTP本次会话已达到{self._max_session_orders}笔报单上限")
         session = self._session
         if session is None:
             raise RuntimeError("CTP会话不存在")
@@ -351,6 +367,7 @@ class CtpNativeTraderDriver:
         try:
             if self._before_send is not None:
                 self._before_send(client_id, order)
+            self._submitted_orders += 1
             self.transport.send_order(fields)
         except Exception as error:
             if self._sequences.get(order_ref, 0) > 0:
@@ -478,8 +495,11 @@ class CtpNativeTraderDriver:
             "order_ref": order_ref,
             "front_id": str(raw.get("FrontID", "")),
             "session_id": str(raw.get("SessionID", "")),
-            "venue_order_id": str(raw.get("OrderSysID", "")),
         }
+        venue_order_id = str(raw.get("OrderSysID") or "").strip()
+        if venue_order_id:
+            self._venue_order_ids[order_ref] = venue_order_id
+        metadata["venue_order_id"] = self._venue_order_ids.get(order_ref)
         if trade_id is not None:
             metadata["trade_id"] = trade_id
         report = ExecutionReport(
@@ -509,6 +529,12 @@ class CtpNativeTraderDriver:
             self._sink(report)
             if self._after_transition is not None:
                 self._after_transition()
+            if report_type in {
+                ExecutionReportType.REJECTED,
+                ExecutionReportType.CANCELED,
+                ExecutionReportType.FILLED,
+            }:
+                self._venue_order_ids.pop(order_ref, None)
         except Exception:
             self.on_disconnect(-1)
             raise

@@ -391,13 +391,19 @@ def map_applied_report(
     if report.report_id is None and report.sequence is None:
         raise ValueError("回报缺少稳定的事件ID/序号")
     event_id = report.report_id or f"{report.client_order_id}:{report.sequence}"
+    raw_venue_order_id = report.metadata.get("venue_order_id")
+    venue_order_id = (
+        raw_venue_order_id.strip()
+        if isinstance(raw_venue_order_id, str) and raw_venue_order_id.strip()
+        else None
+    )
     identity = ExecutionIdentity(
         client_id=report.backend_id,
         account_id=account_id,
         strategy_id=strategy_id,
         client_order_id=report.client_order_id,
         instrument_id=str(report.instrument_id),
-        venue_order_id=report.metadata.get("venue_order_id"),
+        venue_order_id=venue_order_id,
     )
     status = {
         ExecutionReportType.ACCEPTED: OrderEventStatus.ACCEPTED,

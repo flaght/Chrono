@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -13,7 +14,7 @@ from trader.contracts import ExecutionRequest
 from trader.execution.contracts import OrderSide, PositionEffect
 from trader.execution.ctp import CtpPositionLedger
 from trader.execution.risk import MarketReferencePriceStore
-from examples.single_ema.ema_ctp_simnow import CtpLimitPlanner
+from examples.single_ema.ema_ctp_simnow import CtpLimitPlanner, replay_session_ready
 from examples.single_ema.strategies import EmaCrossConfig, EmaCrossTargetStrategy
 
 
@@ -83,7 +84,16 @@ def main() -> None:
         strategy.on_bar("primary_bar", bar)
     assert len(context.targets) == 2
     assert context.targets[0].targets == context.targets[1].targets
-    print("CTP EMA分阶段反手及下一Bar目标重发通过")
+    driver = SimpleNamespace(is_simnow_session=True, trading_day="20260923")
+    feed = SimpleNamespace(
+        latest_trading_day="20260923", latest_receive_monotonic_ns=100,
+    )
+    assert replay_session_ready(driver, feed, "20260923", now_ns=200)
+    assert not replay_session_ready(driver, feed, "20260925", now_ns=200)
+    assert not replay_session_ready(driver, feed, "20260923", now_ns=10_000_000_101)
+    feed.latest_trading_day = "20260922"
+    assert not replay_session_ready(driver, feed, "20260923", now_ns=200)
+    print("CTP EMA分阶段反手、目标重发和回放MD/TD交易日闸门通过")
 
 
 if __name__ == "__main__":

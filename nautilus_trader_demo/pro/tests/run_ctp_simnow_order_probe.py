@@ -13,14 +13,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from examples.single_ema.ctp_simnow_order_probe import (
     assert_account_ready,
+    assert_close_ready,
     wait_target_position,
 )
 from market.basic.base import InstrumentId
+from trader.execution.contracts import OrderSide
 
 
 class Driver:
-    def __init__(self, active_orders=()):
+    def __init__(self, active_orders=(), trading_day="20260923"):
         self.active_orders = active_orders
+        self.trading_day = trading_day
 
     def reconcile_active_orders(self):
         return SimpleNamespace(orders=self.active_orders)
@@ -79,6 +82,25 @@ def main():
         pass
     else:
         raise AssertionError("other contract changed during round-trip")
+    assert assert_close_ready(
+        Driver(), Transport(filled), target, side=OrderSide.SELL,
+        expected_trading_day="20260923", allow_other_positions=True,
+    ) == old_position
+    for driver, positions, side, day in (
+        (Driver(trading_day="20260924"), filled, OrderSide.SELL, "20260923"),
+        (Driver(active_orders=(object(),)), filled, OrderSide.SELL, "20260923"),
+        (Driver(), filled, OrderSide.BUY, "20260923"),
+        (Driver(), old_position, OrderSide.SELL, "20260923"),
+    ):
+        try:
+            assert_close_ready(
+                driver, Transport(positions), target, side=side,
+                expected_trading_day=day, allow_other_positions=True,
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("unsafe close-only account passed the guard")
     print("SimNow单笔探针账户保护通过")
 
 

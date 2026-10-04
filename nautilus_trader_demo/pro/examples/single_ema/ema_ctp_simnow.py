@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SimNow EMA受控报单：只接受官网仿真前置、初始空仓及空活动订单。"""
+"""SimNow EMA受控报单，包括显式启用的第二套环境回放验收。"""
 from __future__ import annotations
 
 import argparse
@@ -31,6 +31,28 @@ def required(name):
     if not value:
         raise SystemExit(f'缺少环境变量: {name}')
     return value
+
+
+def replay_session_ready(driver, feed, expected_day, *, now_ns=None):
+    """回放模式仅在MD与TD交易日一致且原始行情持续到达时授权。"""
+    received_ns = feed.latest_receive_monotonic_ns
+    age_ns = None
+    if received_ns is not None:
+        age_ns = (time.monotonic_ns() if now_ns is None else now_ns) - received_ns
+    return bool(
+        driver.is_simnow_session
+        and driver.trading_day == expected_day
+        and feed.latest_trading_day == expected_day
+        and age_ns is not None
+        and 0 <= age_ns <= 10_000_000_000
+    )
+
+
+def occupied_positions(transport):
+    return {
+        key: amounts for key, amounts in transport.query_gross_positions().items()
+        if any(amounts)
+    }
 
 
 class CtpLimitPlanner:
@@ -86,6 +108,7 @@ def build_runner(args):
             or multiplier <= 0 or tick_size <= 0 or args.limit_offset_ticks < 0):
         raise SystemExit('EMA周期、手数、合约乘数、价格步长或限价偏移无效')
     front = required('CTP_TD_ADDRESS')
+    md_front = required('CTP_MD_ADDRESS')
     transport = CtpTdApiTransport(
         client_id='ctp-simnow', account_id=investor,
         front=front, broker_id='9999', investor_id=investor,
@@ -99,6 +122,7 @@ def build_runner(args):
     holder = {}
     driver = CtpNativeTraderDriver(
         'ctp-simnow', investor, transport, enable_simnow_orders=True,
+        max_session_orders=args.max_session_orders if args.simnow_replay else None,
         disconnect_handler=lambda reason: holder['client'].mark_disconnected(reason),
     )
     backend = NautilusLiveExecutionBackend('ctp-simnow', driver)
@@ -117,20 +141,23 @@ def build_runner(args):
             contract_multiplier=multiplier,
         )},
     )
-    client = ControlledLiveExecutionClient(
-        'ctp-simnow', planner, backend, positions, risk, account_id=investor,
-        demo_environment_check=lambda: driver.is_simnow_session,
-        max_request_wall_age_ns=120 * 1_000_000_000,
-    )
-    holder['client'] = client
-    accounting = CtpExecutionAccounting(ledger, {instrument: multiplier})
-    backend.register_report_handler(accounting.on_report)
     upstream = CtpLiveDataFeed(CtpMdConfig(
-        front=required('CTP_MD_ADDRESS'), broker_id='9999', user_id=investor,
+        front=md_front, broker_id='9999', user_id=investor,
         password=required('CTP_PASSWORD'),
         flow_path=os.getenv('CTP_MD_FLOW_PATH', '/tmp/bomber-ctp-ema-md'),
         production_mode=os.getenv('CTP_PRODUCTION_MODE', 'true').lower()
         in {'1', 'true', 'yes', 'on'}))
+    client = ControlledLiveExecutionClient(
+        'ctp-simnow', planner, backend, positions, risk, account_id=investor,
+        demo_environment_check=(
+            (lambda: replay_session_ready(driver, upstream, args.expected_replay_trading_day))
+            if args.simnow_replay else (lambda: driver.is_simnow_session)
+        ),
+        max_request_wall_age_ns=(None if args.simnow_replay else 120 * 1_000_000_000),
+    )
+    holder['client'] = client
+    accounting = CtpExecutionAccounting(ledger, {instrument: multiplier})
+    backend.register_report_handler(accounting.on_report)
     feed = TradeTickBarFeed('CTP_EMA_1M', upstream)
     feed.register_instrument(InstrumentMeta(
         instrument_id=instrument, price_precision=args.price_precision,
@@ -150,7 +177,7 @@ def build_runner(args):
                                    DataType.BAR, '1-MINUTE'),),
         execution_routes=(ExecutionRoute('position', client.client_id, instrument),),
     )
-    return runner, strategy, client, driver, transport, ledger
+    return runner, strategy, client, driver, transport, ledger, upstream, instrument
 
 
 def main():
@@ -172,47 +199,103 @@ def main():
     parser.add_argument('--timeout', type=float, default=300)
     parser.add_argument('--enable-orders', action='store_true')
     parser.add_argument('--confirm-simnow', action='store_true')
+    parser.add_argument('--simnow-replay', action='store_true',
+                        help='显式启用第二套环境的历史回放EMA下单验收')
+    parser.add_argument('--expected-replay-trading-day',
+                        help='必须与第二套环境MD及TD报告的交易日一致，格式YYYYMMDD')
+    parser.add_argument('--allow-other-positions', action='store_true',
+                        help='只在回放验收时允许非测试合约旧仓，且运行期间须保持不变')
+    parser.add_argument('--max-session-orders', type=int, default=4,
+                        help='回放验收期间最多向CTP发送的订单数，1至4')
     args = parser.parse_args()
     if args.timeout <= 0 or args.query_timeout <= 0:
         parser.error('超时必须大于零')
-    runner, strategy, client, driver, transport, ledger = build_runner(args)
+    if args.allow_other_positions and not args.simnow_replay:
+        parser.error('--allow-other-positions 仅用于 --simnow-replay')
+    if args.simnow_replay:
+        day = args.expected_replay_trading_day or ''
+        if len(day) != 8 or not day.isdigit():
+            parser.error('--simnow-replay 必须提供 --expected-replay-trading-day YYYYMMDD')
+        if args.timeout > 600 or not 1 <= args.max_session_orders <= 4:
+            parser.error('回放验收最多运行600秒，每次会话最多报4笔')
+    elif args.expected_replay_trading_day:
+        parser.error('--expected-replay-trading-day 仅用于 --simnow-replay')
+    runner, strategy, client, driver, transport, ledger, upstream, instrument = build_runner(args)
     client.start()
     try:
         orders = driver.reconcile_active_orders()
         if orders.orders:
             raise RuntimeError('SimNow账户已有活动订单，拒绝自动接管')
-        gross = transport.query_gross_positions()
-        if any(long_qty or short_qty for long_qty, short_qty in gross.values()):
-            raise RuntimeError('SimNow账户已有多仓或空仓，缺成本账本，拒绝自动接管')
-        client.arm_demo(client.DEMO_CONFIRMATION)
+        occupied = occupied_positions(transport)
+        if str(instrument) in occupied:
+            raise RuntimeError(f'SimNow测试合约{instrument}已有仓位，拒绝自动接管')
+        other_positions = {key: value for key, value in occupied.items() if key != str(instrument)}
+        if other_positions and not args.allow_other_positions:
+            raise RuntimeError(f'SimNow账户已有其他合约仓位，拒绝自动接管: {other_positions}')
+        if args.simnow_replay and driver.trading_day != args.expected_replay_trading_day:
+            raise RuntimeError(
+                f'CTP交易前置交易日{driver.trading_day}与期望回放日'
+                f'{args.expected_replay_trading_day}不一致'
+            )
+        if not args.simnow_replay:
+            client.arm_demo(client.DEMO_CONFIRMATION)
     except BaseException:
         client.stop()
         raise
-    print('SimNow EMA已完成空仓、资金与活动订单权威查询；开始受控模拟报单')
+    print(
+        f'SimNow EMA已完成测试合约空仓、资金与活动订单权威查询；'
+        f'其他合约基线={other_positions} 回放模式={args.simnow_replay}'
+    )
     seen = 0
     next_account_check = time.monotonic() + 10
     next_position_check = time.monotonic() + 10
     try:
         runner.start()
+        if args.simnow_replay:
+            ready_deadline = time.monotonic() + min(30, args.query_timeout)
+            while not replay_session_ready(driver, upstream, args.expected_replay_trading_day):
+                if time.monotonic() >= ready_deadline:
+                    raise RuntimeError(
+                        f'第二套环境MD未在等待期内报告交易日'
+                        f'{args.expected_replay_trading_day}的持续行情；拒绝开启回放下单'
+                    )
+                time.sleep(0.2)
+            client.arm_demo(client.DEMO_CONFIRMATION)
+            print(
+                f'回放下单闸门已开启: MD/TD交易日={args.expected_replay_trading_day} '
+                f'最多报单={args.max_session_orders}'
+            )
         deadline = time.monotonic() + args.timeout
         while time.monotonic() < deadline:
+            if client.report_errors:
+                raise RuntimeError(f'CTP标准执行事件冲突，已闭闸: {client.report_errors}')
             if not driver.is_simnow_session:
                 client.mark_disconnected('ctp_session_lost')
                 raise RuntimeError('SimNow交易会话已断开')
+            if args.simnow_replay and driver.submitted_orders >= args.max_session_orders:
+                client.set_risk_mode('HALTED', cancel_active_orders=True)
+                print(f'回放报单达到{args.max_session_orders}笔上限，已闭闸并停止')
+                break
+            if args.simnow_replay and not replay_session_ready(
+                driver, upstream, args.expected_replay_trading_day,
+            ):
+                client.mark_disconnected('simnow_replay_md_stale_or_day_mismatch')
+                raise RuntimeError('SimNow回放MD已停滞或与TD交易日不一致')
             if time.monotonic() >= next_account_check:
                 client.refresh_account_state()
                 next_account_check = time.monotonic() + 10
             if time.monotonic() >= next_position_check:
-                gross = transport.query_gross_positions()
-                ledger_positions = ledger.state().positions
-                for key in set(gross) | {str(item) for item in ledger_positions}:
-                    snapshot = next((value for instrument, value in ledger_positions.items()
-                                     if str(instrument) == key), None)
-                    expected = (Decimal(0), Decimal(0)) if snapshot is None else (
-                        snapshot.long_total, snapshot.short_total)
-                    if gross.get(key, (Decimal(0), Decimal(0))) != expected:
-                        client.mark_disconnected('position_ledger_mismatch')
-                        raise RuntimeError(f'SimNow柜台与本地今昨仓账本不一致: {key}')
+                gross = occupied_positions(transport)
+                actual_other = {key: value for key, value in gross.items() if key != str(instrument)}
+                snapshot = ledger.snapshot(instrument)
+                expected = (snapshot.long_total, snapshot.short_total)
+                actual = gross.get(str(instrument), (Decimal(0), Decimal(0)))
+                if actual_other != other_positions or actual != expected:
+                    client.mark_disconnected('position_ledger_mismatch')
+                    raise RuntimeError(
+                        f'SimNow柜台与本地账本不一致: 测试合约柜台={actual} '
+                        f'本地={expected} 其他合约柜台={actual_other} 基线={other_positions}'
+                    )
                 next_position_check = time.monotonic() + 10
             backend_reports = client.backend.reports[seen:]
             for report in backend_reports:
@@ -234,6 +317,18 @@ def main():
         except Exception as error:
             client.disarm('shutdown_query_failed')
             print(f'停机撤单或查询未完成，必须人工核对: {error}')
+        try:
+            final_gross = occupied_positions(transport)
+            final_other = {key: value for key, value in final_gross.items() if key != str(instrument)}
+            print(f'停机柜台总仓: {final_gross} 其他合约仓位未变={final_other == other_positions}')
+        except Exception as error:
+            print(f'停机仓位查询失败，必须人工核对: {error}')
+        backend_reports = client.backend.reports[seen:]
+        for report in backend_reports:
+            print(f'CTP执行回报: {report}')
+        seen += len(backend_reports)
+        if client.report_errors:
+            print(f'执行回报状态冲突，必须人工对账: {client.report_errors}')
         runner.stop()
     print(f'已停止: bars_seen={strategy.bars_seen}, reports={seen}')
 

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 from market.basic.base import InstrumentId
 from trader.execution.contracts import ExecutionReportType, OrderIntent
 from trader.execution.ctp.native_driver import CtpNativeTraderDriver, CtpTraderSession
-from trader.execution.events import AccountStateEvent, ActiveOrderSnapshot, CurrencyBalance
+from trader.execution.events import AccountStateEvent, ActiveOrderSnapshot, CurrencyBalance, map_applied_report
+from trader.execution.order_state import OrderReportStateMachine
 
 
 class FakeTraderTransport:
@@ -75,6 +77,25 @@ def _raw(ref, **fields):
 
 
 def main() -> None:
+    cap_transport = FakeTraderTransport()
+    capped = CtpNativeTraderDriver(
+        "ctp-demo", "demo-account", cap_transport,
+        enable_test_orders=True, max_session_orders=1,
+        disconnect_handler=lambda reason: None,
+    )
+    capped.start(lambda report: None)
+    assert capped.trading_day == "20260922"
+    capped.submit_order(_intent())
+    try:
+        capped.submit_order(_intent())
+    except RuntimeError as error:
+        assert "报单上限" in str(error)
+    else:
+        raise AssertionError("CTP会话报单上限未生效")
+    assert len(cap_transport.sent) == 1
+    assert capped.submitted_orders == 1
+    capped.stop()
+
     transport = FakeTraderTransport()
     reports = []
     disconnected = []
@@ -108,7 +129,7 @@ def main() -> None:
     assert transport.sent[0]["OrderRef"] == "8"
     assert transport.sent[0]["CombOffsetFlag"] == "3"
     transport.on_order(_raw("8", OrderStatus="3"))
-    transport.on_trade(_raw("8", TradeID="trade-1", Volume=1, Price=3125))
+    transport.on_trade(_raw("8", TradeID="trade-1", Volume=1, Price=3125, OrderSysID=""))
     transport.on_trade(_raw("8", TradeID="trade-1", Volume=1, Price=3125))
     transport.on_trade(_raw("8", TradeID="trade-2", Volume=1, Price=3126))
     transport.on_order(_raw("8", OrderStatus="0"))
@@ -119,6 +140,18 @@ def main() -> None:
     ]
     assert len({report.client_order_id for report in reports}) == 1
     assert reports[1].metadata["trade_id"] == "SHFE:trade-1"
+    assert reports[1].metadata["venue_order_id"] == "123"
+    state_machine = OrderReportStateMachine("ctp-demo")
+    state_machine.apply(reports[0])
+    blank_venue_report = replace(
+        reports[1], metadata={**reports[1].metadata, "venue_order_id": ""},
+    )
+    order_update, fill_event = map_applied_report(
+        blank_venue_report, state_machine.apply(blank_venue_report),
+        account_id="demo-account",
+    )
+    assert order_update.identity.venue_order_id is None
+    assert fill_event is not None and fill_event.identity.venue_order_id is None
     assert not disconnected
     print("P4-CTP2b通过：OrderRef归属、部分/全部成交及重复回报去重正常")
 
