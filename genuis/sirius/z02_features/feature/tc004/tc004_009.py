@@ -4,7 +4,7 @@
 因子定义: 高低价振幅与成交额弹性：成交额相对价格振幅的边际弹性系数
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_009"
 

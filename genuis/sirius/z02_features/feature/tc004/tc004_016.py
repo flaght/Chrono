@@ -4,7 +4,7 @@
 因子定义: 典型价格均线偏离：典型价格 (H+L+C)/3 相对其均线的偏离度
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_016"
 

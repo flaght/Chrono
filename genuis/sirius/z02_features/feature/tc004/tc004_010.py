@@ -4,7 +4,7 @@
 因子定义: 成交额加权下影线强度：以成交额为权重的下影线支撑力度
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_010"
 

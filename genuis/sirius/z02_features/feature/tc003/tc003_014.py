@@ -4,7 +4,7 @@
 因子定义: 日内多空力量失衡比：(close - low - (high - close)) / (high - low)
 """
 import polars as pl
-from feature.utils.common import rolling_rank, safe_div, validate_period
+from lib.process.common import rolling_rank, safe_div, validate_period
 DEFAULT_PERIOD=15
 NAME="tc003_014"
 

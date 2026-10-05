@@ -38,7 +38,7 @@ description: 为 Orion 创建、迁移、修改或检查接收外部 LazyFrame �
    因子逻辑必须直接使用 `pl.col`、`pl.when`、`with_columns` 等原生 Polars API，保持所有基础特征结构一致。`feature/utils/formula.py` 是供因子挖掘与表达式搜索使用的原生 `pl.Expr` 原子算子库，不是标准因子模块的依赖；正式因子仍须展开为清晰的原生 Polars 链式阶段。
    目标环境不支持已经移除的 `Expr.clip_min()` 和 `Expr.clip_max()`；分别使用 `.clip(lower_bound=...)`、`.clip(upper_bound=...)` 或显式 `pl.when`。
    链式 LazyFrame 是标准实现形式：先用一个 `.with_columns(...)` 生成当前层临时列，再用后续 `.with_columns(...)` 消费这些临时列。任何 `shift`、`diff`、`pct_change`、`rolling_*`、`ewm_*` 或累计结果，只要还要进入另一个窗口、聚合或累计运算，就必须先单独落列；禁止把时序表达式直接嵌套在另一个时序表达式的参数中。
-   跨因子包复用的 `safe_div`、`log_return`、参数校验和批量计算必须从 `feature.utils.common` 引用；不得在分类目录中另建 `_common.py` 复制公共逻辑。
+   跨因子包复用的 `safe_div`、`log_return`、参数校验和批量计算必须从 `lib.process.common` 引用；不得在分类目录中另建 `_common.py` 复制公共逻辑。
    输入频率未明确时，模块元数据、函数文档和代码注释一律使用“周期”描述窗口和滞后，不得默认写成“日”“分钟”“日频”或“分钟频”。资产类别未明确时，统一使用“标的”或“品种”，不得默认写成“股票”“个股”“证券”“期货”或“现货”。只有用户或数据契约明确限定频率或资产类别时，才使用具体表述。
 7. 运行 `python3 skills/factor-development/scripts/validate_factor.py path/to/factor.py`。
 8. 运行 `python3 -m py_compile path/to/factor.py`。使用内存构造的最小 `pl.LazyFrame` 测试 `compute`，由测试代码执行 `.collect()`，并检查字段结构、唯一性和数值合理性。批量包还必须核对实际因子文件、分类目录 `__init__.py` 显式导出、`FactorSpec` 和顶层 `feature/__init__.py` 注册索引一致且无重复。明确报告未能执行的检查。
@@ -90,7 +90,7 @@ python3 scripts/finalize_validation.py \
 - `code` 默认解释为标的或品种标识，`.over('code')` 注释写作“按品种分组”。只有基差等已明确依赖 `future_*`、`spot_*` 字段的场景，才说明期货或现货。
 - 中间表达式和最终表达式都使用明确别名，并在最终 `.select(...)` 中移除中间列。
 - 不要添加命令行入口、类、框架包装、数据加载、日期过滤、收集、持久化、绘图或策略逻辑。
-- 公共辅助函数统一维护在 `feature/utils/common.py`。因子包使用绝对导入 `from feature.utils.common import ...`，避免相对导入到包内重复工具模块。
+- 公共辅助函数统一维护在 `feature/utils/common.py`。因子包使用绝对导入 `from lib.process.common import ...`，避免相对导入到包内重复工具模块。
 - 每个批次目录的 `__init__.py` 只使用 `from .mom import compute as mom_compute` 这类语句显式导出，不得建立局部注册表或批量入口。
 - `FactorSpec` 和全部注册索引只能定义在最外层 `feature/__init__.py`。同时维护 `BATCH_FACTORS`、`FACTOR_BATCHES` 以及家族、市场范围和数据粒度索引；同一实现可以进入多个索引，但不得复制实现。未指定 `names` 时，顶层批量入口默认只计算 `COMMON_FACTORS`。
 

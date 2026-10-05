@@ -4,7 +4,7 @@
 因子定义: 价格区间二阶矩波动比：高开低收二阶矩综合波动率相对均值的偏离
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_004"
 

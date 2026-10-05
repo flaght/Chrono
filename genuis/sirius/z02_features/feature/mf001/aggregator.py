@@ -8,7 +8,7 @@ mf001 期货持仓与博弈形态类特征下采样聚合引擎 (Downsampling Ag
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 from .mf001_001 import EXPR as mf001_001_expr
 from .mf001_002 import EXPR as mf001_002_expr

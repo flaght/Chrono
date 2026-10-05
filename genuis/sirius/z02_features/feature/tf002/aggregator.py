@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 import polars as pl
 
-from feature.utils.common import KEY_COLUMNS, FactorCompute, compute_factor_batch
+from lib.process.common import KEY_COLUMNS, FactorCompute, compute_factor_batch
 
 from .tf002_001 import compute as tf002_001_compute
 from .tf002_002 import compute as tf002_002_compute

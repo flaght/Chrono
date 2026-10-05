@@ -5,7 +5,7 @@
 """
 import polars as pl
 
-from feature.utils.common import validate_period
+from lib.process.common import validate_period
 
 DEFAULT_PERIOD = 15
 NAME = "tf001_006"

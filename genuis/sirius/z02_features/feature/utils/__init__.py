@@ -1,6 +1,6 @@
 """Shared utilities for feature implementations."""
 
-from .common import (
+from lib.process.common import (
     FactorCompute,
     FactorSpec,
     KEY_COLUMNS,

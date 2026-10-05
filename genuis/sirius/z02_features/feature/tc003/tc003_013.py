@@ -4,7 +4,7 @@
 因子定义: 极值价量共振强度：价格极值与成交量极值同时出现的频率与冲击
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD=15
 NAME="tc003_013"
 

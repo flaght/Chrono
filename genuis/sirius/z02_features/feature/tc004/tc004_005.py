@@ -4,7 +4,7 @@
 因子定义: 成交额加权收益偏度：以成交额为权重的收益率分布偏斜度
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_005"
 

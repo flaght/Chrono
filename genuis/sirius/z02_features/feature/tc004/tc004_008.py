@@ -4,7 +4,7 @@
 因子定义: 成交额标准化价格动量：价格动量经成交额波动率调整后的标准化得分
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_008"
 

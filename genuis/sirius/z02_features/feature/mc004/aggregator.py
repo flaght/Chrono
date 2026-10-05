@@ -8,7 +8,7 @@ mc004 微观交互与协方差类特征下采样聚合引擎 (Downsampling Aggre
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 from .mc004_001 import EXPR as mc004_001_expr
 from .mc004_002 import EXPR as mc004_002_expr

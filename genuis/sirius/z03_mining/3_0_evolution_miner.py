@@ -4,7 +4,7 @@ from datetime import datetime
 import polars as pl
 
 
-from lib.data.loader.data1 import load_basis_lazy, load_returns
+from lib.data.loader.data0 import load_basis_lazy, load_returns
 from z03_mining.miner.evolution import EvolutionConfig, Launcher
 from z03_mining.miner.evaluate import TimeSeriesEvaluationConfig
 
@@ -26,7 +26,7 @@ if __name__ == "__main__":
         spot_dir=spot_dir,
         symbol=symbol,
     )
-    pdb.set_trace()
+    
     returns_lazy = load_returns(returns_file)
 
 

@@ -4,7 +4,7 @@
 因子定义: 四价均值波动比与收益波动率协方差：高开低收四价波动特征与收益率的滚动协方差
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_003"
 

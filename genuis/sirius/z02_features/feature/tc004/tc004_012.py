@@ -4,7 +4,7 @@
 因子定义: 多空成交额相对失衡：基于收盘位置切分的多空成交额差值比率
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_012"
 

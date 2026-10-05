@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 _dist_up = (pl.col("UpperLimitPrice").last() - pl.col("LastPrice").last()) / (pl.col("LastPrice").last() + 1e-7)
 _dist_down = (pl.col("LastPrice").last() - pl.col("LowerLimitPrice").last()) / (pl.col("LastPrice").last() + 1e-7)

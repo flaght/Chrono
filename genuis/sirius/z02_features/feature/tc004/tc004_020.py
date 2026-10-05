@@ -4,7 +4,7 @@
 因子定义: 成交量加权日内收益率：以成交量为权重的 (close - open) 滚动加权和
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_020"
 

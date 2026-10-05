@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 from .mc001_001 import compute as mc001_001_compute
 from .mc001_002 import compute as mc001_002_compute

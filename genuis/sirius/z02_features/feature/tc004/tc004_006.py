@@ -4,7 +4,7 @@
 因子定义: 成交额与价格极差相关系数：成交额与日内 (high - low) 的滚动相关性
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_006"
 

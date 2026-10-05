@@ -4,7 +4,7 @@
 因子定义: 量价方向一致性比率：价格上涨且成交量放大周期数在窗口内的占比
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_017"
 

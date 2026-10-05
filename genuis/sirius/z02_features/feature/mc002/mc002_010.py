@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 # 因子核心计算表达式
 EXPR = pl.max_horizontal(pl.lit(0.0), (pl.col("mc002_008").pow(2) - pl.col("mc002_009")) / (pl.col("mc002_008").pow(2) + 1e-7)).clip(0.0, 1.0).alias("mc002_010")
