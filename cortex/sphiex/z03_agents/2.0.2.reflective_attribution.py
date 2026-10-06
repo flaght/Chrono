@@ -2,6 +2,8 @@ import pdb, itertools, os, toml, asyncio, math, json
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+# 修改：文本状态，缺失文本文件不阻止数值流程。
+from lib.text001 import read_optional_text_data, validate_text_reflection, UNAVAILABLE
 import numpy as np
 from dotenv import load_dotenv
 
@@ -45,7 +47,7 @@ def load_data(method, period):
         os.path.join("records", "normal", str(method), "train_predict_data.feather"))
     regime_data = pd.read_feather(
         os.path.join("records", "normal", str(method), "train_regime_data.feather"))
-    textuals_data = pd.read_feather(
+    textuals_data = read_optional_text_data(
         os.path.join("records", "normal", str(method),
                      "textuals_data.feather"))
     returns_data = pd.read_feather(
@@ -162,6 +164,9 @@ async def generate_with_semaphore(agent_instance,
                 params=params_dict,
                 response_schema=schema_cls)
             output = result.model_dump()
+            # 修改：文本状态，反思输出在保存前校验。
+            if "文本通道状态：UNAVAILABLE" in params_dict.get("pre_t_textual_events_data", ""):
+                validate_text_reflection(output, UNAVAILABLE)
             output['name'] = agent_instance.name
             output['trade_time'] = trade_time
             return {"output": output, "status": 0, "input": params_dict}
@@ -171,7 +176,7 @@ async def generate_with_semaphore(agent_instance,
 
 
 async def create_train_agent():
-    llm_name = 'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+    llm_name = 'glm_4001'#'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
     #llm_name = 'ollama_1001'
     vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
     persona_name = 'quant_fusion_trader_10001'
@@ -207,10 +212,9 @@ async def train(method, period, lookback=3, is_refresh=False):
         load_data, method=method, period=period)
     train_agent, train_thoughts, train_thoughts_name = await create_train_agent(
     )
-    pdb.set_trace()
     ## 日期交集
     dates = set(predict_data['trade_date']).intersection(
-        regime_data['trade_date'], textuals_data['trade_date'])
+        regime_data['trade_date'])  # 修改：运行日期不依赖文本覆盖。
     dates = [d.strftime('%Y-%m-%d') for d in dates]
     dates.sort()
     #dates = dates[0:lookback + 5]
@@ -227,6 +231,11 @@ async def train(method, period, lookback=3, is_refresh=False):
     for index, date in enumerate(dates):
         if index < lookback:
             continue
+        # pdb.set_trace()
+        # date = '2025-01-23'
+        # index = dates.index(date)
+        
+        
         end_date = date
         start_date = dates[index - lookback]
 
@@ -296,5 +305,5 @@ async def train(method, period, lookback=3, is_refresh=False):
 
 
 if __name__ == '__main__':
-    method = 'train0'
+    method = 'train1'
     asyncio.run(train(method=method, period=3, lookback=3))

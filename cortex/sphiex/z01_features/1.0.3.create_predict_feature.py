@@ -38,7 +38,6 @@ def create_trend_momentum(begin_date, end_date, code):
 
 
 def create_data(method, code='000852'):
-    pdb.set_trace()
     begin_date, end_date = get_dates(method=method)
     begin_date1 = advanceDateByCalendar('china.sse', begin_date,
                                         '-30b').strftime('%Y-%m-%d')
@@ -64,13 +63,14 @@ def create_data(method, code='000852'):
             trend_momentum_data.reset_index(), on=['trade_date'])
     # total_data = total_data[(total_data['trade_date'] >= begin_date)
     #                         & (total_data['trade_date'] <= end_date)]
-    pdb.set_trace()
     base_dir = os.path.join("records", "basic", method)
     os.makedirs(base_dir, exist_ok=True)
-    total_data.reset_index(drop=True).to_feather(
-        os.path.join(base_dir, "predict_data.feather"))
+    output_file = os.path.join(base_dir, "predict_data.feather")
+    print(output_file)
+    pdb.set_trace()
+    total_data.reset_index(drop=True).to_feather(output_file)
 
 
 if __name__ == '__main__':
-    method = 'test0'
+    method = 'test1'
     create_data(method=method)

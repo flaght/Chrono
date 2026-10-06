@@ -71,6 +71,7 @@ class OverviewFeature(object):
 
         # 计算 252 日滚动分位数
         # 为了避免前期数据不足，min_periods 设置为 60
+        pdb.set_trace()
         turnover_pct_252 = total_turnover['value'].rolling(
             window=252, min_periods=60).apply(
                 lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False)

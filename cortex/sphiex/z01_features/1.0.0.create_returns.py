@@ -96,10 +96,12 @@ def create_returns(method):
                               & (return_data['trade_date'] <= end_date)]
     base_dir = os.path.join("records", "basic", method)
     os.makedirs(base_dir, exist_ok=True)
-    return_data.reset_index(drop=True).to_feather(
-        os.path.join(base_dir, "return_data.feather"))
+    output_file = os.path.join(base_dir, "return_data.feather")
+    print(output_file)
+    pdb.set_trace()
+    return_data.reset_index(drop=True).to_feather(output_file)
 
 
 if __name__ == '__main__':
-    method = 'test0'
+    method = 'test1'
     create_returns(method=method)

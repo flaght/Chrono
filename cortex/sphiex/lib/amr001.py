@@ -3,6 +3,9 @@ from typing import Optional
 import numpy as np
 from typing import Set
 from lib.bra001 import create_brain, load_brain
+# 修改：文本状态，兼容原有字符串事件输入。
+from lib.text001 import (UNAVAILABLE, NO_EVENTS, resolve_text_status,
+                              text_instruction, has_text_dependency, validate_text_reflection)
 
 MY_NAMESPACE = uuid.UUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8')
 
@@ -22,7 +25,10 @@ class MemoryProjector:
     @staticmethod
     def project_and_render_markdown(
             memory_dict: dict,
-            active_predictive_whitelist: Set[str]) -> Optional[str]:
+            active_predictive_whitelist: Set[str], text_status=None) -> Optional[str]:
+        # 修改：文本状态，整条过滤，避免删除证据后仍沿用旧结论。
+        if text_status == UNAVAILABLE and has_text_dependency(memory_dict):
+            return None
         ev_list = memory_dict["evidence_units"]
         dec_rule = memory_dict["decision_rule"]
 
@@ -131,7 +137,8 @@ class SQLiteMemoryStorage:
             "loss_count": "INTEGER DEFAULT 0",
             "win_rate": "REAL DEFAULT 0.0",
             "cumulative_score": "REAL DEFAULT 0.0",
-            "mean_score": "REAL DEFAULT 0.0"
+            "mean_score": "REAL DEFAULT 0.0",
+            "textual_status": "TEXT NOT NULL DEFAULT 'UNKNOWN'"  # 修改：保留旧记录未知状态。
         }
         for col_name, col_type in needed_columns.items():
             if col_name not in existing_cols:
@@ -206,7 +213,11 @@ class SQLiteMemoryStorage:
                            predict_uuid: str, regime_uuid: str,
                            textual_uuid: str, regime_matrix_str: str,
                            predict_matrix_str: str, textual_events: list,
-                           review_dict: dict):
+                           review_dict: dict, text_status=None):
+        text_status = resolve_text_status(textual_events, text_status)
+        validate_text_reflection(review_dict, text_status)
+        if text_status == UNAVAILABLE:
+            textual_uuid = None
         cursor = self.conn.cursor()
         exp = review_dict["experience_summary"]
         dec_rule = exp["decision_rule"]
@@ -219,8 +230,8 @@ class SQLiteMemoryStorage:
             predict_uuid, regime_uuid, textual_uuid,
             implied_direction, decision_rule, invalidation_rules,
             regime_matrix_str, predictive_matrix_str, textual_events_str,
-            validation_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            validation_status, textual_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 case_id,
@@ -238,7 +249,7 @@ class SQLiteMemoryStorage:
                 #json.dumps(regime_matrix),
                 # json.dumps(predict_matrix),
                 json.dumps(textual_events, ensure_ascii=False),
-                exp.get("validation_status", "UNVALIDATED_SINGLE_CASE")))
+                exp.get("validation_status", "UNVALIDATED_SINGLE_CASE"), text_status))
 
         cursor.execute("DELETE FROM evidence_units WHERE case_id = ?",
                        (case_id, ))
@@ -278,7 +289,7 @@ class SQLiteMemoryStorage:
         SELECT case_id, trade_time, symbol, predict_uuid, regime_uuid, textual_uuid,
                implied_direction, decision_rule, invalidation_rules, validation_status,
                COALESCE(retrieved_count, 0), COALESCE(accepted_count, 0), COALESCE(win_count, 0),
-               COALESCE(loss_count, 0), COALESCE(win_rate, 0.0), COALESCE(cumulative_score, 0.0), COALESCE(mean_score, 0.0)
+               COALESCE(loss_count, 0), COALESCE(win_rate, 0.0), COALESCE(cumulative_score, 0.0), COALESCE(mean_score, 0.0), textual_status
         FROM case_memories WHERE case_id = ?
         """, (case_id,))
         row = cursor.fetchone()
@@ -286,7 +297,7 @@ class SQLiteMemoryStorage:
             return None
 
         (cid, trade_time, symbol, p_uid, r_uid, t_uid, imp_dir, dec_rule_json,
-         inv_rules_json, val_status, ret_cnt, acc_cnt, win_cnt, loss_cnt, win_rate, cum_score, mean_score) = row
+         inv_rules_json, val_status, ret_cnt, acc_cnt, win_cnt, loss_cnt, win_rate, cum_score, mean_score, text_status) = row
 
         cursor.execute("SELECT evidence_id, feature_layer, feature_refs, interpretation, evidence_role FROM evidence_units WHERE case_id = ?", (cid,))
         ev_rows = cursor.fetchall()
@@ -308,6 +319,7 @@ class SQLiteMemoryStorage:
             "predict_uuid": p_uid,
             "regime_uuid": r_uid,
             "textual_uuid": t_uid,
+            "textual_status": text_status,
             "implied_direction": imp_dir,
             "decision_rule": json.loads(dec_rule_json),
             "invalidation_rules": json.loads(inv_rules_json),
@@ -474,7 +486,8 @@ class MultimodalBrain:
         return brain
 
     def add_memory(self, code, date, predict_matrix, regime_matrix,
-                   textual_list):
+                   textual_list, text_status=None):
+        text_status = resolve_text_status(textual_list, text_status)
         predict_ids, predict_str = create_matrix_uuid(
             trade_time=date, code=code, feature_matrix=predict_matrix)
 
@@ -493,21 +506,30 @@ class MultimodalBrain:
             content=regime_matrix,
             unique_ids=regime_ids)
 
-        textual_uuids = self.textual_barain.add_memory_short_term(
-            symbol=code, date=date, content=textual_list)
+        # 修改：文本状态，无数据不写文本向量；确认无事件使用明确观测文本。
+        textual_uuids = []
+        if text_status != UNAVAILABLE:
+            content = text_instruction(NO_EVENTS) if text_status == NO_EVENTS else textual_list
+            textual_uuids = self.textual_barain.add_memory_short_term(
+                symbol=code, date=date, content=content)
 
         return predict_uuids, regime_uuids, textual_uuids, predict_str, regime_str
 
     def query_memory(self, code, predict_matrix, regime_matrix, textual_list,
-                     top_k):
+                     top_k, text_status=None):
+        text_status = resolve_text_status(textual_list, text_status)
         predict_matrix1, _, predict_scores, predict_uuids = self.predict_brain.query_memory_short_term(
             query_content=predict_matrix, top_k=top_k, symbol=code)
 
         regime_matrix1, _, regime_scores, regime_uuids = self.regime_brain.query_memory_short_term(
             query_content=regime_matrix, top_k=top_k, symbol=code)
 
-        textual_list1, _, textual_scores, textual_uuids = self.textual_barain.query_memory_short_term(
-            query_content=textual_list, top_k=top_k, symbol=code)
+        # 修改：文本状态，缺失时实际跳过文本检索。
+        textual_scores, textual_uuids = [], []
+        if text_status != UNAVAILABLE:
+            content = text_instruction(NO_EVENTS) if text_status == NO_EVENTS else textual_list
+            _, _, textual_scores, textual_uuids = self.textual_barain.query_memory_short_term(
+                query_content=content, top_k=top_k, symbol=code)
 
         predict_retrieve = dict(zip(predict_uuids, predict_scores))
         regime_retrieve = dict(zip(regime_uuids, regime_scores))
@@ -602,24 +624,27 @@ class MARLMemoryCoordinator:
 
     def store_experience(self, code: str, trade_time: str, regime_matrix: list,
                          predict_matrix: list, textual_events: list,
-                         review_dict: dict) -> str:
+                         review_dict: dict, text_status=None) -> str:
+        # 修改：先校验后写向量，避免无效反思污染索引。
+        text_status = resolve_text_status(textual_events, text_status)
+        validate_text_reflection(review_dict, text_status)
         predict_uuids, regime_uuids, textual_uuids, predict_str, regime_str = self.multimodal_brain.add_memory(
             code=code,
             date=trade_time,
             predict_matrix=predict_matrix,
             regime_matrix=regime_matrix,
-            textual_list=textual_events)
+            textual_list=textual_events, text_status=text_status)
         self.multimodal_brain.save()
         self.sqlite_store.save_review_result(case_id=review_dict["case_id"],
                                              symbol=code,
                                              trade_time=trade_time,
                                              predict_uuid=predict_uuids[0],
                                              regime_uuid=regime_uuids[0],
-                                             textual_uuid=textual_uuids[0],
+                                             textual_uuid=textual_uuids[0] if textual_uuids else None,
                                              regime_matrix_str=regime_str,
                                              predict_matrix_str=predict_str,
                                              textual_events=textual_events,
-                                             review_dict=review_dict)
+                                             review_dict=review_dict, text_status=text_status)
 
     def candidate_sort_key(self, candidate):
         """
@@ -736,15 +761,16 @@ class MARLMemoryCoordinator:
             active_predictive_whitelist: Set[str],
             channel_top_k: int = 10,  #底层向量库宽召回（每通道 10 条）
             quota_per_modality: int = 5,  # 投影候选池缓冲（单通道最多保留 5 条备胎）
-            final_top_k: int = 2):  # 最终交付给大模型的精准条数（3 条）
+            final_top_k: int = 2, text_status=None):  # 最终交付给大模型的精准条数（3 条）
 
+        text_status = resolve_text_status(textual_events, text_status)
         ## 三路独立召回
         predict_retrieve, regime_retrieve, textual_retrieve = self.multimodal_brain.query_memory(
             code=code,
             predict_matrix=predict_matrix,
             regime_matrix=regime_matrix,
             textual_list=textual_events,
-            top_k=channel_top_k)
+            top_k=channel_top_k, text_status=text_status)
 
         # 2. 合并为统一 case_map
         case_map = {}
@@ -756,6 +782,11 @@ class MARLMemoryCoordinator:
                                          case_map)
         if not case_map:
             return "【无匹配的历史案例记忆（零样本独立推演模式）】"
+
+        # 修改：在排序前过滤文本依赖经验，防止占用候选配额。
+        if text_status == UNAVAILABLE:
+            case_map = {key: value for key, value in case_map.items()
+                        if not has_text_dependency(value["entity"])}
 
         # 3. 计算方案 A 的排序指标
         self.finalize_candidate_metrics(case_map=case_map)
@@ -770,7 +801,7 @@ class MARLMemoryCoordinator:
             memory = candidate["entity"]
             rendered_markdown = MemoryProjector.project_and_render_markdown(
                 memory_dict=memory,
-                active_predictive_whitelist=active_predictive_whitelist)
+                active_predictive_whitelist=active_predictive_whitelist, text_status=text_status)
             if rendered_markdown is None:
                 print(
                     f"⚠️ [方案 A 熔断] 案例 {candidate['case_id']} 核心证据依赖缺失，已自动从候选池熔断！"
@@ -824,10 +855,9 @@ class MARLMemoryCoordinator:
             primary_count = sum(1 for m in used_memories
                                 if m.get("usage") == "primary")
             if primary_count != 1:
-                print(
+                raise ValueError(
                     f"used_memories 语义校验失败：多条经验时必须且只能指定 1 条 primary，当前包含 {primary_count} 条！"
                 )
-                return
 
         # 2. 计算守恒归一化权重
         raw_weights = []

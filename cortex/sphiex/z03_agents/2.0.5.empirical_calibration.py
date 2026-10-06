@@ -1,5 +1,7 @@
 import asyncio, os, pdb, json
 import pandas as pd
+# 修改：文本状态，缺失文本文件不阻止数值流程。
+from lib.text001 import read_optional_text_data, validate_text_reflection, UNAVAILABLE
 import numpy as np
 from pathlib import Path
 from datetime import datetime
@@ -99,7 +101,7 @@ def load_data(method, period):
         os.path.join("records", "normal", str(method), "val_predict_data.feather"))
     regime_data = pd.read_feather(
         os.path.join("records", "normal", str(method), "val_regime_data.feather"))
-    textuals_data = pd.read_feather(
+    textuals_data = read_optional_text_data(
         os.path.join("records", "normal", str(method),
                      "textuals_data.feather"))
     returns_data = pd.read_feather(
@@ -119,7 +121,7 @@ def format_textual_events_timeline(events_data,
     if events_data is None or (isinstance(
             events_data, pd.DataFrame) and events_data.empty) or (isinstance(
                 events_data, list) and len(events_data) == 0):
-        return "{0}\n".format(base_line)
+        return ""  # 修改：空窗口不生成可被误嵌入的标题。
     df = events_data.copy()
 
     df['trade_date'] = df['trade_date'].astype(str)
@@ -158,7 +160,7 @@ def format_textual_events_timeline(events_data,
 
 
 async def create_predict_agent():
-    llm_name = 'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+    llm_name = 'glm_4001'#'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
     vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
     persona_name = 'quant_fusion_trader_10001'
     thoughts_name = 'fusion_trader_user_100001'
@@ -221,10 +223,10 @@ async def run(method, period, lookback, is_refresh=False):
                                         r_dim=r_dim)
 
     dates = set(predict_data['trade_date']).intersection(
-        regime_data['trade_date'], textuals_data['trade_date'])
+        regime_data['trade_date'])  # 修改：运行日期不依赖文本覆盖。
     dates = [d.strftime('%Y-%m-%d') for d in dates]
     dates.sort()
-    dates = dates[0:lookback + 1]
+    dates = dates
     for index, date in enumerate(dates):
         if index < lookback:
             continue
@@ -303,6 +305,6 @@ async def run(method, period, lookback, is_refresh=False):
             
 
 if __name__ == '__main__':
-    method = 'train0'
+    method = 'train1'
     period = 3
     asyncio.run(run(method=method, period=3, lookback=3))
