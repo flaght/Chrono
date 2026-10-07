@@ -1,4 +1,4 @@
-"""Convert DolphinDB tick and minute-bar rows to standard market events."""
+"""将 DolphinDB 逐笔及分钟 Bar 数据行转换为标准行情事件。"""
 
 from __future__ import annotations
 
@@ -123,8 +123,8 @@ class DolphinDbMarketConverter:
         bar_spec: str,
     ) -> list[ConvertedEvent]:
         resolved_spec = bar_spec.upper()
-        # minTime is the bar key; updateTime is ingestion/update time, not the
-        # market bar timestamp.
+        # minTime 是 Bar 时间标识；updateTime 是入库或更新时间，
+        # 不是行情 Bar 的时间戳。
         ts_event = _combine_ns(row.get("date"), row.get("minTime"), 0, self.timezone)
         ts_init = _timestamp_ns(row.get("updateTime"), self.timezone) or time.time_ns()
         key = (instrument_id, resolved_spec, ts_event)

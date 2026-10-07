@@ -1,4 +1,4 @@
-"""CTP adapter implementing the same ``market.basic`` contract as Binance."""
+"""CTP 适配器，与 Binance 实现相同的 market.basic 契约。"""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class CtpMdConfig:
 
 
 class CtpLiveDataFeed(StreamDataFeed):
-    """Map CTP depth snapshots to standard QuoteTick/TradeTick events."""
+    """将 CTP 深度快照映射为标准 QuoteTick/TradeTick 事件。"""
 
     def __init__(
         self,
@@ -102,7 +102,7 @@ class CtpLiveDataFeed(StreamDataFeed):
         super().connect()
 
     def wait_until_ready(self, timeout: float | None = None) -> bool:
-        """Wait until login succeeds and all desired symbols are submitted."""
+        """等待登录成功且所有目标合约订阅均已提交。"""
         return self._ready.wait(timeout)
 
     def _start_network_client(self) -> None:
@@ -150,7 +150,7 @@ class CtpLiveDataFeed(StreamDataFeed):
         if self.get_instrument_meta(request.instrument_id) is None:
             raise ValueError(f"合约尚未注册: {request.instrument_id}")
 
-    # These callbacks execute on the native CTP callback worker.
+    # 这些回调在原生 CTP 回调工作线程上执行。
     def on_front_connected(self) -> None:
         logger.info("CTP 行情前置已连接，正在登录")
         self._require_driver().login(

@@ -1,4 +1,4 @@
-"""DolphinDB stream-table adapter using the common StreamDataFeed contract."""
+"""基于公共 StreamDataFeed 契约的 DolphinDB 流表适配器。"""
 
 from __future__ import annotations
 
@@ -126,8 +126,8 @@ class DolphinDbLiveDataFeed(StreamDataFeed):
         self._validate_request(request)
 
     def _on_subscription_removed(self, request: SubscriptionRequest) -> None:
-        # DolphinDB topics are table-level subscriptions. Instrument filtering is
-        # local, so changing one logical subscription does not cancel the topic.
+        # DolphinDB 主题按表订阅，合约筛选在本地完成，
+        # 因此修改单个逻辑订阅不会取消整个主题。
         return None
 
     def _validate_request(self, request: SubscriptionRequest) -> None:

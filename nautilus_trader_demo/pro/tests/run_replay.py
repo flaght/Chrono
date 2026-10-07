@@ -1,4 +1,4 @@
-"""Combined offline replay smoke test for CTP and Binance data."""
+"""CTP 与 Binance 数据的联合离线回放冒烟测试。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Storage-format reader contracts for offline market data."""
+"""离线行情的存储格式读取器契约。"""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from typing import Any, Iterable, Mapping, Protocol
 
 
 class ReaderError(ValueError):
-    """A file cannot be opened or decoded by a row reader."""
+    """逐行读取器无法打开或解码文件。"""
 
 
 class RowReader(Protocol):
-    """Read storage rows without interpreting market-data semantics."""
+    """读取存储行，不解释行情业务语义。"""
 
     suffixes: frozenset[str]
 

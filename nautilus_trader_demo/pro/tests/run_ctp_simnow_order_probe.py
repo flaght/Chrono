@@ -1,4 +1,4 @@
-"""Offline checks for the one-shot SimNow account guards."""
+"""单次 SimNow 报单账户保护条件的离线检查。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
-# Direct execution must import the probe from this checkout, not an installed
-# examples package in the active Python environment.
+# 直接执行时必须从当前源码目录导入探针，不能使用环境中已安装的
+# examples 包。
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from examples.single_ema.ctp_simnow_order_probe import (

@@ -26,10 +26,10 @@ cpdef TradeTick fast_make_trade_tick(
     uint64_t ts_init,
     uint8_t aggressor_side=0,
 ):
-    # Bomber raw values always use FIXED_SCALAR (10^16 in high-precision mode),
-    # independently of the display precision.  Let the native value objects do
-    # that conversion; multiplying by 10^price_prec/size_prec produces values
-    # close to zero when passed to ``from_raw_c``.
+    # Bomber 原始值统一使用 FIXED_SCALAR（高精度模式为 10^16），
+    # 与显示精度无关。应由原生数值对象完成转换，
+    # 不能按 10^price_prec/size_prec 缩放，否则传入
+    # from_raw_c 后数值会接近零。
     cdef Price price_value = Price(price, price_prec)
     cdef Quantity size_value = Quantity(size, size_prec)
     cdef TradeId tid = TradeId(trade_id)

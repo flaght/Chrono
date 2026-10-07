@@ -1,4 +1,4 @@
-"""Binance spot and futures kline CSV parser."""
+"""Binance 现货与期货 K 线 CSV 解析器。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from market.replay.parsers.base import (
 
 
 class BinanceMarketType(str, Enum):
-    """Supported Binance offline market families."""
+    """支持的 Binance 离线市场类型。"""
 
     SPOT = "spot"
     FUTURES = "futures"
@@ -45,7 +45,7 @@ def binance_instrument_id(
     symbol: str,
     market_type: BinanceMarketType | str,
 ) -> InstrumentId:
-    """Return a collision-free ID for Binance spot or USDT perpetual data."""
+    """为 Binance 现货或 USDT 永续数据返回无冲突标识。"""
 
     market = BinanceMarketType(market_type)
     normalized = symbol.strip().upper()
@@ -57,12 +57,12 @@ def binance_instrument_id(
 
 
 class BinanceKlineParser:
-    """Convert one Binance kline CSV source into standard and custom bars.
+    """将 Binance K 线 CSV 数据源转换为标准 Bar 与自定义 Bar。
 
-    Spot and futures files have the same columns. ``market_type`` and
-    ``interval`` are explicit source metadata and are never guessed from row
-    values. Standard Bars contain OHLCV; optional CustomBars contain the
-    Binance-specific volume and trade-count fields.
+    现货和期货文件使用相同列；market_type 与
+    interval 必须由数据源元信息明确提供，不能根据行内数据
+    猜测。标准 Bar 包含 OHLCV；可选的 CustomBar 包含
+    Binance 特有的成交量与成交笔数字段。
     """
 
     def __init__(
@@ -109,7 +109,7 @@ class BinanceKlineParser:
         if close_ns < open_ns:
             raise context.error("close_time is before open_time")
 
-        # Externally aggregated bars become visible when the interval closes.
+        # 外部聚合 Bar 在对应周期结束后才可见。
         bar = make_bar(
             instrument_id=self.instrument_id,
             open=open_price,
@@ -149,7 +149,7 @@ class BinanceKlineParser:
 
 
 def _unix_timestamp_to_ns(value: str, context: ParserContext) -> int:
-    """Normalize seconds, milliseconds, microseconds or nanoseconds to ns."""
+    """将秒、毫秒、微秒或纳秒时间统一转换为纳秒。"""
 
     try:
         timestamp = int(value)

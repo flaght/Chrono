@@ -1,1 +1,1 @@
-"""Project-owned native market-data bindings."""
+"""项目自有原生行情绑定。"""

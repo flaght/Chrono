@@ -1,4 +1,4 @@
-"""Native DolphinDB streaming transport built on the official Python SDK."""
+"""基于官方 Python SDK 的原生 DolphinDB 流传输。"""
 
 from market.native.dolphin.driver import (
     DolphinDbDriver,

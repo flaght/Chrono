@@ -1,7 +1,7 @@
-"""Real-time market-data feed packages.
+"""实时行情源包。
 
-Adapters are imported lazily so that an unavailable or incomplete provider does
-not prevent another provider package from being used.
+适配器采用延迟导入，避免某个供应商不可用或安装不完整时
+影响其他供应商模块的使用。
 """
 
 from __future__ import annotations

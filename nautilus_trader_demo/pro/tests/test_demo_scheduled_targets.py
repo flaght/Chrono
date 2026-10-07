@@ -1,8 +1,15 @@
 """外部完整目标计划的 CSV 读取、时区及整数手数校验。"""
 
 from io import StringIO
+from importlib import import_module
+from pathlib import Path
+import sys
 
-from demos.scheduled_targets.local_input import load_target_csv
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from dataprep.schedules import load_target_csv
+from datahub.target_schedule import TargetPlan, TargetScheduleStore
+
+ScheduledTargetSignal = import_module("demos.07_scheduled_targets.schedule_signal").ScheduledTargetSignal
 
 
 class MemoryCsv:
@@ -41,7 +48,43 @@ def test_reject_fractional_lots() -> None:
         raise AssertionError("非整数期货手数不应被接受")
 
 
+def test_exact_clock_and_duplicate_submission() -> None:
+    schedule = TargetScheduleStore((TargetPlan(100, 0, {"rb2610.SHFE": 1}),))
+    signal = ScheduledTargetSignal(schedule)
+    assert signal.update(99) == ()
+    assert signal.update(100) == schedule.plans
+    assert signal.audit == ()
+    signal.mark_submitted(100)
+    signal.mark_submitted(100)
+    assert signal.update(100) == ()
+    assert [item.status for item in signal.audit] == ["SUBMITTED"]
+    signal.finalize_audit()
+    assert len(signal.audit) == 1
+
+
+def test_missed_and_not_reached_slots() -> None:
+    schedule = TargetScheduleStore(tuple(TargetPlan(slot, 0, {"rb2610.SHFE": 1})
+                                         for slot in (100, 200, 300)))
+    signal = ScheduledTargetSignal(schedule)
+    assert signal.update(150) == ()
+    assert signal.update(200)[0].slot_ns == 200
+    signal.mark_submitted(200)
+    signal.finalize_audit()
+    signal.finalize_audit()
+    assert [(item.slot_ns, item.status) for item in signal.audit] == [
+        (100, "MISSED"), (200, "SUBMITTED"), (300, "NOT_REACHED"),
+    ]
+    try:
+        signal.update(199)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("倒退时钟必须拒绝")
+
+
 if __name__ == "__main__":
     test_complete_target_plan()
     test_reject_fractional_lots()
-    print("scheduled targets CSV: OK")
+    test_exact_clock_and_duplicate_submission()
+    test_missed_and_not_reached_slots()
+    print("scheduled targets CSV and clock signal: OK")

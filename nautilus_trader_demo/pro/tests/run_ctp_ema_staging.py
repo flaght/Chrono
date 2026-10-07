@@ -1,4 +1,4 @@
-"""Offline check that SimNow EMA reversals close before reopening."""
+"""离线检查 SimNow EMA 反向信号是否先平仓再开仓。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Configuration and exact schemas for DolphinDB market stream tables."""
+"""DolphinDB 行情流表的配置与精确字段结构。"""
 
 from __future__ import annotations
 

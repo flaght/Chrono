@@ -1,4 +1,4 @@
-"""Parser contracts, error context and common scalar conversions."""
+"""解析器契约、错误上下文与公共标量转换。"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ MarketEvent = TradeTick | QuoteTick | Bar | CustomBar
 
 
 class DataLoadError(ValueError):
-    """A file row cannot be converted into market data."""
+    """文件行无法转换为行情数据。"""
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ class ParserContext:
 
 
 class RowParser(Protocol):
-    """Convert source-specific rows into normalized market events."""
+    """将特定来源的数据行转换为标准行情事件。"""
 
     def reset(self) -> None: ...
 

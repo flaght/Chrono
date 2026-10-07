@@ -42,7 +42,7 @@ class ReplaySummary:
 
 
 class FileReplayFeed(MarketDataFeed):
-    """Read CSV/Feather sources, sort events and dispatch subscriptions."""
+    """读取 CSV/Feather 数据源，按时间排序事件并分发订阅。"""
 
     def __init__(self, source_id: str = "FILE_REPLAY_FEED") -> None:
         super().__init__(source_id=source_id)
@@ -65,7 +65,7 @@ class FileReplayFeed(MarketDataFeed):
         parser: RowParser,
         kind: Literal["tick", "bar"],
     ) -> None:
-        """Register an explicit reader/parser pair for an offline source."""
+        """为离线数据源显式注册读取器与解析器组合。"""
         self._add_source(path, reader, parser, kind)
 
     def _add_source(
@@ -134,7 +134,7 @@ class FileReplayFeed(MarketDataFeed):
             except Exception as exc:
                 raise ParserContext(path, position, self.get_instrument_meta).error(str(exc)) from exc
 
-        # Sort by historical clock while retaining file order for equal times.
+        # 按历史时间排序，相同时间保留原文件顺序。
         loaded.sort(key=lambda item: (item[1].payload.ts_init, item[0]))
         self._events = tuple(item[1].payload for item in loaded)
         return self._events
@@ -158,7 +158,7 @@ class FileReplayFeed(MarketDataFeed):
         return ReplaySummary(trade_count, quote_count, bar_count, custom_bar_count)
 
     def replay_step(self) -> Iterable[MarketEvent]:
-        """Dispatch and yield one event at a time."""
+        """逐个分发并返回事件。"""
         for event in self.load_events():
             if isinstance(event, TradeTick):
                 self._emit_trade_tick(event)

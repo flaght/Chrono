@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the project regression scripts that need no live market connection."""
+"""运行无需连接实时行情的项目回归脚本。"""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# Each script gets its own process because the trading engine has process-wide
-# state, including a logger which cannot always be initialized twice.
+# 每个脚本使用独立进程，因为交易引擎包含进程级状态，
+# 其中日志器不一定支持重复初始化。
 OFFLINE_CASES: tuple[tuple[str, ...], ...] = (
     ("tests/run_datahub.py",),
     ("tests/run_dynamic_routes.py",),
@@ -55,7 +55,7 @@ OFFLINE_CASES: tuple[tuple[str, ...], ...] = (
     ("tests/strategies/single_ema/run_test.py",),
 )
 
-# These require local historical files, but do not connect to an exchange.
+# 这些检查需要本地历史文件，但不连接交易所。
 DATA_CASES: tuple[tuple[str, ...], ...] = (
     ("tests/run_ctp_simulation.py", "--stage", "2"),
     ("tests/run_binance_simulation.py",),

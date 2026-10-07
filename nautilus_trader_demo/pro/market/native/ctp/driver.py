@@ -1,4 +1,4 @@
-"""Transport boundary around the project-owned CTP MD extension."""
+"""项目自有 CTP 行情扩展的传输边界。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ class CtpMdCallbacks(Protocol):
 
 
 class CtpMdDriver(Protocol):
-    """Transport operations required by ``CtpLiveDataFeed``."""
+    """CtpLiveDataFeed 所需的传输操作。"""
 
     def start(self, front: str, flow_path: Path, production_mode: bool) -> None: ...
     def stop(self) -> None: ...
@@ -31,7 +31,7 @@ class CtpMdDriver(Protocol):
 
 
 def create_native_driver(callbacks: CtpMdCallbacks) -> CtpMdDriver:
-    """Create the production driver backed by our ``bomber_ctp_md`` module."""
+    """创建由项目 bomber_ctp_md 模块提供支持的正式驱动。"""
     try:
         from bomber_ctp_md import MdApi
     except (ImportError, OSError) as exc:
@@ -70,7 +70,7 @@ def create_native_driver(callbacks: CtpMdCallbacks) -> CtpMdDriver:
 
 
 class NativeCtpMdDriver:
-    """Lifecycle wrapper for the low-level pybind ``MdApi`` object."""
+    """底层 pybind MdApi 对象的生命周期包装。"""
 
     def __init__(self, api: Any) -> None:
         self._api = api
@@ -118,7 +118,7 @@ def _raise_submit_error(action: str, result: Any) -> None:
 
 
 def _invoke(callback: Any, *args: Any) -> None:
-    """Keep Python exceptions from escaping into the C++ callback boundary."""
+    """防止 Python 异常越过 C++ 回调边界。"""
     try:
         callback(*args)
     except Exception:

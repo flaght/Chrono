@@ -1,4 +1,4 @@
-"""Convert CTP depth snapshots into standard QuoteTick and TradeTick events."""
+"""将 CTP 深度快照转换为标准 QuoteTick 与 TradeTick 事件。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class _InstrumentState:
 
 
 class CtpTickConverter:
-    """Stateful converter for CTP ``DepthMarketData`` dictionaries."""
+    """CTP DepthMarketData 字典的有状态转换器。"""
 
     def __init__(self, timezone: str = "Asia/Shanghai") -> None:
         self.timezone = _load_timezone(timezone)
@@ -121,7 +121,7 @@ class CtpTickConverter:
 
 
 def _ctp_number(value: Any) -> float | None:
-    """Return a positive finite CTP number, filtering DBL_MAX sentinels."""
+    """返回有限正数形式的 CTP 数值，过滤 DBL_MAX 哨兵值。"""
     try:
         result = float(value)
     except (TypeError, ValueError):
@@ -165,8 +165,8 @@ def _load_timezone(name: str) -> tzinfo:
         return ZoneInfo(name)
     except ZoneInfoNotFoundError:
         if name == "Asia/Shanghai":
-            # CTP instruments use China Standard Time; this also supports slim
-            # Linux images which omit the system tz database and tzdata wheel.
+            # CTP 合约使用北京时间；同时兼容精简 Linux 镜像，
+            # 即使镜像没有系统时区数据库及 tzdata 包也可处理。
             return timezone(timedelta(hours=8), name="Asia/Shanghai")
         raise
 

@@ -334,7 +334,7 @@ def test3() -> None:
     assert custom_bars[0].get_factor("open_interest") == 1_500_000
     assert custom_bars[0].get_factor("turnover") == 3_800_000
 
-    # Replayed duplicate bars must not be emitted twice.
+    # 重复回放的 Bar 不得再次发出。
     driver.publish(bar_stream, _bar_row())
     threading.Event().wait(0.05)
     assert len(bars) == 1
@@ -350,7 +350,7 @@ def test3() -> None:
 
 
 def test4() -> None:
-    """Stage 4: connect and enable streaming without subscribing to a table."""
+    """阶段 4：连接并启用流功能，不订阅数据表。"""
     from market.native.dolphin import OfficialDolphinDbDriver
 
     host = _required_env("DDB_HOST")
@@ -376,7 +376,7 @@ def test4() -> None:
 
 
 def test5() -> None:
-    """Stage 5: subscribe to the real tick stream and discover one cu row."""
+    """阶段 5：订阅真实逐笔流并发现一条 cu 合约数据。"""
     import threading
 
     from market.native.dolphin import NativeDolphinSubscription, OfficialDolphinDbDriver
@@ -465,7 +465,7 @@ def test5() -> None:
 
 
 def test6() -> None:
-    """Stage 6: convert one exact cu stream into standard QuoteTick/TradeTick."""
+    """阶段 6：将指定 cu 合约流转换为标准 QuoteTick/TradeTick。"""
     import threading
 
     from market.basic.base import DataType, InstrumentId, InstrumentMeta, QuoteTick, TradeTick
@@ -558,7 +558,7 @@ def test6() -> None:
 
 
 def test7() -> None:
-    """Stage 7 / G3: convert one real Bar stream row into Bar and CustomBar."""
+    """阶段 7 / G3：将真实 Bar 流的一行转换为 Bar 与 CustomBar。"""
     import threading
 
     from market.basic.base import Bar, CustomBar, DataType, InstrumentId, InstrumentMeta

@@ -1,4 +1,4 @@
-"""Storage readers used by the offline replay feed."""
+"""离线回放行情源使用的存储读取器。"""
 
 from market.replay.readers.base import ReaderError, RowReader
 from market.replay.readers.csv_reader import CsvReader

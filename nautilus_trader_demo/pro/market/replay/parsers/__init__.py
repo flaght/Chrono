@@ -1,4 +1,4 @@
-"""Normalized market-data parsers with compatibility-friendly lazy exports."""
+"""标准行情解析器，通过延迟导出保持兼容。"""
 
 from __future__ import annotations
 

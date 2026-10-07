@@ -11,8 +11,8 @@
 #include <string>
 #include <thread>
 
-// Narrow TraderApi surface used by CtpTdApiTransport. Native callbacks are copied
-// into a queue and delivered to the Python subclass from one dispatcher thread.
+// CtpTdApiTransport 使用的精简 TraderApi 接口；原生回调数据复制
+// 到队列后，由单个分派线程交付给 Python 子类。
 class TdApi final : public CThostFtdcTraderSpi {
 public:
     TdApi() = default;

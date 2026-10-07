@@ -1,4 +1,4 @@
-"""Native CTP market-data transport."""
+"""原生 CTP 行情传输。"""
 
 from market.native.ctp.driver import (
     CtpMdCallbacks,

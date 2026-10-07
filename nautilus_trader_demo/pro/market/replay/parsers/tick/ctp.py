@@ -1,4 +1,4 @@
-"""CTP depth-market CSV parser."""
+"""CTP 深度行情 CSV 解析器。"""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from market.replay.parsers.base import (
 
 
 class CtpTickParser:
-    """Convert CTP depth snapshots into quotes and inferred trades."""
+    """将 CTP 深度快照转换为报价与推断成交。"""
 
     def __init__(
         self,
@@ -156,6 +156,6 @@ class CtpQuoteParser(CtpTickParser):
 
 
 def _synthetic_trade_id(symbol: str, ts_event: int, cumulative: int) -> str:
-    """Return a stable 36-character ID for a trade inferred from a snapshot."""
+    """为快照推断的成交返回稳定的 36 字符标识。"""
     source = f"{symbol}|{ts_event}|{cumulative}".encode()
     return "ctp-" + hashlib.blake2b(source, digest_size=16).hexdigest()

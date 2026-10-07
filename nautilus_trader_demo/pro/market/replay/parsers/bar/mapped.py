@@ -1,4 +1,4 @@
-"""Explicitly mapped vendor Bar parser."""
+"""显式字段映射的供应商 Bar 解析器。"""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ class BarColumns:
 
 
 class MappedBarParser:
-    """Map explicitly configured vendor columns into standard Bars."""
+    """将显式配置的供应商字段映射为标准 Bar。"""
 
     def __init__(
         self,

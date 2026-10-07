@@ -1,4 +1,4 @@
-"""Lifecycle and stream-subscription wrapper for the official DolphinDB SDK."""
+"""官方 DolphinDB SDK 的生命周期与流订阅包装。"""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ class DolphinDbDriver(Protocol):
 
 
 class OfficialDolphinDbDriver:
-    """Own one SDK session while exposing no market-model dependencies."""
+    """管理一个 SDK 会话，不引入行情模型依赖。"""
 
     def __init__(self, session_factory: Callable[..., Any] | None = None) -> None:
         self._session_factory = session_factory
@@ -186,7 +186,7 @@ def _make_callback(columns: tuple[str, ...], handler: RowHandler) -> Callable[[A
 
 
 def rows_from_message(message: Any, columns: tuple[str, ...]) -> list[dict[str, Any]]:
-    """Normalize DolphinDB single-row, batch and DataFrame callback payloads."""
+    """标准化 DolphinDB 单行、批量及 DataFrame 回调载荷。"""
     if isinstance(message, Mapping):
         return [dict(message)]
     to_dict = getattr(message, "to_dict", None)

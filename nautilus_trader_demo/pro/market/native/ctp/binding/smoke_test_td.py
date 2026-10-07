@@ -1,4 +1,4 @@
-"""No-network smoke check for the project-owned TraderApi extension."""
+"""项目自有 TraderApi 扩展的无网络冒烟检查。"""
 
 from bomber_ctp_td import TdApi
 

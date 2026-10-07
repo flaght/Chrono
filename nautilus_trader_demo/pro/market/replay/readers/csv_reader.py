@@ -1,4 +1,4 @@
-"""CSV row reader."""
+"""CSV 逐行读取器。"""
 
 from __future__ import annotations
 

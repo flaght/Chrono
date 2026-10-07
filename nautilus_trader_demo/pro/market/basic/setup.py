@@ -1,7 +1,10 @@
 """Cython 扩展构建脚本 (编译 .pyx 为 .so / .pyd)。
 
 运行方式：
+    cd /你的项目路径/pro/market/basic
     python setup.py build_ext --inplace
+
+环境准备、重新编译与产物检查见同目录 README.md。
 """
 
 import os

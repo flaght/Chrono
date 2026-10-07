@@ -8,6 +8,8 @@ from .role_prices import (
     ResearchDataUnavailable,
 )
 from .core import MinimalDataHub, RoleResearchProvider, RoleSnapshot
+from .option_basic import OPTION_BASIC_DATASET, OptionBasic, OptionBasicProvider
+from .future_basic import FUTURE_BASIC_DATASET, FutureBasic, FutureBasicProvider
 from .sector_roles import SectorDataUnavailable, SectorRoleAssignment, SectorRoleStore
 from .target_schedule import TargetPlan, TargetPlanUnavailable, TargetScheduleStore
 from .temporal import (
@@ -23,6 +25,12 @@ from .temporal import (
 )
 
 __all__ = [
+    "FUTURE_BASIC_DATASET",
+    "FutureBasic",
+    "FutureBasicProvider",
+    "OPTION_BASIC_DATASET",
+    "OptionBasic",
+    "OptionBasicProvider",
     "ObservedClose",
     "RoleAssignment",
     "RolePrice",

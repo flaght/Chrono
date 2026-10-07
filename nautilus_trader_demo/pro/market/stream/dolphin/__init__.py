@@ -1,4 +1,4 @@
-"""DolphinDB real-time market-data feed."""
+"""DolphinDB 实时行情源。"""
 
 from market.stream.dolphin.config import (
     BAR_COLUMNS,

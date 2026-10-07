@@ -1,4 +1,4 @@
-"""Apache Feather row reader."""
+"""Apache Feather 逐行读取器。"""
 
 from __future__ import annotations
 

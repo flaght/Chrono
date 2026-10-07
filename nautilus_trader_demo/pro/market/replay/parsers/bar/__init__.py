@@ -1,4 +1,4 @@
-"""Bar parsers."""
+"""Bar 解析器。"""
 
 from market.replay.parsers.bar.binance import (
     BinanceKlineParser,

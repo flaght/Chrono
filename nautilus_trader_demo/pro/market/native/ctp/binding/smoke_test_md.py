@@ -1,4 +1,4 @@
-"""No-network smoke test for the standalone bomber_ctp_md extension."""
+"""独立 bomber_ctp_md 扩展的无网络冒烟测试。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def main() -> None:
         print("create_release: OK")
         api.release()
 
-    # Guard behavior should raise Python exceptions rather than segfaulting.
+    # 保护条件失败应抛出 Python 异常，不能触发段错误。
     try:
         api.getTradingDay()
     except RuntimeError as exc:

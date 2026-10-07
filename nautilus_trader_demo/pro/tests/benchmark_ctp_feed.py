@@ -1,11 +1,11 @@
-"""Offline throughput benchmark for the production CTP market-data path.
+"""正式 CTP 行情链路的离线吞吐量基准测试。
 
-This benchmark deliberately excludes network and CTP front latency.  It measures:
+本基准不包含网络与 CTP 前置延迟，仅测量以下环节：
 
-1. ``CtpTickConverter``: CTP dict -> QuoteTick/TradeTick.
-2. ``CtpLiveDataFeed``: conversion -> queue -> dispatcher -> handlers.
+1. CtpTickConverter：CTP 字典 -> QuoteTick/TradeTick。
+2. CtpLiveDataFeed：转换 -> 队列 -> 分派线程 -> 处理函数。
 
-Run this on the same server and Python environment used for live trading.
+请在实盘使用的同一服务器及 Python 环境中运行。
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from market.stream.ctp import CtpLiveDataFeed, CtpMdConfig, CtpTickConverter
 
 
 class _NoopCtpDriver:
-    """Driver used to run the production Feed without a network connection."""
+    """无需网络连接即可驱动正式行情源的测试驱动。"""
 
     def __init__(self, callbacks: Any) -> None:
         self.callbacks = callbacks
@@ -76,8 +76,8 @@ def _snapshot() -> dict[str, Any]:
 
 
 def _advance(row: dict[str, Any], index: int) -> None:
-    # Every frame changes both the quote and cumulative volume. After the first
-    # baseline frame this creates one QuoteTick and one TradeTick per snapshot.
+    # 每帧同时更新报价与累计成交量；第一帧建立基准后，
+    # 每个快照产生一个 QuoteTick 和一个 TradeTick。
     row["Volume"] = 1_000_000 + index
     row["BidVolume1"] = 1000 + (index & 255)
     row["AskVolume1"] = 800 + ((index * 3) & 255)
@@ -106,7 +106,7 @@ def _measure_feed(iterations: int, timeout: float) -> tuple[float, int]:
 
     def on_event(_: Any) -> None:
         nonlocal received
-        # StreamDataFeed has a single dispatcher, so this counter has one writer.
+        # StreamDataFeed 只有一个分派线程，因此计数器只有一个写入方。
         received += 1
         if received == expected_events:
             completed.set()
