@@ -19,6 +19,8 @@ class FixedInstrumentBarParser:
         timestamp: str = "datetime",
         bar_spec: str = "1-MINUTE",
         timezone: str = "Asia/Shanghai",
+        available_timestamp: str | None = None,
+        available_nanoseconds: str | None = None,
     ) -> None:
         self.instrument_id = instrument_id
         self._mapped = MappedBarParser(
@@ -31,6 +33,8 @@ class FixedInstrumentBarParser:
                 low="low",
                 close="close",
                 volume="volume",
+                available_timestamp=available_timestamp,
+                available_nanoseconds=available_nanoseconds,
             ),
             bar_spec=bar_spec,
             timezone=timezone,

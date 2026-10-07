@@ -31,6 +31,8 @@ class BarColumns:
     open_interest: str | None = None
     vwap: str | None = None
     bar_spec: str | None = None
+    available_timestamp: str | None = None
+    available_nanoseconds: str | None = None
 
 
 class MappedBarParser:
@@ -74,6 +76,19 @@ class MappedBarParser:
             context,
             self.timezone,
         )
+        ts_init = (parse_iso_timestamp(required(row, c.available_timestamp, context),
+                   context, self.timezone) if c.available_timestamp else ts_event)
+        if c.available_nanoseconds is not None:
+            from decimal import Decimal, InvalidOperation
+            try:
+                value = Decimal(required(row, c.available_nanoseconds, context))
+                if not value.is_finite() or value != value.to_integral_value():
+                    raise ValueError("non-integer availability")
+                ts_init = int(value)
+            except (InvalidOperation, ValueError, OverflowError) as exc:
+                raise context.error("bar availability must be integer nanoseconds") from exc
+        if ts_init < ts_event:
+            raise context.error("bar availability precedes completed bar time")
         open_price = positive(row, c.open, context)
         high_price = positive(row, c.high, context)
         low_price = positive(row, c.low, context)
@@ -92,7 +107,7 @@ class MappedBarParser:
             close=close_price,
             volume=volume,
             ts_event=ts_event,
-            ts_init=ts_event,
+            ts_init=ts_init,
             meta=meta,
             bar_type=bar_spec,
         )
