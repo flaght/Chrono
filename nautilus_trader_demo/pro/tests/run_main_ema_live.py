@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import date
+from contextlib import ExitStack, nullcontext, redirect_stderr
 from decimal import Decimal
 from importlib import import_module
+from io import StringIO
 from pathlib import Path
 import json
 from tempfile import TemporaryDirectory
@@ -15,18 +17,26 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from bomber.framework.market.basic.base import MarketDataFeed, make_trade_tick
+from bomber.framework.market.basic.base import MarketDataFeed, make_bar, make_trade_tick
 from bomber.framework.market.stream.health import MarketHealthState
 from bomber.framework.trader.execution.ctp import CtpNativeTraderDriver, CtpTdApiTransport
 from bomber.framework.trader.persistence import ConcurrentStateWriteError, JsonStateStore
 from bomber.framework.trader import MarketReferencePriceStore, PositionManager
+from bomber.framework.trader import RecordingExecutionClient, RuntimeMode, StrategyTemplate
+from bomber.framework.trader.live_roles import FixedRoleLiveRunner
+from bomber.framework.trader.assembly import RoleGuard, StrategyBindings, assemble_strategy
+from bomber.framework.trader.contracts import DataBinding, ExecutionRoute
+from bomber.framework.trader.execution.builders import ExecutionComponents
+from bomber.framework.market.basic.base import DataType
+from bomber.framework.datahub.sector_roles import SectorDataUnavailable, SectorRoleAssignment
 from bomber.framework.trader.contracts import ExecutionRequest
 from bomber.framework.trader.execution.ctp import CtpLimitPlanner, CtpPositionLedger
+from bomber.framework.trader.runtime.ctp import account_lock
 
 from .run_p4_ctp_td_transport import FakeTdApi
 
 live = import_module("demos.01_main_ema.run_live")
-refs = import_module("demos.01_main_ema.live_references")
+refs = import_module("bomber.framework.dataprep.live_role")
 BASE = pd.Timestamp("2026-09-22T09:00:00+08:00").value
 MINUTE = 60_000_000_000
 
@@ -37,6 +47,12 @@ class FlatTdApi(FakeTdApi):
         self.gross = {}
         self.sent = []
         self.active = False
+
+    def registerFront(self, front):
+        # 全程使用假API；地址仅用于验证入口配置，不建立网络连接。
+        # 基础夹具只接受fake地址，本入口另覆盖显式第二套前置校验。
+        assert front in {"tcp://fake:1234", "tcp://182.254.243.31:40001"}
+        self.registered_front = front
 
     def reqQryInvestorPosition(self, data, reqid):
         self.request_names.append("positions")
@@ -123,7 +139,7 @@ class LiveTests(unittest.TestCase):
                        "pcr_cumfactor": "2", **changes}]).to_feather(self.factor_path)
 
     def reference(self):
-        return refs.LiveMainReferences(
+        return refs.FileRoleReferences(
             product="RB", trading_day="20260922", contract_struct=self.role_path,
             factors=self.factor_path, fut_basic=self.basic_path, started_ns=BASE)
 
@@ -142,12 +158,17 @@ class LiveTests(unittest.TestCase):
         self.addCleanup(driver.stop)
         return transport, driver, holder
 
-    def session(self, orders=False):
+    def session(self, orders=False, replay=False):
         transport, driver, holder = self.transport_driver(orders)
         args = SimpleNamespace(mode="simnow" if orders else "recording", product="RB",
             fast=2, slow=3, quantity=Decimal(1), limit_offset_ticks=1,
-            max_notional=Decimal(50000), state_file=self.root / "state.json")
-        s = live.assemble(args, self.reference(), driver, ManualMd())
+            max_notional=Decimal(50000), state_file=self.root / "state.json",
+            simnow_environment="replay" if replay else "realtime",
+            replay_md_trading_day="20260921" if replay else None)
+        upstream = ManualMd()
+        if replay:
+            upstream.latest_trading_day = "20260921"
+        s = live.assemble(args, self.reference(), driver, upstream)
         holder["session"] = s
         if not orders:
             driver.start(lambda report: None)
@@ -165,7 +186,8 @@ class LiveTests(unittest.TestCase):
         s.upstream.latest_receive_monotonic_ns = time.monotonic_ns()
         s.upstream._emit_trade_tick(make_trade_tick(
             instrument_id=s.references.instrument_id, price=price, size=1,
-            ts_event=self.now, ts_init=self.now, meta=s.references.instrument_meta(),
+            ts_event=self.now - (86_400_000_000_000 if s.replay_md_trading_day else 0),
+            ts_init=self.now, meta=s.references.instrument_meta(),
             trade_id=f"MD{minute}"))
 
     def fill(self, s, index, duplicate=False):
@@ -189,6 +211,46 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(assignment.factor("RB", "main"), 2)
         self.assertEqual(reference.instrument_meta().multiplier, 10)
 
+    def test_public_fixed_role_runner_supports_non_ema_secondary_strategy(self):
+        reference = self.reference()
+        assignment = SectorRoleAssignment(date(2026, 9, 22), date(2026, 9, 21), BASE, BASE,
+            {"RB": {"secondary": "rb2704"}}, {"RB": {"secondary": Decimal(2)}})
+        source = SimpleNamespace(snapshot=lambda stamp: assignment)
+
+        class SecondaryStrategy(StrategyTemplate):
+            # 不提供EMA config、data_hub或last_processed_ns，验证显式公共接口。
+            def __init__(self):
+                super().__init__("other-secondary-strategy")
+                self.processed = -1
+
+            def on_bar(self, data_key, bar):
+                first = self.processed < 0
+                self.processed = bar.ts_event
+                if first:
+                    self.set_target("other_secondary", Decimal(1), bar.ts_event)
+
+        strategy = SecondaryStrategy()
+        client = RecordingExecutionClient("other-client")
+        positions = PositionManager()
+        positions.apply_account_snapshot(client.client_id, {}, revision=1, ts_event=0)
+        runner = FixedRoleLiveRunner(RuntimeMode.LIVE, position_manager=positions)
+        instrument = reference.instrument_id
+        assemble_strategy(runner, strategy, feeds={"bars": ManualMd()},
+            execution=ExecutionComponents(client, positions, MarketReferencePriceStore()),
+            bindings=StrategyBindings(
+                data=(DataBinding(str(instrument), "bars", instrument, DataType.BAR, "1-MINUTE"),),
+                execution=(ExecutionRoute("other_secondary", client.client_id, instrument),),
+                role_guard=RoleGuard(source, "RB", "secondary", lambda: strategy.processed)))
+        runner.start()
+        self.addCleanup(runner.stop)
+        for stamp in (BASE, BASE + MINUTE):
+            runner.publish("bars", make_bar(reference.instrument_id,
+                3100, 3100, 3100, 3100, 1, stamp, meta=reference.instrument_meta()))
+        self.assertEqual(len(client.requests), 2)
+        self.assertEqual(client.requests[0].revision, client.requests[1].revision)
+        self.assertEqual(client.requests[-1].logical_targets["other_secondary"], Decimal(1))
+        self.assertEqual(runner.bound_instrument, reference.instrument_id)
+
     def test_reference_future_publication_and_missing_current_day(self):
         self.write_factor(available_ns=BASE + MINUTE)
         reference = self.reference()
@@ -205,13 +267,47 @@ class LiveTests(unittest.TestCase):
             reference.snapshot(BASE)
 
     def test_cli_orders_need_all_authorization_and_new_state(self):
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(SystemExit) as error, redirect_stderr(StringIO()):
             live.parse_args(["--connect", "--product", "RB", "--mode", "simnow"])
+        self.assertEqual(error.exception.code, 2)
         path = self.root / "old-state.json"
         path.write_text("old", encoding="utf-8")
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(SystemExit) as error, redirect_stderr(StringIO()):
             live.parse_args(["--connect", "--product", "RB", "--mode", "simnow",
                              "--enable-orders", "--confirm-simnow", "--state-file", str(path)])
+        self.assertEqual(error.exception.code, 2)
+        command = ["--connect", "--product", "RB", "--mode", "simnow",
+                   "--enable-orders", "--confirm-simnow", "--state-file", str(self.root / "new-state.json")]
+        for extra in ([], ["--expected-source-day", "20261032"]):
+            with self.subTest(extra=extra), self.assertRaises(SystemExit) as error, redirect_stderr(StringIO()):
+                live.parse_args([*command, *extra])
+            self.assertEqual(error.exception.code, 2)
+
+    def test_stale_database_source_day_blocks_order_before_md_start(self):
+        from .test_reference_sources import FakeSession
+        from bomber.framework.dataprep.sources import DolphinDbReferenceConfig, DolphinDbReferenceSource
+
+        sdk = FakeSession()
+        sdk.data["fut_adjustment_factors"]["date"] = "2026-09-21"
+        source = DolphinDbReferenceSource(
+            DolphinDbReferenceConfig("fake", 8848, "fake", "fake"), session_factory=lambda **kwargs: sdk)
+        state_file = self.root / "stale-state.json"
+        args = live.parse_args(["--connect", "--product", "RB", "--mode", "simnow",
+            "--enable-orders", "--confirm-simnow", "--state-file", str(state_file),
+            "--reference-source", "dolphindb", "--expected-source-day", "20260920"])
+        with ExitStack() as resources:
+            context = SimpleNamespace(trading_day="20260922", resources=resources, references=None)
+            lifecycle = SimpleNamespace(md_front="tcp://fake:1234",
+                transport=SimpleNamespace(investor_id="demo", password="fake", production_mode=True))
+            with patch.dict("os.environ", {"DDB_HOST": "fake", "DDB_USERNAME": "fake",
+                                        "DDB_PASSWORD": "fake"}), \
+                    patch.object(live.ReferenceSourceFactory, "create", return_value=source), \
+                    patch.object(live, "CtpLiveDataFeed", side_effect=AssertionError("不应启动MD")):
+                with self.assertRaisesRegex(SectorDataUnavailable,
+                        "expected=20260920 actual=2026-09-21"):
+                    live.prepare_inputs(args, context, lifecycle)
+        self.assertTrue(sdk.closed)
+        self.assertFalse(state_file.exists())
 
     def test_net_zero_hedged_account_and_unknown_order_block_start(self):
         transport, driver, _ = self.transport_driver()
@@ -278,8 +374,33 @@ class LiveTests(unittest.TestCase):
         self.assertFalse(s.client.is_armed)
         self.assertEqual(s.transport._api.sent, [])
 
-    def test_actual_td_transport_reverse_and_durable_duplicate_fill(self):
+    def test_client_clock_follows_session_and_stale_request_still_disarms(self):
         s = self.session(orders=True)
+        self.now += MINUTE
+        request = ExecutionRequest(
+            strategy_id=s.strategy.strategy_id, revision=1, client_id=live.CLIENT_ID,
+            ts_event=self.now, targets={s.references.instrument_id: Decimal(0)},
+            execution_policy="DIRECT")
+        # 当前空仓目标可进入规划器且无需报单，证明假墙钟已用于受控客户端。
+        s.client.submit_targets(request)
+        self.assertTrue(s.client.is_armed)
+        stale = ExecutionRequest(
+            strategy_id=s.strategy.strategy_id, revision=2, client_id=live.CLIENT_ID,
+            ts_event=self.now - 120_000_000_001,
+            targets={s.references.instrument_id: Decimal(1)}, execution_policy="DIRECT")
+        with self.assertRaisesRegex(RuntimeError, "超过120000000000ns"):
+            s.client.submit_targets(stale)
+        self.assertFalse(s.client.is_armed)
+        self.assertEqual(s.transport._api.sent, [])
+
+    def test_actual_td_transport_reverse_and_durable_duplicate_fill(self):
+        self.exercise_reverse(replay=False)
+
+    def test_replay_reverse_and_duplicate_fill_still_use_actual_td_ledger(self):
+        self.exercise_reverse(replay=True)
+
+    def exercise_reverse(self, replay):
+        s = self.session(orders=True, replay=replay)
         for minute in range(4):
             self.tick(s, minute, 3100 if minute < 3 else 3000)
         api = s.transport._api
@@ -347,15 +468,290 @@ class LiveTests(unittest.TestCase):
     def test_complete_simnow_entry_checkpoint_fill_and_final_gross(self):
         self.complete_entry(orders=True)
 
-    def complete_entry(self, orders):
+    def test_complete_database_recording_entry(self):
+        self.complete_entry(orders=False, database=True)
+
+    def test_complete_database_simnow_entry(self):
+        self.complete_entry(orders=True, database=True)
+
+    def test_replay_cli_requires_explicit_day_and_preserves_default(self):
+        default = live.parse_args(["--connect", "--product", "RB"])
+        self.assertEqual(default.simnow_environment, "realtime")
+        for extra in (["--simnow-environment", "replay"],
+                      ["--simnow-environment", "replay", "--replay-md-trading-day", "20260230"],
+                      ["--replay-md-trading-day", "20260921"]):
+            with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                live.parse_args(["--connect", "--product", "RB", *extra])
+        args = live.parse_args(["--connect", "--product", "RB", "--simnow-environment", "replay",
+                               "--replay-md-trading-day", "20260921"])
+        self.assertEqual(args.replay_md_trading_day, "20260921")
+
+    def test_replay_front_pair_and_production_key_required(self):
+        md, td = "tcp://182.254.243.31:40011", "tcp://182.254.243.31:40001"
+        live.validate_replay_environment(md, td, True)
+        for actual_md, actual_td, production in (
+                (md, td, False), (md.replace("40011", "30011"), td, True),
+                (md, td.replace("40001", "30001"), True),
+                (md.replace("182.254.243.31", "127.0.0.1"), td, True)):
+            with self.assertRaises(ValueError):
+                live.validate_replay_environment(actual_md, actual_td, production)
+
+    def test_replay_receive_bars_preserve_raw_ticks_and_record_current_targets(self):
+        s = self.session(replay=True)
+        raw = []
+        s.upstream.register_trade_tick_handler(raw.append)
+        for minute in range(4):
+            self.tick(s, minute)
+        self.assertEqual(s.strategy.bars_used, 3)
+        self.assertEqual(len(s.client.requests), 1)
+        self.assertEqual(s.client.requests[0].ts_event, BASE + 3 * MINUTE - 1)
+        self.assertEqual(s.transport._api.sent, [])
+        self.assertEqual(raw[0].ts_event, BASE - 86_400_000_000_000 + 1000)
+        self.assertEqual(raw[0].ts_init, BASE + 1000)
+        timing = s.bar_feed.timing_snapshot
+        self.assertEqual(timing["ticks_used"], 4)
+        self.assertEqual(timing["first_source_event_ns"], raw[0].ts_event)
+        self.assertEqual(timing["last_receive_ns"], self.now)
+
+    def test_replay_partial_start_minute_still_excluded(self):
+        s = self.session(replay=True)
+        s.runner.first_complete_bar_ns = BASE + 2 * MINUTE - 1
+        self.tick(s, 0)
+        self.tick(s, 1)
+        self.assertEqual(s.strategy.bars_used, 0)
+        self.tick(s, 2)
+        self.assertEqual(s.strategy.bars_used, 1)
+
+    def test_ready_wait_crossing_minute_excludes_new_partial_minute(self):
+        s = self.session(replay=True)
+        self.now = BASE + MINUTE + 30_000_000_000
+        s.runner.begin_bars()
+        self.tick(s, 1)
+        self.tick(s, 2)
+        self.assertEqual(s.strategy.bars_used, 0)
+        self.tick(s, 3)
+        self.assertEqual(s.strategy.bars_used, 1)
+
+    def test_replay_invalid_or_backwards_receive_time_rejected(self):
+        s = self.session(replay=True)
+        self.tick(s, 0)
+        def raw(received):
+            return make_trade_tick(instrument_id=s.references.instrument_id,
+                price=3100, size=1, trade_id=f"BAD{received}",
+                ts_event=BASE - 86_400_000_000_000, ts_init=received,
+                meta=s.references.instrument_meta())
+        for received in (0, self.now + 1, self.now - 10_000_000_001):
+            with self.assertRaisesRegex(RuntimeError, "接收时间"):
+                s.upstream._emit_trade_tick(raw(received))
+        with self.assertRaisesRegex(RuntimeError, "倒退"):
+            s.upstream._emit_trade_tick(raw(self.now - 1))
+        self.assertEqual(s.strategy.bars_used, 0)
+        self.assertEqual(s.transport._api.sent, [])
+
+    def test_replay_md_switch_disarms_before_signal_order(self):
+        s = self.session(orders=True, replay=True)
+        for minute in range(3):
+            self.tick(s, minute)
+        s.upstream.latest_trading_day = "20260922"
+        with self.assertRaisesRegex(RuntimeError, "交易日不一致"):
+            self.tick(s, 3)
+        self.assertFalse(s.client.is_armed)
+        self.assertEqual(s.transport._api.sent, [])
+
+    def test_replay_stale_execution_request_still_disarms(self):
+        s = self.session(orders=True, replay=True)
+        old = ExecutionRequest(strategy_id=s.strategy.strategy_id, revision=1,
+            client_id=live.CLIENT_ID, ts_event=BASE - 86_400_000_000_000,
+            targets={s.references.instrument_id: Decimal(1)}, execution_policy="DIRECT")
+        with self.assertRaisesRegex(RuntimeError, "超过120000000000ns"):
+            s.client.submit_targets(old)
+        self.assertFalse(s.client.is_armed)
+        self.assertEqual(s.transport._api.sent, [])
+
+    def test_replay_readiness_still_checks_td_health_and_reception(self):
+        driver = SimpleNamespace(trading_day="20260922", is_simnow_session=True)
+        upstream = SimpleNamespace(latest_trading_day="20260921",
+            latest_receive_monotonic_ns=100, health_snapshot=SimpleNamespace(state=MarketHealthState.READY))
+        def ready():
+            return live.session_ready(driver, upstream, "20260922", require_orders=True,
+                now_ns=200, replay_md_trading_day="20260921")
+        self.assertTrue(ready())
+        self.assertFalse(live.session_ready(driver, upstream, "20260922", now_ns=200))
+        driver.trading_day = "20260923"
+        self.assertFalse(ready())
+        driver.trading_day = "20260922"
+        upstream.health_snapshot.state = MarketHealthState.DEGRADED
+        self.assertFalse(ready())
+        upstream.health_snapshot.state = MarketHealthState.READY
+        upstream.latest_receive_monotonic_ns = -11_000_000_000
+        self.assertFalse(ready())
+        upstream.latest_receive_monotonic_ns = 100
+        driver.is_simnow_session = False
+        self.assertFalse(ready())
+
+    def test_complete_replay_database_recording_entry(self):
+        self.complete_entry(orders=False, database=True, replay=True)
+
+    def test_complete_replay_database_simnow_entry(self):
+        self.complete_entry(orders=True, database=True, replay=True)
+
+    def test_reference_date_cli_defaults_and_invalid_policy(self):
+        file = live.parse_args(["--connect", "--product", "RB"])
+        database = live.parse_args(["--connect", "--product", "RB", "--reference-source", "dolphindb"])
+        self.assertEqual((file.factor_date_basis, file.factor_availability), ("trading", "aligned"))
+        self.assertEqual((database.factor_date_basis, database.factor_availability), ("source", "source-day-end"))
+        aligned_database = live.parse_args(["--connect", "--product", "RB", "--reference-source", "dolphindb",
+            "--factor-date-basis", "trading"])
+        self.assertEqual(aligned_database.factor_availability, "aligned")
+        night_database = live.parse_args(["--connect", "--product", "CU", "--reference-source", "dolphindb",
+            "--factor-availability", "observed-on-read", "--expected-source-day", "20261008"])
+        self.assertEqual((night_database.product, night_database.factor_availability), ("CU", "observed-on-read"))
+        with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as error:
+            live.parse_args(["--connect", "--product", "RB", "--factor-date-basis", "source",
+                "--factor-availability", "aligned"])
+        self.assertEqual(error.exception.code, 2)
+        with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as error:
+            live.parse_args(["--connect", "--product", "RB", "--factor-date-basis", "source",
+                "--factor-availability", "observed-on-read"])
+        self.assertEqual(error.exception.code, 2)
+        with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as error:
+            live.parse_args(["--connect", "--product", "RB", "--reference-source", "dolphindb",
+                "--simnow-environment", "replay", "--replay-md-trading-day", "20260930",
+                "--factor-availability", "observed-on-read"])
+        self.assertEqual(error.exception.code, 2)
+
+    def test_ctp_poll_readiness_failure_reports_age_and_days(self):
+        upstream = SimpleNamespace(latest_receive_monotonic_ns=1_000_000_000,
+            latest_trading_day="20261009",
+            health_snapshot=SimpleNamespace(state=MarketHealthState.READY, reason="ready"))
+        driver = SimpleNamespace(trading_day="20261009", is_simnow_session=True)
+        controller = SimpleNamespace(lost=[], driver=driver, replay_md_trading_day=None)
+        runner = SimpleNamespace(failure=None, expected_day="20261009",
+            session_ready=lambda: live.session_ready(driver, upstream, "20261009"))
+        session = SimpleNamespace(upstream=upstream, runner=runner)
+        with patch("time.monotonic_ns", return_value=12_000_000_000):
+            with self.assertRaises(RuntimeError) as caught:
+                live.CtpSessionLifecycle.poll(controller, session)
+        message = str(caught.exception)
+        self.assertIn("receive_age_seconds=11.0", message)
+        self.assertIn("expected_MD=20261009", message)
+        self.assertIn("expected_TD=20261009", message)
+        self.assertIn("reason=ready", message)
+
+    def test_slow_reference_refresh_blocks_bar_before_strategy_decision(self):
+        s = self.session(orders=True)
+        self.now = BASE + 2 * MINUTE
+        s.upstream.latest_receive_monotonic_ns = time.monotonic_ns()
+        bar = make_bar(s.references.instrument_id, 3100, 3100, 3100, 3100, 1,
+            self.now - 1, meta=s.references.instrument_meta())
+        def delay():
+            self.now += 121_000_000_000
+        with patch.object(s.references, "refresh", side_effect=delay):
+            with self.assertRaisesRegex(RuntimeError, "刷新后分钟Bar已过期"):
+                s.runner.publish("ctp-bars", bar)
+        self.assertEqual(s.strategy.bars_used, 0)
+        self.assertFalse(s.client.is_armed)
+        self.assertEqual(s.transport._api.sent, [])
+
+    def test_runtime_construction_does_not_connect_or_open_database(self):
+        args = live.parse_args(["--connect", "--product", "RB", "--reference-source", "dolphindb",
+            "--report-dir", str(self.root / "reports")])
+        environment = {"CTP_BROKER_ID": "9999", "CTP_ACCOUNT_ID": "demo", "CTP_PASSWORD": "fake",
+            "CTP_TD_ADDRESS": "tcp://fake:1234", "CTP_MD_ADDRESS": "tcp://fake:1234"}
+        with patch.dict("os.environ", environment, clear=True), \
+                patch.object(CtpTdApiTransport, "connect") as connect, \
+                patch.object(live.ReferenceSourceFactory, "create") as create:
+            runtime = live.build_runtime(args)
+            self.assertIsNone(runtime.report.path)
+            runtime.stop()
+            connect.assert_not_called()
+            create.assert_not_called()
+        self.assertFalse((self.root / "reports").exists())
+
+    def test_database_input_failure_closes_source_and_preflight_td(self):
+        from .test_reference_sources import FakeSession
+        from bomber.framework.dataprep.sources import DolphinDbReferenceConfig, DolphinDbReferenceSource
+        from bomber.framework.datahub.sector_roles import SectorDataUnavailable
+        args = live.parse_args(["--connect", "--product", "RB", "--reference-source", "dolphindb",
+            "--query-timeout", "0.05", "--report-dir", str(self.root / "reports")])
+        sdk = FakeSession()
+        sdk.data["fut_adjustment_factors"] = sdk.data["fut_adjustment_factors"].iloc[:0]
+        source = DolphinDbReferenceSource(DolphinDbReferenceConfig("fake", 8848, "fake", "fake"),
+            session_factory=lambda **kwargs: sdk)
+        transports = []
+
+        def td_factory(**kwargs):
+            transport = CtpTdApiTransport(**kwargs, td_api_base=FlatTdApi)
+            transports.append(transport)
+            return transport
+
+        environment = {"CTP_BROKER_ID": "9999", "CTP_ACCOUNT_ID": "demo", "CTP_PASSWORD": "fake",
+            "CTP_TD_ADDRESS": "tcp://fake:1234", "CTP_MD_ADDRESS": "tcp://fake:1234",
+            "CTP_TD_FLOW_PATH": str(self.root / "td-fail"),
+            "DDB_HOST": "fake", "DDB_USERNAME": "fake", "DDB_PASSWORD": "fake"}
+        with patch.dict("os.environ", environment, clear=True), \
+                patch.object(live, "CtpTdApiTransport", side_effect=td_factory), \
+                patch.object(live.ReferenceSourceFactory, "create", return_value=source):
+            with self.assertRaises(SectorDataUnavailable):
+                live.run_session(args)
+        summary = json.loads(next((self.root / "reports").glob("*/summary.json")).read_text())
+        self.assertEqual(summary["status"], "failed")
+        self.assertEqual(summary["orders_submitted"], 0)
+        self.assertEqual(summary["cleanup_errors"], [])
+        self.assertTrue(sdk.closed)
+        self.assertIsNone(transports[0]._api)
+
+    def test_runtime_holds_shared_and_legacy_account_locks_before_td_start(self):
+        args = live.parse_args(["--connect", "--product", "RB"])
+        environment = {"CTP_BROKER_ID": "9999", "CTP_ACCOUNT_ID": "demo", "CTP_PASSWORD": "fake",
+            "CTP_TD_ADDRESS": "tcp://fake:1234", "CTP_MD_ADDRESS": "tcp://fake:1234",
+            "CTP_TD_FLOW_PATH": str(self.root / "td-lock")}
+        with patch.dict("os.environ", environment, clear=True), \
+                patch.object(live, "CtpTdApiTransport", side_effect=lambda **kwargs:
+                    CtpTdApiTransport(**kwargs, td_api_base=FlatTdApi)):
+            first, second = live.build_runtime(args), live.build_runtime(args)
+        with ExitStack() as resources:
+            try:
+                first.controller.prepare(resources)
+                for namespace in ("bomber-ctp", "bomber-main-ema"):
+                    with self.subTest(namespace=namespace), self.assertRaisesRegex(RuntimeError, "已有进程"):
+                        with account_lock("demo", namespace=namespace):
+                            self.fail("已持有的账户锁不应再次获取")
+                with ExitStack() as other_resources, \
+                        patch.object(second.controller.driver, "start") as start:
+                    with self.assertRaisesRegex(RuntimeError, "已有进程"):
+                        second.controller.prepare(other_resources)
+                    start.assert_not_called()
+            finally:
+                first.controller.driver.stop()
+        # 两个命名空间均释放，停止后的锁文件仍可用于下一次进程互斥。
+        for namespace in ("bomber-ctp", "bomber-main-ema"):
+            with account_lock("demo", namespace=namespace):
+                pass
+
+    def complete_entry(self, orders, database=False, replay=False):
         args = live.parse_args(["--connect", "--product", "RB", "--fast", "2", "--slow", "3",
             "--seconds", "0.01", "--query-timeout", "0.05", "--contract-struct", str(self.role_path),
             "--fut-basic", str(self.basic_path), "--factors", str(self.factor_path),
             "--report-dir", str(self.root / "reports"), *(
                 ["--mode", "simnow", "--enable-orders", "--confirm-simnow",
-                 "--state-file", str(self.root / "complete-state.json")] if orders else [])])
+                 "--state-file", str(self.root / "complete-state.json"),
+                 "--expected-source-day", "20260921"] if orders else []), *(
+                ["--reference-source", "dolphindb"] if database else []), *(
+                ["--simnow-environment", "replay", "--replay-md-trading-day", "20260921"]
+                if replay else [])])
         upstream = ManualMd()
+        if replay:
+            upstream.latest_trading_day = "20260921"
         transports = []
+        database_source = None
+        if database:
+            from .test_reference_sources import FakeSession
+            from bomber.framework.dataprep.sources import DolphinDbReferenceConfig, DolphinDbReferenceSource
+            sdk = FakeSession()
+            sdk.data["fut_adjustment_factors"]["date"] = "2026-09-21"
+            database_source = DolphinDbReferenceSource(
+                DolphinDbReferenceConfig("fake", 8848, "fake", "fake"), session_factory=lambda **kwargs: sdk)
 
         def td_factory(**kwargs):
             transport = CtpTdApiTransport(**kwargs, td_api_base=AutoFillTdApi if orders else FlatTdApi)
@@ -375,21 +771,47 @@ class LiveTests(unittest.TestCase):
                     upstream.latest_receive_monotonic_ns = time.monotonic_ns()
                     upstream._emit_trade_tick(make_trade_tick(
                         instrument_id=instrument, price=3100, size=1, trade_id=f"FULL{minute}",
-                        ts_event=self.now, ts_init=self.now, meta=upstream.get_instrument_meta(instrument)))
+                        ts_event=self.now - (86_400_000_000_000 if replay else 0),
+                        ts_init=self.now, meta=upstream.get_instrument_meta(instrument)))
             original_sleep(0.02)
 
         environment = {"CTP_BROKER_ID": "9999", "CTP_ACCOUNT_ID": "demo",
             "CTP_PASSWORD": "fake", "CTP_APP_ID": "fake", "CTP_AUTH_CODE": "fake",
             "CTP_TD_ADDRESS": "tcp://fake:1234", "CTP_MD_ADDRESS": "tcp://fake:1234",
             "CTP_TD_FLOW_PATH": str(self.root / "full-td")}
+        if database:
+            environment.update(DDB_HOST="fake", DDB_USERNAME="fake", DDB_PASSWORD="fake")
+        if replay:
+            environment.update(CTP_MD_ADDRESS="tcp://182.254.243.31:40011",
+                CTP_TD_ADDRESS="tcp://182.254.243.31:40001", CTP_PRODUCTION_MODE="true")
         with patch.dict("os.environ", environment, clear=True), \
                 patch.object(live, "CtpTdApiTransport", side_effect=td_factory), \
                 patch.object(live, "CtpLiveDataFeed", return_value=upstream), \
-                patch("time.sleep", side_effect=pump):
+                patch("time.sleep", side_effect=pump), \
+                (patch.object(live.ReferenceSourceFactory, "create", return_value=database_source)
+                 if database else nullcontext()), \
+                (patch.object(live, "resolve_paths", side_effect=AssertionError("数据库模式不应读取文件路径"))
+                 if database else nullcontext()):
             live.run_session(args)
         report = next((self.root / "reports").glob("*/summary.json"))
         summary = json.loads(report.read_text(encoding="utf-8"))
         self.assertEqual(summary["status"], "passed")
+        self.assertEqual(summary["simnow_environment"], "replay" if replay else "realtime")
+        self.assertEqual(summary["bar_time_basis"], "receive" if replay else "event")
+        if replay:
+            self.assertEqual(summary["replay_md_trading_day"], "20260921")
+            self.assertEqual(summary["observed_md_trading_day"], "20260921")
+            self.assertEqual(summary["observed_td_trading_day"], "20260922")
+            self.assertEqual(summary["timing"]["ticks_used"], 4)
+            self.assertEqual(summary["timing"]["first_source_event_ns"], BASE - 86_400_000_000_000 + 1000)
+        if database:
+            self.assertTrue(sdk.closed)
+            self.assertEqual(summary["reference_source"], "dolphindb")
+            self.assertEqual(summary["reference_files"], [])
+            self.assertIn("fingerprint", summary["reference_manifest"])
+            self.assertEqual(summary["factor_date_basis"], "source")
+            self.assertEqual(summary["factor_date"], "2026-09-21")
+            self.assertEqual(summary["reference_manifest"]["factor_publication_policy"], "source-day-end")
         self.assertEqual(summary["orders_submitted"], 1 if orders else 0)
         self.assertEqual(summary["bars_used"], 3)
         self.assertEqual(summary["final_active_orders"], 0)

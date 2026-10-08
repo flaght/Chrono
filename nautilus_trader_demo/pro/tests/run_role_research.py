@@ -1,4 +1,4 @@
-"""第四类M1/M2：四角色因果复权与example10实际文件探针。
+"""第四类M1/M2：四角色因果复权与公共dataprep实际文件探针。
 
 默认纯离线夹具；--real读取用户提供的三张参考表和真实RB合约Bar。
 此阶段只验研究数据，不宣称已完成策略撮合或正式换月。
@@ -146,9 +146,11 @@ def test_missing_roll_factor_can_be_skipped_for_probe() -> None:
         pass
     else:
         raise AssertionError("四角色不完整时不能产生策略研究快照")
-    from examples.role_cross.local_input import _file_trading_day
+    from bomber.framework.dataprep.bars import key_from_path
 
-    assert _file_trading_day("rb2602_20260116.feather") == date(2026, 1, 16)
+    key = key_from_path("rb2602_20260116.feather")
+    assert key.symbol == "RB2602"
+    assert key.trading_day == date(2026, 1, 16)
     print("M2缺口通过：严格模式报错，探针模式记录缺口并跳过不可信决策；夜盘按文件交易日归属")
 
 
@@ -207,19 +209,60 @@ def test_previous_common_roll_anchor() -> None:
 
 
 def probe_real_files(args: argparse.Namespace) -> None:
-    from examples.role_cross.local_input import load_rb_role_research
+    import pandas as pd
+    from bomber.framework.dataprep.catalog import scan_bar_files
+    from bomber.framework.dataprep.metadata import load_futures_basic
+    from bomber.framework.dataprep.scenarios.role_futures import prepare_role_research
+    from bomber.framework.dataprep.session import read_feather
 
-    result = load_rb_role_research(
+    index = {key: path for key, path in scan_bar_files(args.bars_dir).items()
+             if key.symbol.startswith("RB") and key.symbol[2:].isdigit()}
+    if not index:
+        raise FileNotFoundError(f"未找到RB真实合约Feather Bar: {args.bars_dir}")
+    result = prepare_role_research(
         bars_dir=args.bars_dir,
         contract_struct_path=args.contract_struct,
-        factors_path=args.factors,
-        fut_basic_path=args.fut_basic,
+        products=("RB",), end_day=max(key.trading_day for key in index),
+        minute_roles=("main", "secondary", "near", "far"),
     )
-    switches = tuple(row for row in result.audit
-                     if row.calculated_single is not None and row.calculated_single != 1)
+    basic = load_futures_basic(args.fut_basic, products=("RB",), require_execution=False)
+    known = {symbol.lower() for symbol in basic}
+    # PCR仅作来源日/生效日数值诊断，不进入角色因子计算或信号快照。
+    factors = read_feather(args.factors)
+    required = {"trade_date", "code", "symbol", "pcr_factor", "pcr_cumfactor"}
+    if not factors.columns.is_unique or required - set(factors.columns):
+        raise ValueError(f"复权因子诊断表缺少列或重复列: {sorted(required - set(factors.columns))}")
+    factors = factors.loc[factors.code.astype(str).str.strip().str.upper().eq("RB")].copy()
+    factors["source_day"] = pd.to_datetime(factors.trade_date, errors="raise").dt.date
+    if factors.source_day.isna().any():
+        raise ValueError("复权因子诊断日期不能为空")
+    factor_by_day = {}
+    for day, rows in factors.groupby("source_day"):
+        records = rows[["symbol", "pcr_factor", "pcr_cumfactor"]].astype(str).drop_duplicates()
+        if len(records) != 1:
+            raise ValueError(f"RB复权因子诊断记录冲突: {day}")
+        row = rows.iloc[0]
+        single, cumulative = Decimal(str(row.pcr_factor)), Decimal(str(row.pcr_cumfactor))
+        if any(not value.is_finite() or value <= 0 for value in (single, cumulative)):
+            raise ValueError(f"RB复权因子诊断值无效: {day}")
+        factor_by_day[day] = (str(row.symbol).lower(), single, cumulative)
+    switches = []
+    contracts = set()
+    for day, end_ns in result.day_end_ns:
+        assignment = result.store.assignment_at(end_ns)
+        unknown = set(assignment.contracts.values()) - known
+        if unknown:
+            raise ValueError(f"{day}角色表引用fut_basic未知合约: {sorted(unknown)}")
+        contracts.update(assignment.contracts.values())
+        try:
+            single, _ = result.store.factor_at(end_ns, "main")
+        except ResearchDataUnavailable:
+            continue
+        if single != 1:
+            switches.append((day, assignment, single))
     hub = MinimalDataHub(result.store)
-    print(f"M2真实文件探针：bars={result.bar_count} contracts={result.contract_count} "
-          f"days={len(result.audit)} main_switches={len(switches)}")
+    print(f"M2公共真实文件探针：bars={result.bar_count} files={result.file_count} "
+          f"contracts={len(contracts)} days={len(result.day_end_ns)} main_switches={len(switches)}")
     for day, role, reason in result.store.factor_gaps:
         print(f"  复权缺口：day={day} role={role} reason={reason}；此后该角色快照不可用于信号")
     for day, role, source_day, anchor_day in result.store.factor_anchors:
@@ -234,19 +277,18 @@ def probe_real_files(args: argparse.Namespace) -> None:
         else:
             complete_days += 1
     print(f"  四角色日终快照：complete_days={complete_days} unavailable_days={unavailable_days}")
-    for row in switches[:10]:
-        source_match = _factor_alignment(row.calculated_single, row.source_day_single)
-        effective_match = _factor_alignment(row.calculated_single, row.effective_day_single)
-        print(f"  {row.trading_day} main={row.main_instrument} source={row.source_day} "
-          f"calculated={row.calculated_single} "
-          f"pcr_symbols=({row.source_day_symbol},{row.effective_day_symbol}) "
-          f"pcr_source={row.source_day_single}({source_match}) "
-              f"pcr_effective={row.effective_day_single}({effective_match}) "
-              f"cum_source={row.source_day_cumulative} cum_effective={row.effective_day_cumulative}")
+    for day, assignment, calculated in switches[:10]:
+        source = factor_by_day.get(assignment.source_day)
+        effective = factor_by_day.get(day)
+        source_match = _factor_alignment(calculated, None if source is None else source[1])
+        effective_match = _factor_alignment(calculated, None if effective is None else effective[1])
+        print(f"  {day} main={assignment.contracts['main']} source={assignment.source_day} "
+              f"calculated={calculated} pcr_source={source}({source_match}) "
+              f"pcr_effective={effective}({effective_match})")
     if not switches:
         print("注意：样本没有主力切换，尚不能验收因子对账与换月。")
-    if not all(row.source_day_single is not None or row.effective_day_single is not None
-               for row in switches):
+    if not all(assignment.source_day in factor_by_day or day in factor_by_day
+               for day, assignment, _ in switches):
         print("注意：部分切换日附近缺少pcr_factor。")
 
 

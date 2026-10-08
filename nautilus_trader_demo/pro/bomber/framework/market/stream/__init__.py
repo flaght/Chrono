@@ -15,7 +15,9 @@ from bomber.framework.market.stream.health import (
     MarketHealthState,
     StreamHealthConfig,
 )
-from bomber.framework.market.stream.aggregation import QuoteMidBarFeed, TradeTickBarFeed
+from bomber.framework.market.stream.aggregation import (
+    QuoteMidBarFeed, ReceiveTimeTradeTickBarFeed, TradeTickBarFeed,
+)
 
 __all__ = [
     "StreamDataFeed",
@@ -24,6 +26,7 @@ __all__ = [
     "MarketHealthState",
     "StreamHealthConfig",
     "TradeTickBarFeed",
+    "ReceiveTimeTradeTickBarFeed",
     "QuoteMidBarFeed",
     "BNWSConfig",
     "BNWSStreamDataFeed",

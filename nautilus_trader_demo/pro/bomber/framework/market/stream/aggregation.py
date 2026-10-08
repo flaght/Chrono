@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+import time
 
 from bomber.framework.market.basic.base import (
     BarType,
@@ -15,6 +16,7 @@ from bomber.framework.market.basic.base import (
     QuoteTick,
     TradeTick,
     make_bar,
+    make_trade_tick,
 )
 
 
@@ -180,6 +182,61 @@ class TradeTickBarFeed(MarketDataFeed):
             volume=size,
         )
         self._emit_bar(closed)
+
+
+class ReceiveTimeTradeTickBarFeed(TradeTickBarFeed):
+    """显式工程联调：用Tick接收时间聚合，不修改上游原始Tick。
+
+    适用于持续推送旧日期行情的模拟柜台。Bar代表本次接收期间的价格流，
+    不代表原交易日分钟，不可用于历史回测或解释历史收益。默认聚合组件仍
+    使用事件时间；本类只在调用方显式选择时启用。健康门控仍来自原上游。
+    """
+
+    def __init__(self, *args, clock_ns=None, max_receive_age_ns=10_000_000_000, **kwargs):
+        super().__init__(*args, **kwargs)
+        if max_receive_age_ns <= 0:
+            raise ValueError("接收时间时效须大于零")
+        self._clock_ns = clock_ns or (lambda: time.time_ns())
+        self._max_receive_age_ns = max_receive_age_ns
+        self._last_receive_ns = {}
+        self._timing = {"bar_time_basis": "receive", "ticks_used": 0,
+                        "first_source_event_ns": None, "last_source_event_ns": None,
+                        "first_receive_ns": None, "last_receive_ns": None}
+
+    @property
+    def timing_snapshot(self):
+        return dict(self._timing)
+
+    def disconnect(self) -> None:
+        try:
+            super().disconnect()
+        finally:
+            self._last_receive_ns.clear()
+
+    def _on_trade_tick(self, tick: TradeTick) -> None:
+        if tick.instrument_id not in self._subscriptions:
+            return
+        received = tick.ts_init
+        age = self._clock_ns() - received
+        if received <= 0 or not 0 <= age <= self._max_receive_age_ns:
+            raise RuntimeError("联调Tick接收时间缺失、来自未来或已过期")
+        previous = self._last_receive_ns.get(tick.instrument_id)
+        if previous is not None and received < previous:
+            raise RuntimeError("联调Tick接收时间倒退")
+        meta = self.get_instrument_meta(tick.instrument_id)
+        if meta is None:
+            raise RuntimeError(f"接收时间聚合缺少合约元数据: {tick.instrument_id}")
+        # 只为聚合器构造副本；上游标准Tick和其他订阅者保留原事件时间。
+        current = make_trade_tick(
+            instrument_id=tick.instrument_id, price=tick.price.as_decimal(),
+            size=tick.size.as_decimal(), trade_id=str(tick.trade_id),
+            ts_event=received, ts_init=received, meta=meta)
+        self._last_receive_ns[tick.instrument_id] = received
+        if not self._timing["ticks_used"]:
+            self._timing.update(first_source_event_ns=tick.ts_event, first_receive_ns=received)
+        self._timing.update(ticks_used=self._timing["ticks_used"] + 1,
+                            last_source_event_ns=tick.ts_event, last_receive_ns=received)
+        super()._on_trade_tick(current)
 
 
 class QuoteMidBarFeed(TradeTickBarFeed):

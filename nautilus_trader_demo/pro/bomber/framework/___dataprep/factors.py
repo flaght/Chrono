@@ -8,17 +8,6 @@ from .contracts import InputIssue
 from .session import current_session, fail, read_feather, record_issue
 
 
-def _validate_factor_policy(date_basis, availability):
-    if date_basis not in {"source", "trading"}:
-        fail("INVALID_FACTOR_POLICY", "Declare factor date_basis as source or trading")
-    if availability not in {"explicit", "source-day-end", "aligned"}:
-        fail("INVALID_FACTOR_POLICY", "Unknown factor availability policy")
-    if availability == "source-day-end" and date_basis != "source":
-        fail("INVALID_FACTOR_POLICY", "source-day-end requires source-date factors")
-    if availability == "aligned" and date_basis != "trading":
-        fail("INVALID_FACTOR_POLICY", "aligned requires trading-date factors")
-
-
 def load_cumulative_factors(path, *, date_basis, availability="explicit",
                             timezone="Asia/Shanghai", required_keys=None):
     """返回映射：(日期, 品种, 角色) -> (合约, 累计因子, 可用时间 available_ns)。
@@ -27,17 +16,16 @@ def load_cumulative_factors(path, *, date_basis, availability="explicit",
     旧格式中没有 role 的 pcr_cumfactor 仅表示主力因子，不推断其他角色
     或发布时间；调用方必须明确声明 date_basis。
     """
-    _validate_factor_policy(date_basis, availability)
-    return parse_cumulative_factors(read_feather(path), date_basis=date_basis,
-        availability=availability, timezone=timezone, required_keys=required_keys, source=path)
-
-
-def parse_cumulative_factors(frame, *, date_basis, availability="explicit",
-                             timezone="Asia/Shanghai", required_keys=None, source=None):
-    """解析标准字段的表；文件与数据库共用相同因子规则，不执行外部读取。"""
     import pandas as pd
-    path = source
-    _validate_factor_policy(date_basis, availability)
+    if date_basis not in {"source", "trading"}:
+        fail("INVALID_FACTOR_POLICY", "Declare factor date_basis as source or trading")
+    if availability not in {"explicit", "source-day-end", "aligned"}:
+        fail("INVALID_FACTOR_POLICY", "Unknown factor availability policy")
+    if availability == "source-day-end" and date_basis != "source":
+        fail("INVALID_FACTOR_POLICY", "source-day-end requires source-date factors")
+    if availability == "aligned" and date_basis != "trading":
+        fail("INVALID_FACTOR_POLICY", "aligned requires trading-date factors")
+    frame = read_feather(path)
     if not frame.columns.is_unique or frame.empty:
         fail("INVALID_FACTOR", "Factor table must be nonempty with unique columns", source=path)
     value_column = "cumulative_factor" if "cumulative_factor" in frame else "pcr_cumfactor"

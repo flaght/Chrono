@@ -30,14 +30,8 @@ class LoadedRoleResearch:
 
 
 def load_role_assignments(path, products, required_roles):
-    return parse_role_assignments(read_feather(path), products, required_roles, source=path)
-
-
-def parse_role_assignments(frame, products, required_roles, *, source=None):
-    """解析标准角色表；调用方负责将来源日期映射为 trade_date。"""
     import pandas as pd
-    path = source
-    frame = frame.copy()
+    frame = read_feather(path)
     roles_by_product = (required_roles if isinstance(required_roles, dict)
                         else {product: tuple(required_roles) for product in products})
     needed_roles = {role for roles in roles_by_product.values() for role in roles}

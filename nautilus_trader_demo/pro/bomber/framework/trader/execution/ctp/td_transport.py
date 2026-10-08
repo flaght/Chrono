@@ -5,8 +5,9 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from bomber.framework.market.basic.base import InstrumentId
@@ -401,6 +402,39 @@ class CtpTdApiTransport:
             signed = quantity if direction == "2" else -quantity
             positions[instrument] = positions.get(instrument, Decimal(0)) + signed
         return positions
+
+    def query_position_details(self) -> tuple[Mapping[str, Any], ...]:
+        """本次完整权威查询的持仓明细；今昨字段缺失时保留为未知，不猜测。
+
+        身份校验后只返回持仓诊断字段，不暴露账户身份，不更新任何本地仓位。
+        每次调用都重新查询并等待最后分片；结果和每行均不可变。
+        """
+        self._require_ready()
+        rows = self._request("positions", "reqQryInvestorPosition", {
+            "BrokerID": self.broker_id, "InvestorID": self.investor_id,
+        })
+        result = []
+        for row in rows:
+            if (str(row.get("BrokerID", "")) != self.broker_id
+                    or str(row.get("InvestorID", "")) != self.investor_id):
+                raise RuntimeError("CTP仓位明细账户不匹配")
+            symbol, venue = str(row.get("InstrumentID") or ""), str(row.get("ExchangeID") or "")
+            direction = str(row.get("PosiDirection", ""))
+            if not symbol or not venue or direction not in {"2", "3"}:
+                raise RuntimeError("CTP仓位明细身份或方向缺失")
+            try:
+                quantity = Decimal(str(row.get("Position", "")))
+            except InvalidOperation as error:
+                raise RuntimeError("CTP仓位明细数量无效") from error
+            if not quantity.is_finite() or quantity < 0 or quantity != quantity.to_integral_value():
+                raise RuntimeError("CTP仓位明细数量无效")
+            detail = {"InstrumentID": symbol, "ExchangeID": venue,
+                "PosiDirection": direction, "Position": quantity}
+            for key in ("PositionDate", "TodayPosition", "YdPosition", "HedgeFlag"):
+                if key in row:
+                    detail[key] = row[key]
+            result.append(MappingProxyType(detail))
+        return tuple(result)
 
     def query_gross_positions(self) -> Mapping[str, tuple[Decimal, Decimal]]:
         """本次柜台查询的逐合约多空总仓；用于初次启用前确认真正空仓。"""

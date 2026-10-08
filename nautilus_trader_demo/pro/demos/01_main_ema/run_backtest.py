@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import pandas as pd
 from dataclasses import asdict, is_dataclass
 from datetime import date, timedelta
@@ -11,13 +12,10 @@ from decimal import Decimal
 from pathlib import Path
 from time import perf_counter
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from dotenv import load_dotenv 
-# 读取本地环境配置；命令行显式路径仍由公共解析器优先采用。
-load_dotenv()
-
-
-
+from dotenv import load_dotenv
 from bomber.framework.dataprep.scenarios.role_futures import prepare_role_research as load_sector_research
 from bomber.framework.dataprep.bars import add_bar_source
 from bomber.framework.dataprep.contracts import BarReadSpec
@@ -36,10 +34,9 @@ from bomber.framework.market.replay.base import FileReplayFeed
 
 from bomber.framework.trader import (
     ContractAssignment, CtpFuturesBasicProfile, DataBinding,
-    DynamicExecutionRoute, MarketReferencePriceStore, MarketStreamBinding,
-    NautilusMarketFeedAdapter, NautilusSimExecutionBackend,
-    NetTargetOrderPlanner, PositionManager, PreTradeRiskManager, RiskLimits,
-    RuntimeMode, ScheduledContractResolver, SimulationExecutionClient,
+    DynamicExecutionRoute, MarketStreamBinding,
+    NautilusMarketFeedAdapter, NautilusSimExecutionBackend, RiskLimits,
+    RuntimeMode, ScheduledContractResolver,
     UnifiedHistoricalRuntime, UnifiedStrategyRunner,
 )
 from bomber.framework.dataprep.catalog import bar_path as _bar_path
@@ -47,7 +44,16 @@ from bomber.framework.dataprep.futures import instrument as _instrument
 from bomber.framework.dataprep.metadata import venue as _venue_for_product
 
 
-from strategy import MainEmaConfig, MainEmaStrategy
+if __package__ in (None, ""):
+    from importlib import import_module
+    _strategy = import_module("demos.01_main_ema.strategy")
+    MainEmaConfig, MainEmaStrategy = _strategy.MainEmaConfig, _strategy.MainEmaStrategy
+else:
+    from .strategy import MainEmaConfig, MainEmaStrategy
+
+from bomber.framework.trader.assembly import StrategyBindings, assemble_strategy
+from bomber.framework.trader.execution.builders import build_simulation_execution
+
 
 DEFAULT_REPORT_DIR = Path(__file__).resolve().parent / "results"
 MAX_COVERAGE_GAP = timedelta(days=14)
@@ -119,6 +125,28 @@ def _write_reports(*, report_dir: Path, backend, backend_result,
             print(f"绩效图未生成：缺少可视化依赖（{exc}）；CSV 和 summary.json 已保存")
         else:
             print(f"交互绩效图: {chart_path.resolve()}")
+
+
+def assemble(*, config, references, feed, backend, instruments, multipliers, resolver, max_notional):
+    """与run_live相同：执行积木→策略→绑定声明→Runner→Runtime。"""
+    execution = build_simulation_execution(backend, instrument_limits={item: RiskLimits(
+        max_order_quantity=2 * config.quantity, max_abs_position=config.quantity,
+        max_order_notional=max_notional, max_abs_position_notional=max_notional,
+        max_market_age_ns=120_000_000_000, contract_multiplier=multipliers[item])
+        for item in multipliers})
+    strategy = MainEmaStrategy(f"{config.product.lower()}-main-ema", references, config)
+    # 适配器仍由历史Runtime先于Runner挂载，保持撮合／策略回调的顺序。
+    adapter = NautilusMarketFeedAdapter(f"{config.product.lower()}-main-ema-clock", feed, backend,
+        tuple(MarketStreamBinding(item, DataType.BAR, "1-MINUTE")
+            for item in instruments.values()), manage_lifecycle=False)
+    runner = UnifiedStrategyRunner(RuntimeMode.HISTORICAL, position_manager=execution.positions)
+    bindings = StrategyBindings(
+        data=tuple(DataBinding(str(item), "main-bars", item, DataType.BAR, "1-MINUTE")
+            for item in instruments.values()),
+        execution=(DynamicExecutionRoute(config.target_key, execution.client.client_id, resolver),))
+    assemble_strategy(runner, strategy, feeds={"main-bars": feed}, execution=execution, bindings=bindings)
+    runtime = UnifiedHistoricalRuntime(f"{config.product.lower()}-main-ema-runtime", runner, adapter)
+    return runtime, strategy, execution.client
 
 
 # main 与 run_case 嵌套时复用同一会话，避免原始文件重复读取。
@@ -247,41 +275,9 @@ def run_case(*, product: str, start_day: date, end_day: date, bars_dir: Path,
                            row.effective_ns, row.available_ns, revision)
         for revision, row in enumerate(assignments, 1)
     ))
-    positions = PositionManager()
-    prices = MarketReferencePriceStore()
-    # 仓位差规划器生成订单，风控按真实报价、合约乘数和行情年龄检查。
-    client = SimulationExecutionClient(
-        backend.backend_id, NetTargetOrderPlanner(positions), backend, positions,
-        risk_manager=PreTradeRiskManager(
-            backend.backend_id, positions, prices,
-            instrument_limits={item: RiskLimits(
-                max_order_quantity=2 * quantity, max_abs_position=quantity,
-                max_order_notional=max_notional,
-                max_abs_position_notional=max_notional,
-                max_market_age_ns=120 * 1_000_000_000,
-                contract_multiplier=multipliers[item],
-            ) for item in multipliers},
-        ),
-    )
-    strategy = MainEmaStrategy(f"{product.lower()}-main-ema", loaded.store, config)
-    adapter = NautilusMarketFeedAdapter(
-        # 适配器将同一真实行情连接到策略回放与模拟后端，生命周期由 runtime 管理。
-        f"{product.lower()}-main-ema-clock", feed, backend,
-        tuple(MarketStreamBinding(item, DataType.BAR, "1-MINUTE")
-              for item in instruments.values()), manage_lifecycle=False,
-    )
-    runner = UnifiedStrategyRunner(RuntimeMode.HISTORICAL, position_manager=positions)
-    # 报价观察器维护风控参考价；绑定决定策略收哪些 Bar，路由决定目标发往哪里。
-    runner.add_market_observer(prices)
-    runner.add_data_feed("main-bars", feed)
-    runner.add_execution_client(client)
-    runner.add_strategy(
-        strategy,
-        data_bindings=tuple(DataBinding(str(item), "main-bars", item, DataType.BAR, "1-MINUTE")
-                            for item in instruments.values()),
-        execution_routes=(DynamicExecutionRoute(config.target_key, backend.backend_id, resolver),),
-    )
-    runtime = UnifiedHistoricalRuntime(f"{product.lower()}-main-ema-runtime", runner, adapter)
+    runtime, strategy, client = assemble(config=config, references=loaded.store,
+        feed=feed, backend=backend, instruments=instruments, multipliers=multipliers,
+        resolver=resolver, max_notional=max_notional)
     _finish_phase("路由、风控和运行器装配", phase_started_at)
     print(f"[耗时] 数据准备及回放装配累计={perf_counter() - case_started_at:.3f}s", flush=True)
     try:
@@ -323,6 +319,8 @@ def run_case(*, product: str, start_day: date, end_day: date, bars_dir: Path,
 
 @input_session
 def main() -> None:
+    # 环境配置只在入口运行时读取，导入／构造积木不读取本机凭据。
+    load_dotenv()
     parser = argparse.ArgumentParser(description="CTP 品种动态主力 EMA 离线回测")
     parser.add_argument("--product", required=True, help="品种代码，例如 RB、I、HC")
     parser.add_argument("--start-day", type=date.fromisoformat, required=True)

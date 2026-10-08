@@ -73,6 +73,7 @@ class RolePriceStore:
 
     因子采用从样本起点向前累计的固定锚点。若外部pcr_cumfactor的锚点不同，
     应比较相邻日因子比值，而不是比较累计因子的绝对值。
+    同合约同事件时间的记录必须一致；完全相同记录去重，交易日或价格冲突拒绝。
     """
 
     def __init__(
@@ -103,7 +104,18 @@ class RolePriceStore:
 
         grouped: dict[str, list[ObservedClose]] = {}
         daily_last: dict[tuple[date, str], ObservedClose] = {}
+        seen: dict[tuple[str, int], ObservedClose] = {}
         for close in closes:
+            identity = (close.instrument, close.ts_event)
+            previous_close = seen.get(identity)
+            if previous_close is not None:
+                if close != previous_close:
+                    raise ValueError(
+                        f"真实合约价格记录冲突: {close.instrument}/{close.ts_event}，"
+                        "同一事件的交易日或收盘价不一致",
+                    )
+                continue
+            seen[identity] = close
             grouped.setdefault(close.instrument, []).append(close)
             key = (close.trading_day, close.instrument)
             if key not in daily_last or close.ts_event > daily_last[key].ts_event:

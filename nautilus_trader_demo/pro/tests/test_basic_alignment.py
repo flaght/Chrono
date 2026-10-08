@@ -8,7 +8,7 @@ from bomber.framework.datahub import (AsOfQuery, DataHub, DataHubUnavailable, Fu
                      FutureDataError, OptionBasic, OptionBasicProvider, PublicationPolicy,
                      ReferenceRecord)
 from bomber.framework.dataprep.basic import load_future_basic_provider, load_option_basic_provider
-from bomber.framework.dataprep.metadata import future_spec
+from bomber.framework.dataprep.metadata import future_spec, future_spec_from_basic, parse_future_terms
 
 
 def cases():
@@ -84,6 +84,19 @@ class BasicAlignmentTests(unittest.TestCase):
         raw.update(minChgPriceNum=0, contMultNum=10)
         with self.assertRaises(ValueError):
             future_spec(raw)
+
+    def test_static_entry_still_rejects_version_fields_and_terms_share_validation(self):
+        raw = dict(symbol="rb2605", code="RB", exchangeCD="XSGE", minChgPriceNum=1,
+                   contMultNum=10, listDate="2025-01-01", lastTradeDate="2026-05-15")
+        static_spec = future_spec(raw)
+        for publication in ({"available_ns": 20}, {"source_version": "v2"}):
+            with self.subTest(publication=publication):
+                versioned = {**raw, **publication}
+                with self.assertRaisesRegex(ValueError, "UNSUPPORTED_CAPABILITY"):
+                    future_spec(versioned)
+                self.assertEqual(future_spec_from_basic(parse_future_terms(versioned)), static_spec)
+                with self.assertRaises(ValueError):
+                    parse_future_terms({**versioned, "minChgPriceNum": 0})
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ def components():
     from bomber.framework.market.basic import base as market
     from bomber.framework.datahub.sector_roles import SectorRoleAssignment, SectorRoleStore
     strategy = import_module("demos.01_main_ema.strategy")
-    online = import_module("demos.01_main_ema.live_runner")
+    online = import_module("bomber.framework.trader.live_roles")
     return SimpleNamespace(
         tr=tr, market=market, strategy=strategy, online=online,
         Assignment=SectorRoleAssignment, Store=SectorRoleStore,
@@ -184,7 +184,7 @@ def assemble(store, client, positions, *, online=True, dynamic=False):
         "main-ema-test", store,
         c.strategy.MainEmaConfig("RB", "SHFE", 2, 3, Decimal(1)),
     )
-    runner_type = c.online.MainEmaSimnowRunner if online and not dynamic else c.tr.UnifiedStrategyRunner
+    runner_type = c.online.FixedRoleLiveRunner if online and not dynamic else c.tr.UnifiedStrategyRunner
     mode = c.tr.RuntimeMode.HISTORICAL if dynamic else c.tr.RuntimeMode.LIVE
     runner = runner_type(mode, position_manager=positions)
     assignments = tuple(
@@ -204,8 +204,9 @@ def assemble(store, client, positions, *, online=True, dynamic=False):
             for item in instruments), execution_routes=(
                 c.tr.DynamicExecutionRoute("rb_main", client.client_id, resolver),))
     elif online:
-        runner.add_main_strategy(strategy, feed_id="bars", instrument_id=instruments[0],
-                                 client_id=client.client_id)
+        runner.add_role_strategy(strategy, feed_id="bars", instrument_id=instruments[0],
+            client_id=client.client_id, references=store, product="RB", role="main",
+            target_key=strategy.config.target_key, processed_ns=lambda: strategy.last_processed_ns)
     else:
         runner.add_strategy(strategy, data_bindings=(
             c.tr.DataBinding(str(instruments[0]), "bars", instruments[0],
@@ -358,7 +359,7 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(len(client.requests), 1)
 
 
-def ctp_fixture(*, quantity=1, rollover=False):
+def ctp_fixture(*, quantity=1, rollover=False, store=None):
     """复用原生Driver、旧限价规划器和受控客户端，仅传输层是内存替身。"""
     c = components()
     from tests.run_p4_ctp_driver import FakeTraderTransport
@@ -395,7 +396,8 @@ def ctp_fixture(*, quantity=1, rollover=False):
     rows = (assignment(),)
     if rollover:
         rows += (assignment(symbol="rb2705", factor="0.5", effective=6, next_day=True),)
-    runner, strategy = assemble(c.Store(rows), client, positions, dynamic=rollover)
+    store = c.Store(rows) if store is None else store
+    runner, strategy = assemble(store, client, positions, dynamic=rollover)
     # 手数仅为测试参数，策略算法保持不变。
     strategy.config = c.strategy.MainEmaConfig("RB", "SHFE", 2, 3, Decimal(quantity))
     runner.add_market_observer(prices)
@@ -559,16 +561,22 @@ class CtpTests(unittest.TestCase):
 
     def test_live_main_change_disarms_ctp(self):
         c = components()
-        f = self.fixture()
-        warmup(f)
-        f.strategy.data_hub = c.Store((assignment(), assignment(
+        # Runner与策略在组装时注入同一参考服务；按as-of推进主力映射。
+        # 不替换strategy.data_hub：公共Runner不读取EMA内部属性。
+        store = c.Store((assignment(), assignment(
             symbol="rb2705", factor="0.5", effective=4, next_day=True)))
+        f = self.fixture(store=store)
+        self.assertIs(f.strategy.data_hub, store)
+        warmup(f)
         with self.assertRaisesRegex(RuntimeError, "固定路由已闭闸"):
             f.runner.publish("bars", bar(4, 6200, c.new))
         self.assertFalse(f.client.is_armed)
         self.assertTrue(f.positions.is_recovery_required(f.client.client_id))
+        with self.assertRaisesRegex(RuntimeError, "固定路由已闭闸"):
+            f.runner.publish("bars", bar(5))
         self.assertEqual(len(f.transport.sent), 1)
         self.assertEqual(f.positions.account_position(f.client.client_id, c.old), 1)
+        self.assertEqual(f.strategy.bars_used, 3)
 
 
 REGRESSIONS = (

@@ -69,6 +69,39 @@ class OptionBasicTests(unittest.TestCase):
                 RolePriceStore((assignment,),rows)
         self.assertEqual(RolePriceStore((assignment,),(first,first)).snapshot(100)["main"].raw_close,Decimal(10))
 
+    def test_same_event_cannot_belong_to_two_trading_days(self):
+        day = date(2026,8,14)
+        assignment = RoleAssignment(day,date(2026,8,13),100,100,{"main":"x"},roles=("main",))
+        first = ObservedClose("x",day,100,Decimal(10))
+        wrong_day = ObservedClose("x",date(2026,8,13),100,Decimal(10))
+        later = ObservedClose("x",day,200,Decimal(11))
+        for rows in ((first,later,wrong_day),(wrong_day,later,first)):
+            with self.assertRaises(ValueError):
+                RolePriceStore((assignment,),rows)
+
+    def test_repeated_unsorted_closes_preserve_asof_prices_and_roll_factor(self):
+        source_day, next_day = date(2026,8,13), date(2026,8,14)
+        assignments = (
+            RoleAssignment(source_day,date(2026,8,12),50,50,{"main":"x"},roles=("main",)),
+            RoleAssignment(next_day,source_day,200,200,{"main":"y"},roles=("main",)),
+        )
+        early = ObservedClose("x",source_day,80,Decimal(9))
+        old = ObservedClose("x",source_day,100,Decimal(10))
+        new = ObservedClose("y",source_day,100,Decimal(20))
+        live = ObservedClose("y",next_day,200,Decimal(22))
+        baseline = RolePriceStore(assignments,(early,old,new,live))
+        repeated = RolePriceStore(assignments,(live,old,early,new,old,live,new,early))
+        for timestamp, expected in ((80,Decimal(9)),(100,Decimal(10)),(199,Decimal(10)),(200,Decimal(22))):
+            with self.subTest(timestamp=timestamp):
+                self.assertEqual(repeated.snapshot(timestamp),baseline.snapshot(timestamp))
+                self.assertEqual(repeated.snapshot(timestamp)["main"].raw_close,expected)
+        self.assertEqual(repeated.factor_at(200,"main"),(Decimal("0.5"),Decimal("0.5")))
+        self.assertEqual(repeated.snapshot(200)["main"].adjusted_close,Decimal(11))
+        conflict = ObservedClose("x",source_day,100,Decimal(12))
+        for rows in ((old,live,new,conflict),(conflict,new,live,old)):
+            with self.assertRaises(ValueError):
+                RolePriceStore(assignments,rows)
+
     def test_feather_adapter_retains_source_date_without_guessing(self):
         import pandas as pd
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:

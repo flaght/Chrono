@@ -89,33 +89,18 @@ def contract_rows(basic, keys):
 
 def future_spec(row, *, require_execution=True):
     _require_static_publication(row)
-    return future_spec_from_basic(parse_future_terms(row, require_execution=require_execution))
-
-
-def parse_future_terms(row, *, require_execution=True):
-    """仅解析条款值，供静态入口及版本化Provider共用。
-
-    available_ns/source_version不是条款值，不在这里判断可见性；在线调用方
-    必须用原始记录的发布时间门控快照，不能仅凭该模型决定可交易。
-    """
     code = symbol(row["symbol"])
     listed = contract_date(row["listDate"], code, "listDate")
     last = contract_date(row["lastTradeDate"], code, "lastTradeDate")
     if listed > last:
         fail("INVALID_METADATA", f"{code}: listing after last trading day")
-    return FutureBasic(
+    basic = FutureBasic(
         symbol=code, product=str(row["code"]).strip().upper(),
         exchange=venue_of(row), currency=str(row.get("currencyCD", "CNY")).strip().upper(),
         list_date=listed, last_trade_date=last,
         price_increment=positive(row["minChgPriceNum"], code + "/tick") if require_execution else None,
         multiplier=positive(row["contMultNum"], code + "/multiplier") if require_execution else None,
     )
-
-
-def future_spec_from_basic(basic):
-    """将已校验的条款值转换为执行规格；时间门控由资料Provider承担。"""
-    if not isinstance(basic, FutureBasic):
-        raise TypeError("期货规格转换需要 FutureBasic")
     return InstrumentSpec("future", basic.symbol, basic.product, basic.exchange,
         basic.currency, basic.list_date, basic.last_trade_date,
         tick=basic.price_increment, multiplier=basic.multiplier)
