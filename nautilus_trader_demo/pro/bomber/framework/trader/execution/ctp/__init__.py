@@ -19,6 +19,7 @@ from bomber.framework.trader.execution.ctp.native_driver import (
 )
 from bomber.framework.trader.execution.ctp.td_transport import CtpTdApiTransport
 from bomber.framework.trader.execution.ctp.planner import CtpClosePlanner
+from bomber.framework.trader.execution.ctp.limit_planner import CtpLimitPlanner
 from bomber.framework.trader.execution.ctp.profile import (
     CtpCommissionRule,
     CtpFuturesHedgingProfile,
@@ -27,6 +28,7 @@ from bomber.framework.trader.execution.ctp.profile import (
 __all__ = [
     "CtpCloseAllocation",
     "CtpClosePlanner",
+    "CtpLimitPlanner",
     "CtpCommissionRule",
     "CtpExecutionAccounting",
     "CtpFillResult",
