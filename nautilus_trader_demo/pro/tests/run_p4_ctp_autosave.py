@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
+import threading
 
 from bomber.framework.market.basic.base import InstrumentId
 from bomber.framework.trader.contracts import ExecutionRequest
@@ -67,6 +68,44 @@ def _request():
 
 
 def main():
+    # 原竞态：持提交锁保存时，柜台线程可先改Driver，再阻塞在客户端回报锁。
+    # 两类回报都必须在改变任何Driver字段之前等待同一把锁。
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "concurrent-report.json"
+        transport = FakeTraderTransport()
+        client, driver, manager = _build(path, transport)
+        client.start()
+        client.submit_targets(_request())
+        errors = []
+        for callback, raw in (
+            (transport.on_order, _raw("8", OrderStatus="3")),
+            (transport.on_trade, _raw("8", TradeID="CONCURRENT", Volume=1, Price=3125)),
+        ):
+            entered, done = threading.Event(), threading.Event()
+
+            def deliver():
+                entered.set()
+                try:
+                    callback(raw)
+                except Exception as error:
+                    errors.append(error)
+                finally:
+                    done.set()
+
+            with client._submit_lock:
+                before = driver.checkpoint()
+                thread = threading.Thread(target=deliver, daemon=True)
+                thread.start()
+                assert entered.wait(1), "回报线程未启动"
+                assert not done.wait(0.05), "回报必须等待提交锁"
+                assert driver.checkpoint() == before, "提交锁内Driver不应被异步回报提前修改"
+                manager.save()  # 等待的回报不能使严格同代校验失败。
+            thread.join(2)
+            assert not thread.is_alive() and not errors, errors
+            manager.save()
+        client.stop()
+        print("P4-CTP6并发通过：受理及成交在修改Driver前等待客户端锁，同代保存不见半状态")
+
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "state.json"
         transport = FakeTraderTransport()

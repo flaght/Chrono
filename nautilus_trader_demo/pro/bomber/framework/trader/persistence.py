@@ -238,7 +238,8 @@ class RuntimeStateManager:
 
         # 同步发送失败时，客户端先撤回在途量，再保存修正后的检查点。
         client.register_submit_failure_handler(save_after_transition)
-        driver.bind_durability(before_send, save_after_transition, on_unsent)
+        driver.bind_durability(before_send, save_after_transition, on_unsent,
+                              transition_lock=client._submit_lock)
         self._ctp_submit_locks[client_id] = client._submit_lock
 
     def save(self) -> PersistedState:

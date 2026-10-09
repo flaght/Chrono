@@ -299,7 +299,7 @@ class CrossSectionSessionRunner(UnifiedStrategyRunner):
                         super().publish(fid, bar)
                         self.last_bars[current] = stamp
                     del self.pending_frames[stamp]
-                    if self.orders:
+                    if self.orders and self.strategy.last_targets is not None:
                         for current in self.instruments.values():
                             if not self.session_ready() or getattr(self.client, "portfolio_failure", None):
                                 raise RuntimeError("逐腿推进期间会话失败或出现拒单")

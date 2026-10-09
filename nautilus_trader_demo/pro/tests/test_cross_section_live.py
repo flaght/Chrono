@@ -59,8 +59,38 @@ class CrossSectionLiveTests(unittest.TestCase):
         self.addCleanup(driver.stop)
         restored = runtime.assemble(original.args, original.references, driver, fixtures.ManualMd())
         holder["session"] = restored
+        restored.transport, restored.args = transport, original.args
         restored.manager.restore()
         return restored
+
+    def test_restored_live_session_keeps_old_target_idle_until_new_signal_then_reverses(self):
+        s = self.restored_session()
+        revision = recovery.validate_restored_session(s, "20260922")
+        positions = {str(i): s.runner.position_manager.position(runtime.CLIENT_ID, str(i))
+                     for i in s.runner.fixed_ids}
+        with patch.object(s.transport, "query_positions", return_value=positions):
+            s.runner.start()  # 真正启动已暂存恢复的Driver和客户端，完成原生关联核对。
+        self.addCleanup(s.runner.stop)
+        s.transport._api.gross = {key: (max(q, 0), max(-q, 0)) for key, q in positions.items()}
+        self.raw_ticks(s, self.now + 1, {"RB": 3130, "HC": 2970})
+        s.client.arm_demo(s.client.DEMO_CONFIRMATION)
+        s.runner.accept_bars = True
+        self.frame(s, 2, 3130, 2970)
+        self.assertEqual(s.strategy.synchronized_frames, 1)
+        self.assertIsNone(s.strategy.last_targets)
+        self.assertFalse(s.transport._api.sent)
+        self.assertEqual(s.runner.target_store.get(runtime.CLIENT_ID).revision, revision)
+        self.frame(s, 3, 2990, 3110)
+        self.assertEqual(s.runner.target_store.get(runtime.CLIENT_ID).revision, revision + 1)
+        self.assertEqual(len(s.transport._api.sent), 2)
+        self.fill(s, 0)
+        self.fill(s, 1)
+        self.raw_ticks(s, self.now + 500_000_000, {"RB": 2990, "HC": 3110})
+        self.assertEqual(len(s.transport._api.sent), 4)
+        self.fill(s, 2)
+        self.fill(s, 3)
+        self.assertEqual(s.strategy.position("rb2704.SHFE"), -1)
+        self.assertEqual(s.strategy.position("hc2704.SHFE"), 1)
 
     def test_resume_loads_ownership_revision_and_does_not_retry_before_warmup(self):
         s = self.restored_session()

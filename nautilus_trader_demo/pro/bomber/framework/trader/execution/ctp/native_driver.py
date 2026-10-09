@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import time
+from contextlib import nullcontext
+from functools import wraps
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Protocol
@@ -16,6 +18,16 @@ from bomber.framework.trader.execution.contracts import (
 )
 from bomber.framework.trader.execution.ctp.native_order import make_ctp_order_insert
 from bomber.framework.trader.execution.events import AccountStateEvent, ActiveOrderSnapshot
+
+
+def _serialized_transition(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        # 自动持久化使用客户端同一可重入锁，先取得锁再改变Driver状态。
+        # 不增加独立Driver锁，避免与客户端提交锁出现相反的锁序。
+        with (self._transition_lock if self._transition_lock is not None else nullcontext()):
+            return method(self, *args, **kwargs)
+    return call
 
 
 @dataclass(frozen=True)
@@ -146,6 +158,7 @@ class CtpNativeTraderDriver:
         self._before_send: Callable[[str, OrderIntent], None] | None = None
         self._after_transition: Callable[[], None] | None = None
         self._on_unsent: Callable[[str], None] | None = None
+        self._transition_lock = None
 
     @property
     def is_simnow_session(self) -> bool:
@@ -169,6 +182,8 @@ class CtpNativeTraderDriver:
         before_send: Callable[[str, OrderIntent], None],
         after_transition: Callable[[], None],
         on_unsent: Callable[[str], None],
+        *,
+        transition_lock: Any = None,
     ) -> None:
         """装配层提供同代状态保存；只能在Driver启动前绑定。"""
         if self._connected or self._before_send is not None:
@@ -176,6 +191,7 @@ class CtpNativeTraderDriver:
         self._before_send = before_send
         self._after_transition = after_transition
         self._on_unsent = on_unsent
+        self._transition_lock = transition_lock
 
     def start(self, report_sink: Callable[[ExecutionReport], None]) -> None:
         if self._connected:
@@ -241,6 +257,7 @@ class CtpNativeTraderDriver:
                 raise
         return snapshot
 
+    @_serialized_transition
     def checkpoint(self) -> CtpDriverCheckpoint:
         """导出当前活动委托关联；调用方须与订单状态机同代保存。"""
         session = self._session
@@ -341,6 +358,7 @@ class CtpNativeTraderDriver:
         self._next_ref = max(self._next_ref, checkpoint.next_ref)
         self._recovery_checkpoint = None
 
+    @_serialized_transition
     def submit_order(self, order: OrderIntent) -> None:
         self._require_connected()
         if self._recovery_checkpoint is not None:
@@ -404,6 +422,7 @@ class CtpNativeTraderDriver:
         if self._disconnect_handler is not None:
             self._disconnect_handler(f"ctp_front_disconnected:{reason}")
 
+    @_serialized_transition
     def on_order(self, raw: Mapping[str, Any]) -> None:
         order_ref = str(raw.get("OrderRef", ""))
         if order_ref in self._completed_refs:
@@ -424,6 +443,7 @@ class CtpNativeTraderDriver:
         if status == "5":
             self._emit(order_ref, ExecutionReportType.CANCELED, raw)
 
+    @_serialized_transition
     def on_trade(self, raw: Mapping[str, Any]) -> None:
         order_ref = str(raw.get("OrderRef", ""))
         trade_id = str(raw.get("TradeID", ""))

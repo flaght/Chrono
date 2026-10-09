@@ -19,6 +19,9 @@ CASES = {
     "assembly": ("tests.test_strategy_assembly",),
     "dispatch": ("tests.run_execution_dispatch",),
     "attribution": ("tests.test_position_attribution",),
+    "ctp-autosave": ("tests.run_p4_ctp_autosave",),
+    "ctp-recovery": ("tests.run_p4_ctp_recovery",),
+    "ctp-driver": ("tests.run_p4_ctp_driver",),
 }
 SOURCES = (
     "bomber/framework/market/stream/ctp/feed.py",
@@ -42,6 +45,7 @@ SOURCES = (
     "tests/run_cross_section_acceptance.py", "tests/run_main_ema_simnow.py",
     "tests/test_strategy_assembly.py", "tests/run_execution_dispatch.py",
     "tests/test_position_attribution.py",
+    "tests/run_p4_ctp_autosave.py", "tests/run_p4_ctp_recovery.py", "tests/run_p4_ctp_driver.py",
 )
 
 
