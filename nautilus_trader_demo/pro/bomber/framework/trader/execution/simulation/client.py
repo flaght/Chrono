@@ -6,6 +6,7 @@ import threading
 from typing import Callable
 
 from bomber.framework.trader.contracts import ExecutionRequest
+from bomber.framework.trader.execution.attribution import AttributionError
 from bomber.framework.trader.execution.contracts import ExecutionReport, OrderSide
 from bomber.framework.trader.execution.events import FillEvent, OrderUpdateEvent, map_applied_report
 from bomber.framework.trader.execution.order_state import (
@@ -97,6 +98,8 @@ class SimulationExecutionClient:
                 raise ValueError("ExecutionRequest客户端不匹配")
             if self._report_errors:
                 raise RuntimeError("模拟执行回报存在状态冲突，拒绝继续提交目标")
+            if self.position_manager.is_recovery_required(self.client_id):
+                raise RuntimeError("模拟账户订单恢复尚未完成，拒绝继续提交目标")
             orders = tuple(self.planner.plan(request))
             health_reduce_only = (
                 request.metadata.get("market_health_mode")
@@ -131,7 +134,9 @@ class SimulationExecutionClient:
                     "行情降级期间模拟执行必须配置PreTradeRiskManager",
                 )
 
+            orders = self.position_manager.attribution.prepare(request, orders)
             for order in orders:
+                self.position_manager.attribution.reserve(order)
                 signed = order.quantity if order.side is OrderSide.BUY else -order.quantity
                 self.position_manager.adjust_working_quantity(
                     self.client_id,
@@ -140,12 +145,17 @@ class SimulationExecutionClient:
                 )
                 try:
                     self.backend.submit_order(order)
-                except Exception:
+                except Exception as error:
+                    if getattr(error, "order_may_be_live", False):
+                        self.position_manager.mark_recovery_required(self.client_id)
+                        self._report_errors.append(OrderStateError("订单发送结果不明确"))
+                        raise
                     self.position_manager.adjust_working_quantity(
                         self.client_id,
                         order.instrument_id,
                         -signed,
                     )
+                    self.position_manager.attribution.release_unsent(order)
                     raise
 
     def cancel_strategy(self, strategy_id: str) -> None:
@@ -156,6 +166,7 @@ class SimulationExecutionClient:
             self._apply_report(report)
 
     def _apply_report(self, report: ExecutionReport) -> None:
+        self.position_manager.attribution.associate_report(report)
         previous = self._order_states.state(report.client_order_id)
         try:
             update = self._order_states.apply(report)
@@ -189,6 +200,12 @@ class SimulationExecutionClient:
                 report.instrument_id,
                 -remaining,
             )
+        try:
+            report = self.position_manager.attribution.apply(report, update, account_id=self.account_id)
+        except AttributionError as error:
+            self._report_errors.append(OrderStateError(str(error)))
+            self.position_manager.mark_recovery_required(self.client_id)
+            return
         if not self._execution_handlers or not changed:
             return
         try:

@@ -30,6 +30,14 @@ _TICK_TYPES = frozenset((DataType.QUOTE_TICK, DataType.TRADE_TICK))
 
 
 @dataclass(frozen=True)
+class CtpDepthObservation:
+    trading_day: str
+    ts_event: int
+    received_monotonic_ns: int
+    timestamp_regressed: bool = False
+
+
+@dataclass(frozen=True)
 class CtpMdConfig:
     front: str
     broker_id: str
@@ -66,6 +74,13 @@ class CtpLiveDataFeed(StreamDataFeed):
         self._lock = threading.RLock()
         self._latest_trading_day: str | None = None
         self._latest_receive_monotonic_ns: int | None = None
+        self._depth_observations: dict[InstrumentId, CtpDepthObservation] = {}
+
+    @property
+    def depth_observations(self) -> dict[InstrumentId, CtpDepthObservation]:
+        """成功转换的原始深度快照；即使盘口/成交未变也更新，独立于事件去重。"""
+        with self._lock:
+            return dict(self._depth_observations)
 
     @property
     def latest_trading_day(self) -> str | None:
@@ -133,6 +148,7 @@ class CtpLiveDataFeed(StreamDataFeed):
             self._subscribed_symbols.clear()
             self._latest_trading_day = None
             self._latest_receive_monotonic_ns = None
+            self._depth_observations.clear()
 
     def _on_subscription_added(self, request: SubscriptionRequest) -> None:
         self._validate_request(request)
@@ -165,6 +181,7 @@ class CtpLiveDataFeed(StreamDataFeed):
             self._subscribed_symbols.clear()
             self._latest_trading_day = None
             self._latest_receive_monotonic_ns = None
+            self._depth_observations.clear()
         self.report_stream_interruption(f"CTP行情前置断开: reason={reason}")
         logger.warning("CTP 行情前置断开: reason=%s；等待底层 API 自动重连", reason)
 
@@ -225,9 +242,15 @@ class CtpLiveDataFeed(StreamDataFeed):
         try:
             events = tuple(self._converter.convert(data, instrument_id, meta))
             trading_day = str(data.get("TradingDay") or "").strip()
+            ts_event = (events[0].ts_event if events else
+                        self._converter._timestamp_ns(data, meta.exchange))
             with self._lock:
                 self._latest_trading_day = trading_day or None
                 self._latest_receive_monotonic_ns = time.monotonic_ns()
+                previous = self._depth_observations.get(instrument_id)
+                self._depth_observations[instrument_id] = CtpDepthObservation(
+                    trading_day, ts_event, self._latest_receive_monotonic_ns,
+                    previous is not None and (previous.timestamp_regressed or ts_event < previous.ts_event))
             for event in events:
                 if self._event_is_subscribed(instrument_id, event):
                     self.enqueue_event(event)

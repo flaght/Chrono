@@ -9,6 +9,7 @@ from bomber.framework.market.stream.health import MarketHealthState
 from bomber.framework.trader.execution.ctp import CtpNativeTraderDriver
 from bomber.framework.trader.execution.contracts import ExecutionReportType
 from .managed import LiveRunContext
+from .ctp_positions import inspect_adopted_position
 
 
 def occupied_positions(transport):
@@ -68,6 +69,7 @@ class CtpSessionLifecycle:
     """ManagedLiveRuntime控制器；不读取EMA属性，不实现LIVE动态换约。"""
     def __init__(self, transport, *, md_front, orders=False, max_session_orders=4,
                  environment="realtime", replay_md_trading_day=None, expected_trading_day=None,
+                 adopt_instrument=None, expected_position=None,
                  lock_namespace="bomber-ctp", legacy_lock_namespaces=(),
                  ready_seconds=30, reconcile_seconds=10):
         if transport.broker_id != "9999":
@@ -82,6 +84,10 @@ class CtpSessionLifecycle:
             validate_replay_environment(md_front, transport.front, transport.production_mode)
         elif replay_md_trading_day:
             raise ValueError("原始回放交易日仅用于replay环境")
+        if (adopt_instrument is None) != (expected_position is None):
+            raise ValueError("接管须同时声明合约及预期仓位")
+        if adopt_instrument is not None and (environment != "realtime" or (orders and max_session_orders < 2)):
+            raise ValueError("接管须为实时会话；报单上限至少2笔以允许先平后开")
         self.transport = transport
         self.md_front = md_front
         self.orders = orders
@@ -89,6 +95,9 @@ class CtpSessionLifecycle:
         self.environment = environment
         self.replay_md_trading_day = replay_md_trading_day
         self.expected_trading_day = expected_trading_day
+        self.adopt_instrument = adopt_instrument
+        self.expected_position = expected_position
+        self.adopted_position = None
         self.lock_namespace = lock_namespace
         self.legacy_lock_namespaces = tuple(legacy_lock_namespaces)
         self.ready_seconds = ready_seconds
@@ -116,7 +125,11 @@ class CtpSessionLifecycle:
         for namespace in dict.fromkeys((self.lock_namespace, *self.legacy_lock_namespaces)):
             resources.enter_context(account_lock(self.transport.account_id, namespace=namespace))
         self.driver.start(lambda report: None)
-        assert_flat_account(self.driver, self.transport)
+        if self.adopt_instrument is None:
+            assert_flat_account(self.driver, self.transport)
+        else:
+            self.adopted_position = inspect_adopted_position(self.driver, self.transport,
+                self.adopt_instrument, self.expected_position)
         day = self.driver.trading_day
         self._observed_td_day = day
         if self.expected_trading_day and self.expected_trading_day != day:
@@ -128,6 +141,8 @@ class CtpSessionLifecycle:
         return LiveRunContext(day, resources)
 
     def finish_preparation(self, context):
+        if self.adopted_position is not None and context.references.instrument_id != self.adopted_position.instrument:
+            raise RuntimeError("待接管合约不是本次参考资料主力，拒绝接管")
         # 参考/行情准备完毕后结束只读预检；下一步安装最终会话持久化钩子。
         self.driver.stop()
 
@@ -137,7 +152,20 @@ class CtpSessionLifecycle:
             session.client.start()
         else:
             self.driver.start(lambda report: None)
-        assert_flat_account(self.driver, self.transport)
+        if self.adopted_position is None:
+            assert_flat_account(self.driver, self.transport)
+        else:
+            current = inspect_adopted_position(self.driver, self.transport,
+                self.adopt_instrument, self.expected_position)
+            if current != self.adopted_position:
+                raise RuntimeError("重新登录后接管仓位与预检不同")
+            if not self.orders:
+                session.runner.position_manager.replace_account_positions(self.driver.driver_id,
+                    {current.instrument: current.quantity})
+            session.runner.adopt_initial_position(current.quantity)
+            session.ledger.restore(current.ledger_state(session.references.spec.multiplier))
+            print(f"已核验接管仓位: {current.instrument} net={current.quantity} "
+                  f"PositionDate={current.position_date} PositionCost={current.position_cost}", flush=True)
         if self.driver.trading_day != context.trading_day or self.lost:
             raise RuntimeError("装配期间TD会话／交易日发生变化")
         session.runner.start()
@@ -149,6 +177,12 @@ class CtpSessionLifecycle:
                     f"要求MD={self.replay_md_trading_day or context.trading_day} "
                     f"health={session.upstream.health_snapshot.state}")
             time.sleep(0.2)
+        prepare_history = getattr(session.runner, "prepare_history", None)
+        if callable(prepare_history):
+            session.runner.mark_history_live_start()
+            prepare_history()
+            if not session.runner.session_ready():
+                raise RuntimeError("历史加载后MD/TD未就绪，保持闭闸")
         if self.orders:
             session.manager.save()
             session.client.arm_demo(session.client.DEMO_CONFIRMATION)
@@ -264,6 +298,16 @@ class CtpSessionLifecycle:
             "reference_time_basis": "current_td_and_wall_clock",
             "timing": getattr(session.bar_feed, "timing_snapshot", {}) if session else {},
             "orders_submitted": self.driver.submitted_orders,
+            "execution_audit": [
+                {"ts_ns": item.ts_ns, "action": item.action, "detail": item.detail}
+                for item in (getattr(session.client, "audit_records", ())[-30:] if session else ())
+            ],
+            "adopted_position": (None if self.adopted_position is None else {
+                "instrument": str(self.adopted_position.instrument),
+                "quantity": str(self.adopted_position.quantity),
+                "position_date": self.adopted_position.position_date,
+                "position_cost": str(self.adopted_position.position_cost),
+                "trading_day": self.adopted_position.trading_day}),
             "trading_day": session.runner.expected_day if session else None,
             "reference_files": [str(p) for p in references.paths] if references else [],
             "reference_manifest": getattr(references, "manifest", {}),

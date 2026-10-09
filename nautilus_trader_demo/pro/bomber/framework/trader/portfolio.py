@@ -10,7 +10,7 @@ import threading
 from dataclasses import dataclass, field
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Mapping
+from typing import Any, Mapping
 
 from bomber.framework.market.basic.base import InstrumentId
 from bomber.framework.trader.contracts import TargetPortfolio, TargetUpdateMode
@@ -334,6 +334,7 @@ class PositionManagerState:
     snapshot: PositionSnapshot
     account_revisions: Mapping[AccountTargetKey, int]
     strategy_revisions: Mapping[tuple[str, str], int]
+    attribution: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -353,7 +354,8 @@ class PositionManager:
 
     account_positions 必须由撮合器或交易客户端查询/回报更新，是账户级权威
     状态；working_quantities 是尚未完全成交的有符号数量，买入为正、卖出为负。
-    本类实现现有 PositionProvider 协议，但不会自行把账户成交分配给策略。
+    客户端用归属账本冻结净额订单的分配计划，并在状态机接受成交后更新归属。
+    未知外部仓位保持未归属，不能按当前目标或触发策略猜测分配。
     """
 
     def __init__(self) -> None:
@@ -365,6 +367,13 @@ class PositionManager:
         self._account_reconciliations: dict[str, AccountReconciliationState] = {}
         self._recovery_required_clients: set[str] = set()
         self._lock = threading.RLock()
+        from bomber.framework.trader.execution.attribution import PositionAttributionLedger
+
+        self.attribution = PositionAttributionLedger(self)
+
+    def unassigned_position(self, client_id: str, instrument_id: InstrumentId) -> Decimal:
+        """权威账户净仓减去全部策略真实合约归属；非零需接管或对账。"""
+        return self.attribution.unassigned(client_id, instrument_id)
 
     def position(self, strategy_id: str, target_key: str) -> Decimal:
         with self._lock:
@@ -585,6 +594,7 @@ class PositionManager:
                 snapshot=self.snapshot(),
                 account_revisions=self._account_revisions,
                 strategy_revisions=self._strategy_revisions,
+                attribution=self.attribution.state(),
             )
 
     def restore(self, state: PositionManagerState) -> None:
@@ -597,6 +607,7 @@ class PositionManager:
             self._recovery_required_clients = set(snapshot.recovery_required_clients)
             self._account_revisions = dict(state.account_revisions)
             self._strategy_revisions = dict(state.strategy_revisions)
+            self.attribution.restore(state.attribution)
 
     @staticmethod
     def _guard_revision(

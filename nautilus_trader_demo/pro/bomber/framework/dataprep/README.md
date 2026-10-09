@@ -2,6 +2,8 @@
 
 2026-10-08 新增 [参考资料数据源工厂](sources/README.md)：统一文件和 DolphinDB 字段适配，MySQL／MongoDB 保留子类扩展契约；原文件加载入口保留，在线组合器独立于历史场景。新增代码及数据库联调待远程验证。
 
+PF2026100804区分日期口径：原回测已对齐文件的trading/aligned默认保持不变；实盘原始数据库默认source，即此前角色来源日与同日因子，条款有效性仍按TD当前日。公共LiveFuturesReferences新增factor_date_basis，原直接调用默认trading兼容，01数据库装配与只读探针显式用source。日期修正版待远程复验，详见[数据源时间规则](sources/README.md)。
+
 2026-10-05 公共包正式命名为 `dataprep`，代码示例、策略引用及测试模块已同步。内部 Input* 类型、input_* 报告文件名和诊断 schema_version 保持兼容，本次只调整包名及引用。
 
 本模块实现 demos 输入整理的第一阶段：将路径、行情索引、读取与标准化、静态条款、交易日历、角色研究和目标计划集中到公共组件。各策略只声明需求、转换既有业务对象并组装对应场景。现有 Feed、Parser、DataHub 和 Trader 继续承担原有职责。
@@ -122,3 +124,9 @@ with InputSession() as session:
 4. 通过 PreparedFrameReader 和现有 Feed.add_source 消费公共准备结果。
 5. 保留业务诊断，输出输入诊断，不复制路径判断、Feather 读取和合约工厂。
 6. 完成输入与行为等价验收后，再进入 run_live 和 run_backtest 的运行层统一。
+
+## 在线角色资料装配
+
+[live_role.py](live_role.py) 提供单品种单角色的FileRoleReferences／SourceRoleReferences，统一snapshot、spec、instrument_id、instrument_meta接口。前者读取文件，后者消费[ReferenceSource工厂](sources/README.md)提供的数据源；可选main／secondary／near／far，执行通道约束显式传入。该适配保留已对齐文件trading与原始数据库source的日期契约，不修改历史场景准备接口。多品种多角色参考快照使用既有LiveFuturesReferences。
+
+01主力EMA在run_live.py选择和组装适配器，策略不查询数据库。运行路由／会话守卫位于公共trader/live_roles.py，单策略固定角色，参数注入会话与策略处理时间；多腿及LIVE自动换约仍须独立开发与验收。迁移及同步见[PF2026100806](../../../doc/HANDOFF/HANDOFF_PARALLEL_BACKTEST_LIVE_2026-10-07.md#pf2026100806-实盘仅保留一个组装入口)。

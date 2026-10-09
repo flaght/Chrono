@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from bomber.framework.datahub.option_basic import OptionBasic
 from bomber.framework.dataprep.live_references import LiveFuturesReferences, live_factor_policy
+from bomber.framework.dataprep.reference_freshness import ReferenceFreshnessPolicy
 from bomber.framework.dataprep.sources import (
     DolphinDbReferenceConfig, ReferenceQuery, ReferenceSourceFactory)
 
@@ -23,6 +24,8 @@ def main(argv=None):
                         help="原始日表默认source；已对齐到TD适用日的数据显式用trading")
     parser.add_argument("--factor-availability", choices=("source-day-end", "aligned", "explicit", "observed-on-read"))
     parser.add_argument("--timeout", type=int, default=15)
+    parser.add_argument("--expected-source-day", required=True, help="已核对的最近来源交易日YYYYMMDD")
+    parser.add_argument("--reference-max-source-age-days", type=int, default=14)
     parser.add_argument("--option-product", help="可选核验opt_basic，例如MO")
     parser.add_argument("--report", type=Path, help="可选保存脱敏的资料核验结果")
     args = parser.parse_args(argv)
@@ -30,15 +33,20 @@ def main(argv=None):
         parser.error("须显式 --connect 允许连接参考数据库")
     try:
         day = datetime.strptime(args.trading_day, "%Y%m%d").date()
+        expected_day = datetime.strptime(args.expected_source_day, "%Y%m%d").date()
+        if expected_day.strftime("%Y%m%d") != args.expected_source_day:
+            raise ValueError("来源日格式错误")
+        freshness = ReferenceFreshnessPolicy(expected_day, args.reference_max_source_age_days)
         args.factor_availability = live_factor_policy(args.factor_date_basis, args.factor_availability)
     except ValueError:
         parser.error("交易日须为YYYYMMDD，source用source-day-end/explicit/observed-on-read，trading用aligned/explicit")
     load_dotenv(Path(__file__).resolve().parents[3] / ".env")
     config = DolphinDbReferenceConfig.from_env(database=args.database, read_timeout_seconds=args.timeout)
-    with ReferenceSourceFactory.create("dolphindb", config) as source:
+    from bomber.framework.dataprep.sources import DataSourcePurpose
+    with ReferenceSourceFactory.create_for(DataSourcePurpose.LIVE_REFERENCE, "dolphindb", config) as source:
         references = LiveFuturesReferences(source, products=tuple(args.products),
             trading_day=day, started_ns=time.time_ns(), factor_date_basis=args.factor_date_basis,
-            factor_availability=args.factor_availability)
+            factor_availability=args.factor_availability, freshness=freshness)
         snapshot = references.snapshot(time.time_ns())
         result = {"manifest": references.manifest, "source_day": str(snapshot.source_day),
             "contracts": {p: dict(values) for p, values in snapshot.contracts.items()},

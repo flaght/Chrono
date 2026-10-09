@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import threading
 import time
 from decimal import Decimal
+from pathlib import Path
 
 from bomber.framework.market.basic.base import DataType, InstrumentId, InstrumentMeta, QuoteTick
 from bomber.framework.market.stream.bn import BNWSStreamDataFeed
@@ -128,6 +130,7 @@ class _AutoFillDriver:
         self.orders: list[OrderIntent] = []
         self.reconciliations = 0
         self._sequence = 0
+        self.reports_complete = threading.Event()
 
     def start(self, report_sink) -> None:
         self.sink = report_sink
@@ -149,7 +152,7 @@ class _AutoFillDriver:
             order_side=order.side,
             order_quantity=order.quantity,
             position_effect=order.position_effect,
-            metadata={"strategy_id": order.strategy_id, "trade_id": f"{order_id}-trade"},
+            metadata={**order.metadata, "strategy_id": order.strategy_id, "trade_id": f"{order_id}-trade"},
         )
         self.sink(ExecutionReport(
             report_type=ExecutionReportType.ACCEPTED,
@@ -164,6 +167,8 @@ class _AutoFillDriver:
                 **common,
             ),
         )
+        # 账户量先更新，再入归属和分派；不能只等账户量就断言回报已经处理完。
+        self.reports_complete.set()
 
     def cancel_strategy(self, strategy_id: str) -> None:
         del strategy_id
@@ -187,12 +192,20 @@ class _FirstQuoteStrategy(StrategyTemplate):
     def __init__(self) -> None:
         super().__init__("e9-binance-quote")
         self.seen = 0
+        self.fills_received = 0
+        self.last_fill_position = None
+        self.last_fill_account_position = None
 
     def on_quote_tick(self, data_key: str, tick: QuoteTick) -> None:
         assert data_key == "btc_quote"
         self.seen += 1
         if self.seen == 1:
             self.set_target("position", 1, tick.ts_event)
+
+    def on_fill(self, event) -> None:
+        self.fills_received += 1
+        self.last_fill_position = self.position("position")
+        self.last_fill_account_position = self.account_position("position")
 
 
 def test3_binance_stream_to_live_backend() -> None:
@@ -248,16 +261,24 @@ def test3_binance_stream_to_live_backend() -> None:
                 "A": "2.5000",
             },
         )
-        deadline = time.monotonic() + 5.0
-        while positions.account_position("binance-live", BTC_ID) != 1:
-            if time.monotonic() >= deadline:
-                raise AssertionError("Binance行情未驱动Live Backend成交")
-            time.sleep(0.01)
+        assert driver.reports_complete.wait(5.0), (
+            "Binance行情未完成Live Backend回报处理: "
+            f"reports={len(backend.reports)} report_errors={tuple(map(str, client.report_errors))}")
+        assert client.is_reconciled and not client.report_errors, (
+            f"E9c回报处理失败: reconciled={client.is_reconciled} "
+            f"report_errors={tuple(map(str, client.report_errors))}")
         assert len(driver.orders) == 1
         assert driver.orders[0].side is OrderSide.BUY
+        assert driver.orders[0].metadata.get("allocation_token"), "发送订单缺少冻结归属token"
+        assert all(report.metadata.get("allocation_token") == driver.orders[0].metadata["allocation_token"]
+            for report in backend.reports), "假Driver回报未透传冻结归属token"
+        assert positions.account_position("binance-live", BTC_ID) == 1
         assert positions.working_quantity("binance-live", BTC_ID) == 0
         assert len(backend.reports) == 2
-        assert client.is_reconciled and not client.report_errors
+        assert strategy.position("position") == 1
+        assert positions.unassigned_position("binance-live", BTC_ID) == 0
+        assert strategy.fills_received == 1
+        assert strategy.last_fill_position == strategy.last_fill_account_position == 1
     finally:
         runner.stop()
     print("E9c通过：Binance标准Stream已贯通策略、Planner、Live Backend和仓位同步")
@@ -271,6 +292,8 @@ STAGES = {
 
 
 def main() -> None:
+    path = Path(__file__).resolve()
+    print(f"E9测试加载: path={path} SHA256={hashlib.sha256(path.read_bytes()).hexdigest()}", flush=True)
     parser = argparse.ArgumentParser(description="E9 Binance与Nautilus Live Backend测试")
     parser.add_argument("--stage", choices=("1", "2", "3", "all"), default="all")
     args = parser.parse_args()

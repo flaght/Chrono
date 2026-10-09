@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import threading
 from decimal import Decimal
 
 from bomber.framework.market.basic.base import InstrumentId
@@ -125,8 +126,10 @@ def test1_read_only_and_authorization() -> None:
     assert client.account_state.balances["USDT"].equity == 100_000
     try:
         client.submit_targets(request(1))
-    except PermissionError:
-        pass
+    except PermissionError as error:
+        assert "armed=False" in str(error)
+        assert "demo_verified=True" in str(error)
+        assert "account_query_in_flight=False" in str(error)
     else:
         raise AssertionError("只读状态不得下单")
     assert not driver.orders and positions.working_quantity("demo-client", BTC) == 0
@@ -289,11 +292,144 @@ def test5_explicit_replay_gate() -> None:
     print("P3e通过：显式回放授权可接收旧信号，MD/TD核验失效即闭闸")
 
 
+def test6_gate_diagnostics() -> None:
+    for failure in ("not_demo", "check_error"):
+        gate = {"failure": None}
+
+        def check():
+            if gate["failure"] == "check_error":
+                raise ValueError("测试会话核验失败")
+            return gate["failure"] != "not_demo"
+
+        client, driver, _, _ = build_client(demo_check=check)
+        client.start()
+        try:
+            client.arm_demo(client.DEMO_CONFIRMATION)
+            gate["failure"] = failure
+            try:
+                client.submit_targets(request(1))
+            except PermissionError as error:
+                assert "armed=True" in str(error)
+                assert "demo_verified=False" in str(error)
+                assert "account_query_in_flight=False" in str(error)
+                assert f"demo_check_error={'ValueError' if failure == 'check_error' else 'None'}" in str(error)
+            else:
+                raise AssertionError("会话核验失败不能放行")
+            assert not driver.orders and not client.is_armed
+        finally:
+            client.stop()
+
+    print("P3f通过：未授权和会话核验失败的闭闸原因可区分")
+
+
+def test7_account_query_submission_race() -> None:
+    """独立资金线程与目标线程：成功查询可继续，失败/撤权不自动开闸。"""
+    for outcome in ("success", "query_failure", "disarm", "disconnect", "stop",
+                    "timeout", "not_demo", "stale_request", "halted"):
+        gate = {"demo": True, "now": 110}
+        client, driver, _, _ = build_client(
+            demo_check=lambda: gate["demo"],
+            max_request_wall_age_ns=10, wall_clock_ns=lambda: gate["now"],
+            account_query_wait_seconds=0.05 if outcome == "timeout" else 2.0,
+        )
+        client.start()
+        client.arm_demo(client.DEMO_CONFIRMATION)
+        prior_revision = client.account_state.revision
+        entered, release, waiting, submitted = (threading.Event() for _ in range(4))
+        query_errors, submit_errors, sent_snapshots = [], [], []
+        query = driver.reconcile_account_state
+        wait_for = client._account_query_condition.wait_for
+        send = driver.submit_order
+
+        def delayed_query():
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("测试未释放资金查询")
+            return query()
+
+        def observed_wait(predicate, timeout=None):
+            waiting.set()
+            return wait_for(predicate, timeout)
+
+        def observed_send(order):
+            sent_snapshots.append((client.account_state.revision, client._heartbeat_in_flight))
+            send(order)
+
+        def refresh():
+            try:
+                client.refresh_account_state()
+            except Exception as error:
+                query_errors.append(error)
+
+        def submit():
+            try:
+                client.submit_targets(request(1))
+            except Exception as error:
+                submit_errors.append(error)
+            finally:
+                submitted.set()
+
+        driver.reconcile_account_state = delayed_query
+        driver.submit_order = observed_send
+        client._account_query_condition.wait_for = observed_wait
+        query_thread = threading.Thread(target=refresh, daemon=True)
+        submit_thread = threading.Thread(target=submit, daemon=True)
+        try:
+            query_thread.start()
+            assert entered.wait(2), outcome
+            submit_thread.start()
+            assert waiting.wait(2), outcome
+            assert not driver.orders, outcome
+            if outcome == "query_failure":
+                driver.fail_account_query = True
+            elif outcome == "disarm":
+                client.disarm("operator_during_query")
+            elif outcome == "disconnect":
+                client.mark_disconnected("disconnect_during_query")
+            elif outcome == "stop":
+                client.stop()
+            elif outcome == "not_demo":
+                gate["demo"] = False
+            elif outcome == "stale_request":
+                gate["now"] = 1_000
+            elif outcome == "halted":
+                client.set_risk_mode("HALTED")
+            if outcome == "timeout":
+                assert submitted.wait(2), outcome
+                assert "资金查询等待超时" in str(submit_errors[0])
+            if outcome in ("disarm", "disconnect", "stop", "halted"):
+                assert submitted.wait(2), outcome  # 查询未结束也能立即唤醒并拒单。
+            release.set()
+            query_thread.join(2)
+            submit_thread.join(2)
+            assert not query_thread.is_alive() and not submit_thread.is_alive(), outcome
+            if outcome == "success":
+                assert not query_errors and not submit_errors
+                assert len(driver.orders) == 1 and client.is_armed
+                assert sent_snapshots == [(prior_revision + 1, False)]
+                assert sum(item.action == "TARGET_SUBMITTED" for item in client.audit_records) == 1
+            else:
+                assert submit_errors and not driver.orders and not client.is_armed, outcome
+                if outcome in ("query_failure", "disconnect", "stop"):
+                    assert query_errors, outcome
+            assert any(item.action == "ORDER_WAITING_FOR_ACCOUNT" for item in client.audit_records)
+        finally:
+            release.set()
+            if query_thread.ident is not None:
+                query_thread.join(6)
+            if submit_thread.ident is not None:
+                submit_thread.join(6)
+            client.stop()
+    print("P3g通过：资金查询与目标并发时等待后仅提交一次；失败、超时、撤权、断线、停机、会话失效和过期均无单")
+
+
 STAGES = {"read_only": test1_read_only_and_authorization,
           "reports": test2_report_and_risk,
           "reconnect": test3_disconnect_and_failed_query,
           "wall_clock": test4_wall_clock_request_age,
-          "replay": test5_explicit_replay_gate}
+          "replay": test5_explicit_replay_gate,
+          "diagnostics": test6_gate_diagnostics,
+          "account_query_race": test7_account_query_submission_race}
 
 
 def main() -> None:

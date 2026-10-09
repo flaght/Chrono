@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
+import hashlib
+from importlib import import_module
+from pathlib import Path
 
 from bomber.backtest.config import BacktestEngineConfig
 from bomber.model import Venue
 from bomber.model.identifiers import InstrumentId, TraderId
 
-from examples.single_ema.ema_ctp_backtest import _future
-from examples.single_ema.strategies import EmaCrossConfig, EmaCrossTargetStrategy
+from bomber.framework.datahub.sector_roles import SectorRoleAssignment, SectorRoleStore
+from bomber.framework.trader.instrument_factory import make_profile_future
 from bomber.framework.market.basic.base import (
     DataType,
     InstrumentMeta,
@@ -46,6 +49,7 @@ from bomber.framework.trader import (
 
 
 RB = InstrumentId.from_str("rb9999.SHFE")
+_ema = import_module("demos.01_main_ema.strategy")
 
 
 def _ns(value: str) -> int:
@@ -169,6 +173,7 @@ class _BackendProbe:
             report_id=f"probe-fill-{order_index}",
             sequence=1,
             metadata={
+                **order.metadata,
                 "strategy_id": order.strategy_id,
                 "trade_id": f"probe-trade-{order_index}",
             },
@@ -269,7 +274,7 @@ def test4_simulation_partial_fill_dispatch() -> None:
     )
 
     def emit(kind, sequence: int, *, filled: int = 0, trade_id: str | None = None):
-        metadata = {"strategy_id": strategy.strategy_id}
+        metadata = {**backend.orders[0].metadata, "strategy_id": strategy.strategy_id}
         if trade_id is not None:
             metadata["trade_id"] = trade_id
         report = ExecutionReport(
@@ -322,7 +327,7 @@ def test4_simulation_partial_fill_dispatch() -> None:
             order_quantity=1,
             report_id="p2-order-2:1",
             sequence=1,
-            metadata={"strategy_id": strategy.strategy_id},  # 缺trade_id。
+            metadata={**backend.orders[1].metadata, "strategy_id": strategy.strategy_id},  # 缺trade_id。
         )
         observed_before = len(strategy.observed)
         for handler in tuple(backend.handlers):
@@ -398,20 +403,34 @@ def test2_runtime_ordering() -> None:
     print("I2/I3通过：统一Historical Runtime生命周期和N→N+1事件顺序正常")
 
 
-class _ObservedEma(EmaCrossTargetStrategy):
+class _ObservedEma(_ema.MainEmaStrategy):
     """正式回测探针：策略代码仍只依赖统一模板和标准执行事件。"""
 
-    def __init__(self, strategy_id: str, config: EmaCrossConfig) -> None:
-        super().__init__(strategy_id, config)
+    def __init__(self, strategy_id: str, references: SectorRoleStore, config: _ema.MainEmaConfig) -> None:
+        super().__init__(strategy_id, references, config)
+        source = Path(_ema.__file__).resolve()
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        missing = [name for name in ("fills_received", "last_fill_position",
+            "order_updates_received", "last_order_update", "last_order_position") if not hasattr(self, name)]
+        print(f"I3策略部署核对：路径={source} SHA256={digest}", flush=True)
+        if (missing or _ema.MainEmaStrategy.on_fill is StrategyTemplate.on_fill
+                or _ema.MainEmaStrategy.on_order is StrategyTemplate.on_order):
+            raise RuntimeError(
+                f"当前MainEmaStrategy缺少GAP-01订单／成交回调接口：字段={missing}；"
+                f"请同步demos/01_main_ema/strategy.py并核对加载路径与摘要：{source} SHA256={digest}",
+            )
         self.order_events = []
-        self.fill_observations: list[tuple[object, Decimal, Decimal]] = []
+        self.fill_observations: list[tuple[object, Decimal, Decimal, Decimal]] = []
 
-    def on_order_update(self, event) -> None:
+    def on_order(self, event) -> None:
+        super().on_order(event)
         self.order_events.append(event)
 
     def on_fill(self, event) -> None:
+        super().on_fill(event)
         self.fill_observations.append((
             event, self.account_position("position"), self.working_quantity("position"),
+            self.position("position"),
         ))
 
 
@@ -420,13 +439,25 @@ def test3_real_nautilus_pipeline() -> None:
     bars = _bars()
     feed = _ReplayFeed(bars)
     positions = PositionManager()
+    # 先验证真正加载的策略接口，再构造／启动真实引擎，避免混合版本晚失败。
+    strategy = _ObservedEma(
+        "i3-ema",
+        SectorRoleStore((SectorRoleAssignment(date(2027, 1, 4), date(2026, 12, 31),
+            bars[0].ts_event, bars[0].ts_event, {"RB": {"main": str(RB.symbol)}},
+            {"RB": {"main": Decimal(1)}}),)),
+        _ema.MainEmaConfig("RB", "SHFE", fast_period=2, slow_period=3, target_key="position"),
+    )
     profile = CtpFuturesBasicProfile(venue=Venue("SHFE"))
     backend = NautilusSimExecutionBackend(
         "i3-sim",
         BacktestEngineConfig(trader_id=TraderId("I3-TESTER"), run_analysis=False),
     )
     backend.add_profile(profile)
-    backend.add_instrument(_future(RB, "2030-01-01"))
+    # 使用公共合约工厂及当前01策略，不要求部署历史examples目录。
+    instrument, _, _ = make_profile_future(profile, symbol=str(RB.symbol), product="RB",
+        tick=Decimal(1), multiplier=Decimal(10), listed=date(2025, 1, 1),
+        last_trade=date(2030, 1, 1), margin_init=Decimal("0.10"), margin_maint=Decimal("0.08"))
+    backend.add_instrument(instrument)
     client = SimulationExecutionClient(
         backend.backend_id,
         NetTargetOrderPlanner(positions),
@@ -437,10 +468,6 @@ def test3_real_nautilus_pipeline() -> None:
             positions,
             MarketReferencePriceStore(),
         ),
-    )
-    strategy = _ObservedEma(
-        "i3-ema",
-        EmaCrossConfig(fast_period=2, slow_period=3),
     )
     runner = UnifiedStrategyRunner(RuntimeMode.HISTORICAL, position_manager=positions)
     runner.add_data_feed("replay", feed)
@@ -470,20 +497,28 @@ def test3_real_nautilus_pipeline() -> None:
         assert result.backend_result.total_orders == len(orders)
         assert not client.report_errors
         assert strategy.fill_observations
+        assert strategy.fills_received == len(strategy.fill_observations)
         assert len(strategy.fill_observations) == len(fills)
         assert len(strategy.order_events) >= len(strategy.fill_observations)
+        assert strategy.order_updates_received == len(strategy.order_events)
+        assert strategy.last_order_update == strategy.order_events[-1]
+        assert strategy.last_order_position == strategy.position("position")
         signed_fills = sum(
             (
                 event.quantity if event.side.value == "BUY" else -event.quantity
-                for event, _, _ in strategy.fill_observations
+                for event, _, _, _ in strategy.fill_observations
             ),
             Decimal(0),
         )
         assert signed_fills == positions.account_position(backend.backend_id, RB)
-        for event, observed_position, observed_working in strategy.fill_observations:
+        assert signed_fills == strategy.position("position")
+        assert strategy.last_fill_position == strategy.position("position")
+        assert positions.unassigned_position(backend.backend_id, RB) == 0
+        for event, observed_position, observed_working, observed_attribution in strategy.fill_observations:
             signal_ts = int(event.metadata["signal_ts"])
             assert event.ts_event > signal_ts, "检测到同Bar成交/前视"
             assert observed_position.is_finite() and observed_working.is_finite()
+            assert observed_attribution == observed_position, "回调内策略归属与账户成交不一致"
         last_observed_position = strategy.fill_observations[-1][1]
         assert last_observed_position == positions.account_position(backend.backend_id, RB)
         print(

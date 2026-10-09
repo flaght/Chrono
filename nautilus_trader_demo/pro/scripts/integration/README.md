@@ -1,5 +1,7 @@
 # 通道接入与联调
 
+参考数据库独立核验位于 [reference_data](reference_data/README.md)：检查 DolphinDB 期货条款、累计因子、期限结构及可选期权条款，不连接交易柜台、不报单。
+
 本目录提供独立于具体策略的通道运行入口，覆盖连接检查、账户查询、受控订单验证、对账及恢复联调。各入口只编排公共组件，不复制策略公式或底层交易协议实现。
 
 | 子目录 | 通道职责 | 当前入口 |
@@ -20,7 +22,9 @@ python -u -m scripts.integration.ctp.td_readonly --connect --timeout 30
 迁移无网络烟测位于 `tests/run_ctp_td_readonly.py`：
 
 ```bash
-python -u tests/run_ctp_td_readonly.py
+python -u -m tests.run_ctp_td_readonly
 ```
 
-烟测使用假 API 和假凭据，核对配置路径、旧入口转发、登录／结算确认、三项查询及禁单，完成后再进行柜台只读联调。
+烟测使用假 API 和假凭据，直接验证新入口的配置路径、登录／结算确认、三项查询及禁单，不导入旧 examples 目录。完成后再进行柜台只读联调。
+
+开发时在项目根目录按上面的模块命令运行，Python 自身将当前项目纳入搜索范围，辅助模块使用包内相对导入；新入口按文件位置加载，烟测不向 `sys.path` 注入项目根目录。项目须同步 `bomber/__init__.py` 开发加载文件和 `bomber/framework`，以复用已安装 Bomber 内核并加载本地 framework；已发布并安装含 framework 的 Bomber 后，也支持直接文件命令。开发与发布布局见[项目说明](../../README.md)。

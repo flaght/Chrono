@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 import threading
 from typing import Any
@@ -334,6 +334,7 @@ class UnifiedStrategyRunner:
                     deadline_ns=materialized.deadline_ns,
                     metadata={
                         **materialized.metadata,
+                        "position_attribution": self._position_attribution_targets(snapshot, client_id),
                         "portfolio_revision": snapshot.revision,
                         "market_health_mode": gate_decision.access_mode.value,
                         "market_health_state": gate_decision.snapshot.state.value,
@@ -413,11 +414,12 @@ class UnifiedStrategyRunner:
         self, strategy_id: str, target_key: str, as_of_ns: int, *,
         trigger_instrument_id: InstrumentId | None = None,
     ) -> bool:
-        """显式推进单策略、单固定路由的保留目标，返回是否发送执行请求。
+        """显式推进独占客户端单策略的固定路由目标，返回是否发送执行请求。
 
         调用方须在当前真实行情的策略决策结束后调用。策略目标版本及
         组合贡献不变，执行器用当前时间和原目标重新计算剩余开平动作。
-        默认 publish 不调用本接口；不提供动态换约或共享账户目标推进。
+        多固定路由仅推进触发行情的合约。默认publish不调用本接口；
+        不提供动态换约或共享账户目标推进。
         """
         if as_of_ns < 0:
             raise ValueError("as_of_ns不能为负数")
@@ -426,14 +428,15 @@ class UnifiedStrategyRunner:
         with self._submit_lock:
             route = self._static_execution_route(strategy_id, target_key)
             registration = self._registrations[strategy_id]
-            if len(registration.execution_routes) != 1 or any(
+            if any(isinstance(item, DynamicExecutionRoute)
+                   for item in registration.execution_routes.values()) or any(
                 other_id != strategy_id and any(
                     item.client_id == route.client_id
                     for item in other.execution_routes.values()
                 )
                 for other_id, other in self._registrations.items()
             ):
-                raise ValueError("保留目标推进需要单逻辑目标及独占执行客户端")
+                raise ValueError("保留目标推进需要固定路由及独占执行客户端")
             materialized = self._target_store.get(strategy_id)
             retry_key = (strategy_id, target_key)
             if (not self._started or self._publishing_strategy_event or materialized is None
@@ -457,7 +460,7 @@ class UnifiedStrategyRunner:
             snapshot = self._portfolio_coordinator.snapshot(ts_event=as_of_ns)
             targets = {
                 key.instrument_id: quantity for key, quantity in snapshot.targets.items()
-                if key.client_id == route.client_id
+                if key.client_id == route.client_id and key.instrument_id == route.instrument_id
             }
             if route.instrument_id not in targets:
                 return False
@@ -478,6 +481,10 @@ class UnifiedStrategyRunner:
                     deadline_ns=materialized.deadline_ns,
                     metadata={
                         **materialized.metadata,
+                        "position_attribution": tuple(
+                            row for row in self._position_attribution_targets(snapshot, route.client_id)
+                            if row["instrument_id"] == str(route.instrument_id)
+                        ),
                         "portfolio_revision": snapshot.revision,
                         "retained_target_retry": True,
                         "signal_ts_event": materialized.ts_event,
@@ -560,6 +567,7 @@ class UnifiedStrategyRunner:
             deadline_ns=materialized.deadline_ns,
             metadata={
                 **materialized.metadata,
+                "position_attribution": self._position_attribution_targets(snapshot, route.client_id),
                 "portfolio_revision": snapshot.revision,
                 "contract_revision": selection.revision,
                 "roll_phase": decision.phase.value,
@@ -607,14 +615,61 @@ class UnifiedStrategyRunner:
         route = self._static_execution_route(strategy_id, target_key)
         return self._position_manager.working_quantity(route.client_id, route.instrument_id)
 
+    def _position_attribution_targets(self, snapshot, client_id):
+        """把各策略完整逻辑贡献与真实合约关联，不能只携带触发提交的策略。"""
+        rows = []
+        for strategy_id, registration in sorted(self._registrations.items()):
+            materialized = self._target_store.get(strategy_id)
+            for target_key, route in sorted(registration.execution_routes.items()):
+                if route.client_id != client_id:
+                    continue
+                if isinstance(route, DynamicExecutionRoute):
+                    values = {key.instrument_id: quantity for key, quantity in
+                        snapshot.contributions.get(strategy_id, {}).items() if key.client_id == client_id}
+                else:
+                    values = {route.instrument_id: Decimal(0) if materialized is None
+                        else materialized.targets.get(target_key, Decimal(0))}
+                rows.extend(dict(strategy_id=strategy_id, target_key=target_key,
+                    instrument_id=str(instrument_id), quantity=str(quantity))
+                    for instrument_id, quantity in values.items())
+        return tuple(rows)
+
     def _on_execution_event(self, event: OrderUpdateEvent | FillEvent) -> None:
-        """仅接受本Runner已注册客户端和策略的标准执行事件。"""
+        """归属已入账后分发；净额成交按订单冻结的分配计划拆分通知。"""
+        if event.metadata.get("attribution_status") == "UNASSIGNED":
+            raise ValueError("执行事件没有可信策略归属，须查询账户与订单关联")
+        if "allocation_owners" not in event.metadata:
+            self._dispatch_execution_event(event)
+            return
+        rows = (event.metadata["attributed_fills"] if isinstance(event, FillEvent)
+                else event.metadata["allocation_owners"])
+        remaining_commission = event.commission if isinstance(event, FillEvent) else None
+        for index, row in enumerate(rows):
+            strategy_id, target_key = row["strategy_id"], row["target_key"]
+            metadata = {**event.metadata, "attributed_target_key": target_key,
+                "account_event_id": event.event_id}
+            changes = dict(identity=replace(event.identity, strategy_id=strategy_id),
+                event_id=f"{event.event_id}:{strategy_id}:{target_key}", metadata=metadata)
+            if isinstance(event, FillEvent):
+                quantity = Decimal(row["quantity"])
+                commission = None if event.commission is None else (
+                    remaining_commission if index == len(rows) - 1
+                    else event.commission * quantity / event.quantity)
+                if commission is not None:
+                    remaining_commission -= commission
+                changes.update(quantity=quantity, cumulative_filled=Decimal(row["cumulative_filled"]),
+                    commission=commission)
+            self._dispatch_execution_event(replace(event, **changes))
+
+    def _dispatch_execution_event(self, event: OrderUpdateEvent | FillEvent) -> None:
         identity = event.identity
         registration = self._registrations.get(identity.strategy_id)
         if identity.client_id not in self._clients or registration is None:
             raise ValueError("执行事件客户端或策略未注册")
         if not any(
             route.client_id == identity.client_id
+            and (event.metadata.get("attributed_target_key") is None
+                 or route.target_key == event.metadata["attributed_target_key"])
             and (not isinstance(route, ExecutionRoute)
                  or str(route.instrument_id) == identity.instrument_id)
             for route in registration.execution_routes.values()

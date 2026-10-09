@@ -3,6 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+import time
 
 from bomber.framework.datahub.sector_roles import SectorDataUnavailable, SectorRoleAssignment
 from bomber.framework.market.basic.base import InstrumentId, InstrumentMeta
@@ -22,7 +23,7 @@ class FileRoleReferences:
 
     def __init__(self, *, product, trading_day, contract_struct, factors, fut_basic,
                  started_ns, role="main", factor_date_basis="trading", factor_availability=None,
-                 allowed_venues=None, required_currency=None):
+                 allowed_venues=None, required_currency=None, freshness=None, clock_ns=None):
         self.product = product.strip().upper()
         if not self.product.isalpha():
             raise ValueError("品种代码须为字母")
@@ -35,6 +36,8 @@ class FileRoleReferences:
         self.paths = tuple(Path(p).expanduser().resolve()
                            for p in (contract_struct, factors, fut_basic))
         self.started_ns = started_ns
+        self.freshness = freshness
+        self._clock_ns = clock_ns or (lambda: time.time_ns())
         self.factor_date_basis = factor_date_basis
         self.factor_availability = live_factor_policy(factor_date_basis, factor_availability)
         if self.factor_availability == "observed-on-read":
@@ -59,6 +62,8 @@ class FileRoleReferences:
         if past.empty:
             raise SectorDataUnavailable("本次交易日没有此前来源日的角色资料")
         row = past.iloc[-1]
+        if self.freshness:
+            self.freshness.validate_day(row.source_day, self.trading_day)
         factor_day = row.source_day if self.factor_date_basis == "source" else self.trading_day
         key = (factor_day, self.product, self.role)
         availability = self.factor_availability
@@ -90,10 +95,19 @@ class FileRoleReferences:
         self._assignment = assignment
         self.factor_date = factor_day
         self._signature = signature
+        self._observed_ns = self._clock_ns()
+
+    @property
+    def manifest(self):
+        return {"backend": "FileRoleReferences", "purpose": "file_reference_test",
+            "role_source_day": str(self._assignment.source_day), "factor_date": str(self.factor_date),
+            "observed_at_ns": self._observed_ns,
+            "freshness_policy": self.freshness.manifest() if self.freshness else None}
 
     @property
     def instrument_id(self):
-        return InstrumentId.from_str(f"{self.spec.symbol.lower()}.{self.spec.venue}")
+        symbol = self.spec.symbol.upper() if self.spec.venue == "CFFEX" else self.spec.symbol.lower()
+        return InstrumentId.from_str(f"{symbol}.{self.spec.venue}")
 
     def instrument_meta(self):
         tick = self.spec.tick
@@ -106,6 +120,8 @@ class FileRoleReferences:
         self.refresh()
         if as_of_ns < self._assignment.effective_ns or as_of_ns < self._assignment.available_ns:
             raise SectorDataUnavailable("本次角色／累计因子尚未生效或发布")
+        if self.freshness:
+            self.freshness.validate_day(self._assignment.source_day, self.trading_day)
         return self._assignment
 
 
@@ -114,7 +130,7 @@ class SourceRoleReferences(FileRoleReferences):
 
     def __init__(self, source, *, product, trading_day, started_ns, role="main",
                  factor_date_basis="source", factor_availability=None, refresh_seconds=5,
-                 clock_ns=None, allowed_venues=None, required_currency=None):
+                 clock_ns=None, allowed_venues=None, required_currency=None, freshness=None):
         self.product = product.strip().upper()
         self.role = role
         self.allowed_venues = None if allowed_venues is None else frozenset(allowed_venues)
@@ -124,7 +140,7 @@ class SourceRoleReferences(FileRoleReferences):
         self._references = LiveFuturesReferences(source, products=(self.product,),
             roles=(role,), factor_roles=(role,), trading_day=trading_day, started_ns=started_ns,
             factor_date_basis=factor_date_basis, factor_availability=factor_availability,
-            refresh_seconds=refresh_seconds, clock_ns=clock_ns)
+            refresh_seconds=refresh_seconds, clock_ns=clock_ns, freshness=freshness)
         self.trading_day = self._references.trading_day
         self.factor_date_basis = self._references.factor_date_basis
         self.factor_availability = self._references.factor_availability

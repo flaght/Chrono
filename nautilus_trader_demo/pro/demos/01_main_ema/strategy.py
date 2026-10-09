@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pdb
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
@@ -11,6 +10,7 @@ from bomber.indicators import ExponentialMovingAverage
 
 from bomber.framework.datahub.sector_roles import SectorDataUnavailable, SectorRoleAssignment
 from bomber.framework.market.basic.base import Bar
+from bomber.framework.trader.execution.events import FillEvent, OrderUpdateEvent
 from bomber.framework.trader.template import StrategyTemplate
 
 
@@ -50,6 +50,8 @@ class MainEmaConfig:
 class MainEmaStrategy(StrategyTemplate):
     """每根主力真实 Bar 用截至该时刻的复权收盘价更新 EMA。"""
 
+    signal_source = "ema"
+
     def __init__(self, strategy_id: str, data_hub: RoleSnapshotPort,
                  config: MainEmaConfig) -> None:
         super().__init__(strategy_id)
@@ -63,6 +65,22 @@ class MainEmaStrategy(StrategyTemplate):
         # 仅在有效主力 Bar 更新后推进，旧主力同时间行情不抢占信号时钟。
         self.last_processed_ns = -1
         self.last_main: str | None = None
+        self.order_updates_received = 0
+        self.last_order_update: OrderUpdateEvent | None = None
+        self.last_order_position: Decimal | None = None
+        # 成交回调读取已入账的策略归属；供回测和在线运行报告核对。
+        self.fills_received = 0
+        self.last_fill_position: Decimal | None = None
+
+    def on_order(self, event: OrderUpdateEvent) -> None:
+        # 订单数量是账户母订单的事实；只观察状态，不按累计成交量再次记仓。
+        self.order_updates_received += 1
+        self.last_order_update = event
+        self.last_order_position = self.position(self.config.target_key)
+
+    def on_fill(self, event: FillEvent) -> None:
+        self.fills_received += 1
+        self.last_fill_position = self.position(self.config.target_key)
 
     def on_bar(self, data_key: str, bar: Bar) -> None:
         del data_key
@@ -103,6 +121,7 @@ class MainEmaStrategy(StrategyTemplate):
             self.config.target_key, target, timestamp,
             metadata={
                 "signal": "LONG" if target > 0 else "SHORT",
+                "signal_source": self.signal_source,
                 "research_main": main,
                 "adjusted_close": str(adjusted_close),
                 "fast_ema": str(self.fast.value),

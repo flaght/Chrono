@@ -6,6 +6,7 @@ import threading
 from typing import Callable
 
 from bomber.framework.trader.contracts import ExecutionRequest
+from bomber.framework.trader.execution.attribution import AttributionError
 from bomber.framework.trader.execution.contracts import ExecutionReport, OrderSide
 from bomber.framework.trader.execution.events import FillEvent, OrderUpdateEvent, map_applied_report
 from bomber.framework.trader.execution.order_state import (
@@ -163,7 +164,9 @@ class BackendExecutionClient:
                     "行情降级期间Live执行必须配置PreTradeRiskManager以校验真实仓位",
                 )
             self._strategy_ids.add(request.strategy_id)
+            orders = self.position_manager.attribution.prepare(request, orders)
             for order in orders:
+                self.position_manager.attribution.reserve(order)
                 signed = order.quantity if order.side is OrderSide.BUY else -order.quantity
                 self.position_manager.adjust_working_quantity(
                     self.client_id,
@@ -182,6 +185,7 @@ class BackendExecutionClient:
                         order.instrument_id,
                         -signed,
                     )
+                    self.position_manager.attribution.release_unsent(order)
                     if self._submit_failure_handler is not None:
                         try:
                             self._submit_failure_handler()
@@ -215,6 +219,7 @@ class BackendExecutionClient:
             self._apply_report(report)
 
     def _apply_report(self, report: ExecutionReport) -> None:
+        self.position_manager.attribution.associate_report(report)
         previous = self._order_states.state(report.client_order_id)
         try:
             update = self._order_states.apply(report)
@@ -252,6 +257,13 @@ class BackendExecutionClient:
                 report.instrument_id,
                 -remaining,
             )
+        try:
+            report = self.position_manager.attribution.apply(report, update, account_id=self.account_id)
+        except AttributionError as error:
+            self._report_errors.append(OrderStateError(str(error)))
+            self._reconciled = False
+            self.position_manager.mark_recovery_required(self.client_id)
+            return
         if not self._execution_handlers or not changed:
             return
         try:

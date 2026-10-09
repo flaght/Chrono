@@ -283,9 +283,13 @@ class CtpNativeTraderDriver:
         if session is None or (
             checkpoint.broker_id != session.broker_id
             or checkpoint.investor_id != session.investor_id
-            or checkpoint.trading_day != session.trading_day
         ):
             raise RuntimeError("CTP检查点账户或交易日与当前登录会话不一致")
+        if checkpoint.trading_day != session.trading_day:
+            # 只有旧、新柜台都没有活动订单才能跨日续接；不猜测过夜漏成交。
+            if (checkpoint.trading_day >= session.trading_day
+                    or checkpoint.orders or snapshot.orders):
+                raise RuntimeError("跨交易日关联恢复要求本地与柜台活动订单均为空")
         refs = [record.order_ref for record in checkpoint.orders]
         if len(refs) != len(set(refs)) or checkpoint.next_ref < 0:
             raise RuntimeError("CTP检查点OrderRef重复或序号无效")
@@ -490,6 +494,7 @@ class CtpNativeTraderDriver:
         sequence = self._sequences.get(order_ref, 0) + 1
         self._sequences[order_ref] = sequence
         metadata = {
+            **order.metadata,
             "strategy_id": order.strategy_id,
             "position_effect": order.position_effect.value,
             "order_ref": order_ref,

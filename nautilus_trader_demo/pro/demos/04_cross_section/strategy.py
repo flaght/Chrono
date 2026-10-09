@@ -6,7 +6,10 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Mapping
 
-from cross_section_signal import CrossSectionMomentumSignal, allocate_group_targets
+if __package__:
+    from .cross_section_signal import CrossSectionMomentumSignal, allocate_group_targets
+else:
+    from cross_section_signal import CrossSectionMomentumSignal, allocate_group_targets
 from bomber.framework.datahub.sector_roles import SectorRoleStore
 from bomber.framework.market.basic.base import Bar, InstrumentId
 from bomber.framework.trader.template import StrategyTemplate
@@ -20,7 +23,8 @@ class MainCrossSectionMomentumStrategy(StrategyTemplate):
                  instruments: Mapping[str, InstrumentId],
                  multipliers: Mapping[InstrumentId, Decimal],
                  lookback: int, rebalance_interval: int,
-                 target_notional: Decimal, group_fraction: Decimal = Decimal("0.30")) -> None:
+                 target_notional: Decimal, group_fraction: Decimal = Decimal("0.30"),
+                 target_quantity_cap: Decimal | None = None, require_full_groups: bool = False) -> None:
         super().__init__(strategy_id)
         if len(products) < 2 or len(set(products)) != len(products):
             raise ValueError("至少需要两个不同品种")
@@ -34,6 +38,13 @@ class MainCrossSectionMomentumStrategy(StrategyTemplate):
         self.lookback = lookback
         self.rebalance_interval = rebalance_interval
         self.target_notional = target_notional
+        if target_quantity_cap is not None:
+            target_quantity_cap = Decimal(str(target_quantity_cap))
+            if (not target_quantity_cap.is_finite() or target_quantity_cap <= 0 or
+                    target_quantity_cap != target_quantity_cap.to_integral_value()):
+                raise ValueError("目标手数上限须为正整数")
+        self.target_quantity_cap = target_quantity_cap
+        self.require_full_groups = require_full_groups
         # 目标金额表示每侧总预算，与入选品种数量无关。
         self.signal = CrossSectionMomentumSignal(products, lookback, group_fraction)
         self.latest: dict[str, Bar] = {}
@@ -44,6 +55,20 @@ class MainCrossSectionMomentumStrategy(StrategyTemplate):
         self.last_signal = None
         self.last_emitted_ns = -1
         self.roll_pending = False
+        self.order_updates_received = 0
+        self.fills_received = 0
+        self.last_order_update = None
+        self.fill_positions = {}
+
+    def on_order(self, event) -> None:
+        self.order_updates_received += 1
+        self.last_order_update = event
+
+    def on_fill(self, event) -> None:
+        self.fills_received += 1
+        # 归属仓位已由公共执行链更新；回调仅观察，不重复入账。
+        self.fill_positions = {str(item): self.position(str(item))
+                               for item in self.instruments.values()}
 
     def on_bar(self, data_key: str, bar: Bar) -> None:
         """同步当前主力行情，在满足预热和调仓条件后提交全合约目标。"""
@@ -92,6 +117,14 @@ class MainCrossSectionMomentumStrategy(StrategyTemplate):
         raw_prices = {item: self.latest[item].close.as_decimal() for item in self.products}
         multipliers = {item: self.multipliers[current_instruments[item]] for item in self.products}
         product_targets = allocate_group_targets(signal, self.target_notional, raw_prices, multipliers)
+        if self.target_quantity_cap is not None:
+            product_targets = {p: max(-self.target_quantity_cap, min(self.target_quantity_cap, q))
+                               for p, q in product_targets.items()}
+        missing = tuple(p for p in (*signal.long_products, *signal.short_products)
+                        if product_targets[p] == 0)
+        if self.require_full_groups and missing:
+            # 新组合不可执行时回到空仓；旧仓退出仍通过完整零目标执行。
+            product_targets = {p: Decimal(0) for p in product_targets}
         for item, quantity in product_targets.items():
             targets[str(current_instruments[item])] = quantity
         self.set_targets(targets, timestamp, metadata={
@@ -99,6 +132,9 @@ class MainCrossSectionMomentumStrategy(StrategyTemplate):
             "group_fraction": str(self.signal.group_fraction),
             "group_size": self.signal.group_size,
             "side_target_notional": str(self.target_notional),
+            "target_quantity_cap": str(self.target_quantity_cap) if self.target_quantity_cap is not None else None,
+            "require_full_groups": self.require_full_groups,
+            "incomplete_group_products": missing,
             "product_targets": {item: str(value) for item, value in product_targets.items()},
             "scores": {item: str(value) for item, value in signal.scores.items()},
             "main_contracts": dict(self.current_main),

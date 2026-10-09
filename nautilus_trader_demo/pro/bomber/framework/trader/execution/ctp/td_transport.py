@@ -430,7 +430,7 @@ class CtpTdApiTransport:
                 raise RuntimeError("CTP仓位明细数量无效")
             detail = {"InstrumentID": symbol, "ExchangeID": venue,
                 "PosiDirection": direction, "Position": quantity}
-            for key in ("PositionDate", "TodayPosition", "YdPosition", "HedgeFlag"):
+            for key in ("PositionDate", "TodayPosition", "YdPosition", "HedgeFlag", "PositionCost"):
                 if key in row:
                     detail[key] = row[key]
             result.append(MappingProxyType(detail))

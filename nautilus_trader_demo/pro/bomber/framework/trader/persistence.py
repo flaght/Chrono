@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 from bomber.framework.market.basic.base import InstrumentId
 from bomber.framework.trader.contracts import TargetPortfolio, TargetUpdateMode
 from bomber.framework.trader.execution.contracts import OrderIntent, OrderSide
+from bomber.framework.trader.execution.attribution import AttributionError, PositionAttributionLedger
 from bomber.framework.trader.execution.ctp.native_driver import (
     CtpDriverCheckpoint,
     CtpNativeTraderDriver,
@@ -49,7 +50,7 @@ from bomber.framework.trader.portfolio import (
 )
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class StatePersistenceError(RuntimeError):
@@ -99,7 +100,9 @@ class JsonStateStore:
             checksum = document.pop("checksum", None)
             if not isinstance(checksum, str) or checksum != _checksum(document):
                 raise StateCorruptionError("状态文件校验和不匹配")
-            if document.get("schema_version") != SCHEMA_VERSION:
+            # v1可以只读迁移；缺少真实合约归属时保持未归属并阻止净额执行。
+            # 新检查点写v2，旧运行代码会拒绝，避免默默丢失归属订单计划。
+            if document.get("schema_version") not in (1, SCHEMA_VERSION):
                 raise StatePersistenceError(
                     f"不支持的状态schema_version: {document.get('schema_version')}",
                 )
@@ -181,6 +184,7 @@ class RuntimeStateManager:
         order_machines: Mapping[str, OrderReportStateMachine] | None = None,
         ctp_ledgers: Mapping[str, CtpPositionLedger] | None = None,
         ctp_drivers: Mapping[str, CtpNativeTraderDriver] | None = None,
+        state_components: Mapping[str, Any] | None = None,
     ) -> None:
         self.repository = repository
         self.target_store = target_store
@@ -189,6 +193,7 @@ class RuntimeStateManager:
         self.order_machines = dict(order_machines or {})
         self.ctp_ledgers = dict(ctp_ledgers or {})
         self.ctp_drivers = dict(ctp_drivers or {})
+        self.state_components = dict(state_components or {})
         self._ctp_submit_locks: dict[str, Any] = {}
         self._generation = 0
         self._lock = threading.RLock()
@@ -214,6 +219,7 @@ class RuntimeStateManager:
 
         def before_send(order_id: str, intent: OrderIntent) -> None:
             with client._submit_lock:
+                self.position_manager.attribution.bind(order_id, intent)
                 machine.register_pending(order_id, intent)
                 try:
                     self.save()
@@ -267,13 +273,21 @@ class RuntimeStateManager:
                     for key, item in associated.items()
                 ):
                     raise StatePersistenceError("CTP Driver与订单状态机尚未达到同一状态，拒绝保存")
+            position_state = self.position_manager.state()
+            order_checkpoints = {key: machine.checkpoints() for key, machine in self.order_machines.items()}
+            try:
+                PositionAttributionLedger.validate_checkpoints(position_state.attribution, order_checkpoints)
+            except AttributionError as error:
+                raise StatePersistenceError(str(error)) from error
             payload = {
+                "component_states": {key: component.snapshot_state()
+                    for key, component in self.state_components.items()},
                 "targets": _encode_targets(self.target_store.all()),
                 "portfolio": _encode_portfolio(self.portfolio_coordinator.state()),
-                "positions": _encode_positions(self.position_manager.state()),
+                "positions": _encode_positions(position_state),
                 "orders": {
-                    client_id: _encode_orders(machine.checkpoints())
-                    for client_id, machine in sorted(self.order_machines.items())
+                    client_id: _encode_orders(checkpoints)
+                    for client_id, checkpoints in sorted(order_checkpoints.items())
                 },
                 "ctp_ledgers": {
                     account_id: _encode_ctp_ledger(ledger.state())
@@ -291,12 +305,19 @@ class RuntimeStateManager:
             self._generation = persisted.generation
             return persisted
 
-    def restore(self) -> RecoverySummary | None:
+    def restore(self, *, legacy_component_states=None) -> RecoverySummary | None:
         with self._lock:
             persisted = self.repository.load()
             if persisted is None:
                 return None
             payload = persisted.payload
+            component_states = payload.get("component_states", {})
+            if not component_states and legacy_component_states is not None:
+                component_states = legacy_component_states
+            if not isinstance(component_states, dict):
+                raise StatePersistenceError("组件状态须为映射")
+            if set(component_states) != set(self.state_components):
+                raise StatePersistenceError("组件检查点缺失或组件集合不一致，不能丢弃策略状态恢复")
             targets = _decode_targets(payload.get("targets"))
             portfolio = _decode_portfolio(payload.get("portfolio"))
             positions = _decode_positions(payload.get("positions"))
@@ -313,6 +334,10 @@ class RuntimeStateManager:
                 client_id: _decode_orders(order_payload[client_id])
                 for client_id in self.order_machines
             }
+            try:
+                PositionAttributionLedger.validate_checkpoints(positions.attribution, orders)
+            except AttributionError as error:
+                raise StatePersistenceError(str(error)) from error
             ledgers = {
                 account_id: _decode_ctp_ledger(ledger_payload[account_id])
                 for account_id in self.ctp_ledgers
@@ -352,8 +377,16 @@ class RuntimeStateManager:
                 key: ledger.state() for key, ledger in self.ctp_ledgers.items()
             }
             staged_drivers: list[CtpNativeTraderDriver] = []
+            old_components = {key: component.snapshot_state()
+                for key, component in self.state_components.items()}
             try:
+                for key, component in self.state_components.items():
+                    component.restore_state(component_states[key])
                 self.target_store.restore(targets)
+                for component in self.state_components.values():
+                    validate = getattr(component, "validate_targets", None)
+                    if callable(validate):
+                        validate(self.target_store)
                 self.portfolio_coordinator.restore(portfolio)
                 self.position_manager.restore(positions)
                 # 本地保存的“已对账”标志不能跨进程继承；账户仓位必须重新查询柜台。
@@ -381,6 +414,8 @@ class RuntimeStateManager:
                     driver.stage_recovery(drivers[key])
                     staged_drivers.append(driver)
             except Exception:
+                for key, component in self.state_components.items():
+                    component.restore_state(old_components[key])
                 for driver in staged_drivers:
                     driver.discard_staged_recovery()
                 self.target_store.restore(old_targets)
@@ -551,6 +586,7 @@ def _encode_positions(state: PositionManagerState) -> dict[str, Any]:
             {"strategy_id": key[0], "target_key": key[1], "revision": revision}
             for key, revision in sorted(state.strategy_revisions.items())
         ],
+        "attribution": _json_value(state.attribution),
     }
 
 
@@ -578,6 +614,7 @@ def _decode_positions(value: Any) -> PositionManagerState:
     )
     return PositionManagerState(
         snapshot=snapshot,
+        attribution=_restore_json_value(value.get("attribution", {})),
         account_revisions={
             _decode_account_key(item["key"]): item["revision"]
             for item in value["account_revisions"]

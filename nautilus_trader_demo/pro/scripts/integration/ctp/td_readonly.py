@@ -6,11 +6,6 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-import sys
-
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
 
@@ -18,6 +13,7 @@ from bomber.framework.trader.execution.ctp.native_driver import CtpNativeTraderD
 from bomber.framework.trader.execution.ctp.td_transport import CtpTdApiTransport
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_ROOT / ".env")
 
 
@@ -82,7 +78,7 @@ def main() -> None:
         print("CTP资金查询完成，查询活动订单")
         orders = driver.reconcile_active_orders()
         print(
-            f"CTP只读结果: instruments={len(positions)} "
+            f"CTP只读结果: trading_day={driver.trading_day} instruments={len(positions)} "
             f"account_revision={account.revision} currencies={tuple(account.balances)} "
             f"orders_revision={orders.revision} active_orders={len(orders.orders)}"
         )

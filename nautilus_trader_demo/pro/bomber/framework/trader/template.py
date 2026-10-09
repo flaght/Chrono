@@ -142,7 +142,7 @@ class StrategyTemplate(ABC):
         if not self._started:
             return
         if isinstance(event, OrderUpdateEvent):
-            self.on_order_update(event)
+            self.on_order(event)
         else:
             self.on_fill(event)
 
@@ -176,8 +176,16 @@ class StrategyTemplate(ABC):
         """独立时钟回调；不要求任何标的在该时刻恰好产生 Bar。"""
         pass
 
+    def on_order(self, event: OrderUpdateEvent) -> None:
+        """订单状态回调；账户、在途和策略归属已更新，先于 on_fill。
+
+        新策略重写此入口。默认转发旧 on_order_update，保持旧策略兼容；
+        同时重写两个入口时，仅自动调用 on_order。
+        """
+        self.on_order_update(event)
+
     def on_order_update(self, event: OrderUpdateEvent) -> None:
-        """可选执行回调；仅在订单状态和账户仓位已更新后调用。"""
+        """旧订单回调兼容入口；新策略使用 on_order。"""
         pass
 
     def on_fill(self, event: FillEvent) -> None:

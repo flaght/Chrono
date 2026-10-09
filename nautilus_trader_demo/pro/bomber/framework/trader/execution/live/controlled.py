@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import threading
 import time
 from dataclasses import dataclass
 from decimal import Decimal
@@ -37,6 +39,7 @@ class ControlledLiveExecutionClient(BackendExecutionClient):
         demo_environment_check: Callable[[], bool],
         max_request_wall_age_ns: int | None = None,
         wall_clock_ns: Callable[[], int] = time.time_ns,
+        account_query_wait_seconds: float = 5.0,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -44,6 +47,11 @@ class ControlledLiveExecutionClient(BackendExecutionClient):
             raise ValueError("P3受控在线客户端必须配置PreTradeRiskManager")
         if max_request_wall_age_ns is not None and max_request_wall_age_ns <= 0:
             raise ValueError("请求墙钟时效必须大于零")
+        if not math.isfinite(account_query_wait_seconds) or account_query_wait_seconds <= 0:
+            raise ValueError("资金查询等待时间必须为有限正数")
+        self._account_query_wait_seconds = account_query_wait_seconds
+        self._account_query_condition = threading.Condition(self._submit_lock)
+        self._authorization_generation = 0
         self._demo_environment_check = demo_environment_check
         self._max_request_wall_age_ns = max_request_wall_age_ns
         self._wall_clock_ns = wall_clock_ns
@@ -201,6 +209,7 @@ class ControlledLiveExecutionClient(BackendExecutionClient):
             # 经recover_active_orders校验后替换在途量，再重新查询仓位和资金。
             self.position_manager.mark_recovery_required(self.client_id)
             self._record("DISCONNECTED", reason)
+            self._account_query_condition.notify_all()
 
     def refresh_account_state(self) -> AccountStateEvent:
         """周期性只读心跳；查询失败即撤销授权并要求完整重新对账。"""
@@ -222,6 +231,7 @@ class ControlledLiveExecutionClient(BackendExecutionClient):
                 self._account_state = state
                 self._heartbeat_in_flight = False
                 self._record("ACCOUNT_REFRESHED", str(state.revision))
+                self._account_query_condition.notify_all()
                 return state
         except Exception as error:
             self.mark_disconnected(type(error).__name__)
@@ -240,23 +250,49 @@ class ControlledLiveExecutionClient(BackendExecutionClient):
             if not self._demo_environment_check():
                 raise PermissionError("交易节点未被核实为DEMO环境")
             self._armed = True
+            self._authorization_generation += 1
             self._record("DEMO_ARMED")
 
     def disarm(self, reason: str = "operator") -> None:
         with self._submit_lock:
             self._armed = False
+            self._authorization_generation += 1
             self._record("DISARMED", reason)
+            self._account_query_condition.notify_all()
 
     def submit_targets(self, request: ExecutionRequest) -> None:
         with self._submit_lock:
+            epoch = self._connection_epoch
+            generation = self._authorization_generation
+            if self._armed and self.is_reconciled and self._heartbeat_in_flight:
+                self._record("ORDER_WAITING_FOR_ACCOUNT", request.strategy_id)
+                # 等待时释放提交/回报锁，让柜台查询及回报线程可以完成；
+                # 成功后重新核验授权、会话与请求时效，不自动开闸或重试报单。
+                completed = self._account_query_condition.wait_for(
+                    lambda: (not self._heartbeat_in_flight or not self._armed
+                             or epoch != self._connection_epoch
+                             or generation != self._authorization_generation),
+                    timeout=self._account_query_wait_seconds,
+                )
+                if not completed:
+                    self.disarm("account_query_wait_timeout")
+                    self._record("ORDER_BLOCKED", "account_query_wait_timeout account_query_in_flight=True")
+                    raise RuntimeError("资金查询等待超时；已关闭DEMO下单授权")
+            demo_check_error = None
             try:
                 demo_verified = self._demo_environment_check()
-            except Exception:
+            except Exception as error:
                 demo_verified = False
-            if not self._armed or not demo_verified or self._heartbeat_in_flight:
+                demo_check_error = type(error).__name__
+            if (not self._armed or not demo_verified or self._heartbeat_in_flight
+                    or epoch != self._connection_epoch
+                    or generation != self._authorization_generation):
+                detail = (f"armed={self._armed} demo_verified={demo_verified} "
+                    f"account_query_in_flight={self._heartbeat_in_flight} "
+                    f"reconciled={self.is_reconciled} demo_check_error={demo_check_error}")
                 self._armed = False
-                self._record("ORDER_BLOCKED", "not_armed_or_not_demo_or_query_in_flight")
-                raise PermissionError("P3客户端处于只读模式或DEMO环境未核实")
+                self._record("ORDER_BLOCKED", detail)
+                raise PermissionError(f"P3客户端处于只读模式或DEMO环境未核实：{detail}")
             if self._max_request_wall_age_ns is not None:
                 age_ns = self._wall_clock_ns() - request.ts_event
                 if abs(age_ns) > self._max_request_wall_age_ns:
@@ -298,6 +334,7 @@ class ControlledLiveExecutionClient(BackendExecutionClient):
             self.disarm("stop")
             self._account_state = None
             self._heartbeat_in_flight = False
+            self._account_query_condition.notify_all()
             working = self.position_manager.snapshot().working_quantities
             if self._started and (
                 any(not state.status.is_terminal for state in self.order_state_machine.states())

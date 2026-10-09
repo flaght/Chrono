@@ -239,7 +239,7 @@ class Backend:
                 filled_quantity=order.quantity, fill_price=100, order_side=order.side,
                 order_quantity=order.quantity, position_effect=order.position_effect,
                 report_id=f"fill-{index}", sequence=1,
-                metadata={"strategy_id": order.strategy_id, "trade_id": f"trade-{index}"})
+                metadata={**order.metadata, "strategy_id": order.strategy_id, "trade_id": f"trade-{index}"})
             for handler in tuple(self.handlers):
                 handler(report)
             self.trace.append(("fill", event.ts_event))
@@ -328,6 +328,13 @@ class AssemblyTests(unittest.TestCase):
         self.assertEqual(strategy.fast.value, 200.0)
         self.assertEqual(result.backend_result, {"orders": 1, "fills": 1})
         self.assertEqual(client.position_manager.account_position(backend.backend_id, RB), 1)
+        self.assertEqual(strategy.position(strategy.config.target_key), 1)
+        self.assertEqual(strategy.last_fill_position, 1)
+        self.assertEqual(strategy.fills_received, 1)
+        self.assertEqual(strategy.order_updates_received, 1)
+        self.assertEqual(strategy.last_order_update.status.value, "FILLED")
+        self.assertEqual(strategy.last_order_position, 1)
+        self.assertEqual(client.position_manager.unassigned_position(backend.backend_id, RB), 0)
         self.assertEqual(client.report_errors, ())
 
 

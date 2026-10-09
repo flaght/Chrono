@@ -94,6 +94,35 @@ class AutoFillTdApi(FlatTdApi):
         return 0
 
 
+class AdoptTdApi(FlatTdApi):
+    position_date = "1"
+    hedge_flag = "1"
+    position_cost = 31000
+    missing_cost = False
+
+    def __init__(self):
+        super().__init__()
+        self.gross = {"rb2704.SHFE": (0, 1)}
+
+    def reqQryInvestorPosition(self, data, reqid):
+        self.request_names.append("positions")
+        for instrument, amounts in self.gross.items():
+            symbol, exchange = instrument.split(".")
+            for direction, amount in zip(("2", "3"), amounts):
+                if not amount:
+                    continue
+                row = {"BrokerID": "9999", "InvestorID": "demo", "InstrumentID": symbol,
+                    "ExchangeID": exchange, "PosiDirection": direction, "Position": int(amount),
+                    "PositionDate": self.position_date, "HedgeFlag": self.hedge_flag,
+                    "TodayPosition": int(amount) if self.position_date == "1" else 0}
+                if not self.missing_cost:
+                    row["PositionCost"] = self.position_cost
+                self.onRspQryInvestorPosition(row, {}, reqid, False)
+        if not self.drop_position_last:
+            self.onRspQryInvestorPosition({}, {}, reqid, True)
+        return 0
+
+
 class ManualMd(MarketDataFeed):
     def __init__(self):
         super().__init__("manual-main-md")
@@ -143,11 +172,11 @@ class LiveTests(unittest.TestCase):
             product="RB", trading_day="20260922", contract_struct=self.role_path,
             factors=self.factor_path, fut_basic=self.basic_path, started_ns=BASE)
 
-    def transport_driver(self, orders=False):
+    def transport_driver(self, orders=False, api_base=FlatTdApi):
         transport = CtpTdApiTransport(
             client_id=live.CLIENT_ID, account_id="demo", front="tcp://fake:1234",
             broker_id="9999", investor_id="demo", password="fake-password",
-            app_id="fake-app", auth_code="fake-auth", td_api_base=FlatTdApi,
+            app_id="fake-app", auth_code="fake-auth", td_api_base=api_base,
             flow_path=str(self.root / "td"), timeout_seconds=0.05)
         holder = {}
         driver = CtpNativeTraderDriver(
@@ -158,8 +187,8 @@ class LiveTests(unittest.TestCase):
         self.addCleanup(driver.stop)
         return transport, driver, holder
 
-    def session(self, orders=False, replay=False):
-        transport, driver, holder = self.transport_driver(orders)
+    def session(self, orders=False, replay=False, adopt=False):
+        transport, driver, holder = self.transport_driver(orders, AdoptTdApi if adopt else FlatTdApi)
         args = SimpleNamespace(mode="simnow" if orders else "recording", product="RB",
             fast=2, slow=3, quantity=Decimal(1), limit_offset_ticks=1,
             max_notional=Decimal(50000), state_file=self.root / "state.json",
@@ -168,8 +197,24 @@ class LiveTests(unittest.TestCase):
         upstream = ManualMd()
         if replay:
             upstream.latest_trading_day = "20260921"
+        if adopt:
+            controller = live.MainEmaSessionLifecycle(transport, md_front="tcp://fake:1234", orders=orders,
+                adopt_instrument="rb2704.SHFE", expected_position=Decimal(-1))
+            controller.driver = driver
+            resources = ExitStack()
+            self.addCleanup(resources.close)
+            context = controller.prepare(resources)
+            context.references = self.reference()
+            controller.finish_preparation(context)
         s = live.assemble(args, self.reference(), driver, upstream)
         holder["session"] = s
+        if adopt:
+            controller.start(s, context)
+            self.addCleanup(s.runner.stop)
+            s.transport = transport
+            s.controller = controller
+            s.adoption_resources = resources
+            return s
         if not orders:
             driver.start(lambda report: None)
         s.runner.start()
@@ -301,10 +346,10 @@ class LiveTests(unittest.TestCase):
                 transport=SimpleNamespace(investor_id="demo", password="fake", production_mode=True))
             with patch.dict("os.environ", {"DDB_HOST": "fake", "DDB_USERNAME": "fake",
                                         "DDB_PASSWORD": "fake"}), \
-                    patch.object(live.ReferenceSourceFactory, "create", return_value=source), \
+                    patch.object(live.ReferenceSourceFactory, "create_for", return_value=source), \
                     patch.object(live, "CtpLiveDataFeed", side_effect=AssertionError("不应启动MD")):
                 with self.assertRaisesRegex(SectorDataUnavailable,
-                        "expected=20260920 actual=2026-09-21"):
+                        "expected=2026-09-20 actual=2026-09-21"):
                     live.prepare_inputs(args, context, lifecycle)
         self.assertTrue(sdk.closed)
         self.assertFalse(state_file.exists())
@@ -396,6 +441,158 @@ class LiveTests(unittest.TestCase):
     def test_actual_td_transport_reverse_and_durable_duplicate_fill(self):
         self.exercise_reverse(replay=False)
 
+    def _check_fresh_ema_first_fill(self, step, expected):
+        s = self.session(orders=True)
+        key = s.strategy.config.target_key
+        self.assertEqual(s.strategy.position(key), 0)
+        self.assertEqual(s.runner.position_manager.account_position(live.CLIENT_ID, s.references.instrument_id), 0)
+        self.assertEqual(s.runner.position_manager.unassigned_position(live.CLIENT_ID, s.references.instrument_id), 0)
+        self.assertEqual(s.strategy.fills_received, 0)
+        self.assertIsNone(s.strategy.last_target)
+        for minute in range(3):
+            self.tick(s, minute, 3100 + minute * step)
+        self.assertFalse(s.transport._api.sent)  # 未完成慢线预热，不报单。
+        self.tick(s, 3, 3100 + 3 * step)
+        api = s.transport._api
+        self.assertEqual(s.strategy.last_target, expected)
+        self.assertEqual(s.strategy.signal_source, "ema")
+        self.assertEqual(len(api.sent), 1)
+        self.assertEqual(api.sent[0]["CombOffsetFlag"], "0")
+        self.assertEqual(api.sent[0]["Direction"], "0" if expected == 1 else "1")
+        self.assertEqual(api.sent[0]["VolumeTotalOriginal"], 1)
+        self.assertEqual(s.strategy.position(key), 0)  # 目标和报单都不直接修改实仓。
+        self.fill(s, 0, duplicate=True)
+        self.assertEqual(s.strategy.fills_received, 1)
+        self.assertEqual(s.strategy.last_fill_position, expected)
+        self.assertEqual(s.strategy.last_order_position, expected)
+        self.assertEqual(s.strategy.position(key), expected)
+        self.assertEqual(s.runner.position_manager.account_position(live.CLIENT_ID, s.references.instrument_id), expected)
+        self.assertEqual(s.runner.position_manager.unassigned_position(live.CLIENT_ID, s.references.instrument_id), 0)
+        self.tick(s, 4, 3100 + 4 * step)
+        self.assertEqual(len(api.sent), 1)
+
+    def test_fresh_ema_short_starts_flat_and_opens_from_its_own_fill(self):
+        self._check_fresh_ema_first_fill(-10, -1)
+
+    def test_fresh_ema_long_starts_flat_and_opens_from_its_own_fill(self):
+        self._check_fresh_ema_first_fill(10, 1)
+
+    def test_fixed_target_cli_has_been_removed(self):
+        command = ["--connect", "--product", "CU"]
+        for extra in (["--acceptance-target", "LONG"], ["--confirm-acceptance-target"]):
+            with self.subTest(extra=extra), redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                live.parse_args(command + extra)
+
+    def test_ema_short_matching_adopted_position_is_reported_as_untriggered(self):
+        s = self.session(orders=True, adopt=True)
+        for minute in range(4):
+            self.tick(s, minute, 3100 - minute * 10)
+        self.assertEqual(s.strategy.last_target, -1)
+        self.assertEqual(s.strategy.signal_source, "ema")
+        self.assertFalse(s.transport._api.sent)
+        with self.assertRaisesRegex(RuntimeError, "成交验收未触发：目标=-1 策略仓位=-1"):
+            s.controller.verify(s)
+
+    def test_adopted_short_closes_before_long_open_and_duplicate_fill_is_ignored(self):
+        for day, offset in (("1", "3"), ("2", "4")):
+            with self.subTest(position_date=day), patch.object(AdoptTdApi, "position_date", day):
+                s = self.session(orders=True, adopt=True)
+                self.assertEqual(s.runner.position_manager.position(s.strategy.strategy_id,
+                    s.strategy.config.target_key), -1)
+                self.assertEqual(s.ledger.snapshot(s.references.instrument_id).short_total, 1)
+                for minute in range(4):
+                    self.tick(s, minute, 3100)
+                api = s.transport._api
+                self.assertEqual(len(api.sent), 1)
+                self.assertEqual(api.sent[0]["CombOffsetFlag"], offset)
+                self.assertEqual(api.sent[0]["Direction"], "0")
+                self.tick(s, 4, 3100)
+                self.assertEqual(len(api.sent), 1)
+                self.fill(s, 0, duplicate=True)
+                api.gross = {}
+                self.assertEqual(s.ledger.snapshot(s.references.instrument_id).short_total, 0)
+                self.assertEqual(s.strategy.position(s.strategy.config.target_key), 0)
+                self.assertEqual(s.strategy.last_fill_position, 0)
+                self.assertEqual(s.strategy.fills_received, 1)
+                self.assertEqual(s.strategy.last_order_update.status.value, "FILLED")
+                self.assertEqual(s.strategy.last_order_position, 0)
+                order_updates = s.strategy.order_updates_received
+                self.tick(s, 5, 3100)
+                self.assertEqual(len(api.sent), 2)
+                self.assertEqual(api.sent[1]["CombOffsetFlag"], "0")
+                self.assertEqual(api.sent[1]["Direction"], "0")
+                self.fill(s, 1)
+                api.gross = {"rb2704.SHFE": (1, 0)}
+                self.assertEqual(s.ledger.snapshot(s.references.instrument_id).long_total, 1)
+                self.assertEqual(s.strategy.position(s.strategy.config.target_key), 1)
+                self.assertEqual(s.strategy.last_fill_position, 1)
+                self.assertEqual(s.strategy.fills_received, 2)
+                self.assertGreater(s.strategy.order_updates_received, order_updates)
+                self.assertEqual(s.strategy.last_order_update.status.value, "FILLED")
+                self.assertEqual(s.strategy.last_order_position, 1)
+                self.assertEqual(s.runner.position_manager.unassigned_position(
+                    live.CLIENT_ID, s.references.instrument_id), 0)
+                self.assertEqual(s.strategy._revision, 1)
+                saved = JsonStateStore(self.root / "state.json").load()
+                self.assertEqual(saved.payload["ctp_drivers"][live.CLIENT_ID]["orders"], [])
+                s.runner.stop()
+                s.driver.stop()
+                s.adoption_resources.close()
+                (self.root / "state.json").unlink()
+                self.now = BASE
+
+    def test_adoption_rejects_wrong_gross_missing_cost_and_active_orders(self):
+        from bomber.framework.trader.runtime.ctp_positions import inspect_adopted_position
+        transport, driver, _ = self.transport_driver(api_base=AdoptTdApi)
+        driver.start(lambda report: None)
+        api = transport._api
+        for gross in ({}, {"rb2704.SHFE": (1, 1)}, {"rb2704.SHFE": (0, 2)},
+                      {"rb2703.SHFE": (0, 1)}):
+            api.gross = gross
+            with self.subTest(gross=gross), self.assertRaisesRegex(RuntimeError, "预期不符"):
+                inspect_adopted_position(driver, transport, "rb2704.SHFE", -1)
+        api.gross = {"rb2704.SHFE": (0, 1)}
+        api.missing_cost = True
+        with self.assertRaisesRegex(RuntimeError, "PositionCost"):
+            inspect_adopted_position(driver, transport, "rb2704.SHFE", -1)
+        api.missing_cost = False
+        for change in ({"position_date": ""}, {"hedge_flag": "2"}, {"position_cost": 0}):
+            with patch.multiple(api, **change), self.assertRaises(RuntimeError):
+                inspect_adopted_position(driver, transport, "rb2704.SHFE", -1)
+        api.active = True
+        with self.assertRaisesRegex(RuntimeError, "活动订单"):
+            inspect_adopted_position(driver, transport, "rb2704.SHFE", -1)
+
+    def test_adopted_short_same_signal_keeps_position_without_order(self):
+        s = self.session(orders=True, adopt=True)
+        for minute, price in enumerate((3100, 3090, 3080, 3070, 3060)):
+            self.tick(s, minute, price)
+        self.assertEqual(s.strategy.last_target, -1)
+        self.assertEqual(s.transport._api.sent, [])
+        self.assertEqual(s.ledger.snapshot(s.references.instrument_id).short_total, 1)
+
+    def test_adoption_rejects_changing_cost_between_queries(self):
+        from bomber.framework.trader.runtime.ctp_positions import inspect_adopted_position
+        transport, driver, _ = self.transport_driver(api_base=AdoptTdApi)
+        driver.start(lambda report: None)
+        first = transport.query_position_details()
+        second = tuple({**dict(row), "PositionCost": 32000} for row in first)
+        with patch.object(transport, "query_position_details", side_effect=[first, second]):
+            with self.assertRaisesRegex(RuntimeError, "查询期间"):
+                inspect_adopted_position(driver, transport, "rb2704.SHFE", -1)
+
+    def test_adoption_cli_requires_exact_position_and_two_order_budget(self):
+        command = ["--connect", "--product", "CU", "--mode", "simnow", "--enable-orders",
+            "--confirm-simnow", "--state-file", str(self.root / "adopt-state.json"),
+            "--expected-source-day", "20261008", "--expected-trading-day", "20261009",
+            "--adopt-existing-position", "cu2611.SHFE"]
+        args = live.parse_args([*command, "--expected-position", "-1", "--max-session-orders", "2"])
+        self.assertEqual(args.expected_position, Decimal(-1))
+        for extra in ([], ["--expected-position", "0"],
+                      ["--expected-position", "-1", "--max-session-orders", "1"]):
+            with self.subTest(extra=extra), redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                live.parse_args([*command, *extra])
+
     def test_replay_reverse_and_duplicate_fill_still_use_actual_td_ledger(self):
         self.exercise_reverse(replay=True)
 
@@ -475,14 +672,14 @@ class LiveTests(unittest.TestCase):
         self.complete_entry(orders=True, database=True)
 
     def test_replay_cli_requires_explicit_day_and_preserves_default(self):
-        default = live.parse_args(["--connect", "--product", "RB"])
+        default = live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921"])
         self.assertEqual(default.simnow_environment, "realtime")
         for extra in (["--simnow-environment", "replay"],
                       ["--simnow-environment", "replay", "--replay-md-trading-day", "20260230"],
                       ["--replay-md-trading-day", "20260921"]):
             with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
-                live.parse_args(["--connect", "--product", "RB", *extra])
-        args = live.parse_args(["--connect", "--product", "RB", "--simnow-environment", "replay",
+                live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921", *extra])
+        args = live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921", "--simnow-environment", "replay",
                                "--replay-md-trading-day", "20260921"])
         self.assertEqual(args.replay_md_trading_day, "20260921")
 
@@ -596,26 +793,27 @@ class LiveTests(unittest.TestCase):
         self.complete_entry(orders=True, database=True, replay=True)
 
     def test_reference_date_cli_defaults_and_invalid_policy(self):
-        file = live.parse_args(["--connect", "--product", "RB"])
-        database = live.parse_args(["--connect", "--product", "RB", "--reference-source", "dolphindb"])
+        file = live.parse_args(["--connect", "--product", "RB", "--reference-source", "file", "--allow-file-reference-test"])
+        database = live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921"])
+        self.assertEqual(database.reference_source, "dolphindb")
         self.assertEqual((file.factor_date_basis, file.factor_availability), ("trading", "aligned"))
         self.assertEqual((database.factor_date_basis, database.factor_availability), ("source", "source-day-end"))
-        aligned_database = live.parse_args(["--connect", "--product", "RB", "--reference-source", "dolphindb",
+        aligned_database = live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921", "--reference-source", "dolphindb",
             "--factor-date-basis", "trading"])
         self.assertEqual(aligned_database.factor_availability, "aligned")
         night_database = live.parse_args(["--connect", "--product", "CU", "--reference-source", "dolphindb",
             "--factor-availability", "observed-on-read", "--expected-source-day", "20261008"])
         self.assertEqual((night_database.product, night_database.factor_availability), ("CU", "observed-on-read"))
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as error:
-            live.parse_args(["--connect", "--product", "RB", "--factor-date-basis", "source",
+            live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921", "--factor-date-basis", "source",
                 "--factor-availability", "aligned"])
         self.assertEqual(error.exception.code, 2)
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as error:
-            live.parse_args(["--connect", "--product", "RB", "--factor-date-basis", "source",
+            live.parse_args(["--connect", "--product", "RB", "--reference-source", "file", "--allow-file-reference-test", "--factor-date-basis", "source",
                 "--factor-availability", "observed-on-read"])
         self.assertEqual(error.exception.code, 2)
         with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as error:
-            live.parse_args(["--connect", "--product", "RB", "--reference-source", "dolphindb",
+            live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921", "--reference-source", "dolphindb",
                 "--simnow-environment", "replay", "--replay-md-trading-day", "20260930",
                 "--factor-availability", "observed-on-read"])
         self.assertEqual(error.exception.code, 2)
@@ -638,6 +836,21 @@ class LiveTests(unittest.TestCase):
         self.assertIn("expected_TD=20261009", message)
         self.assertIn("reason=ready", message)
 
+    def test_ctp_snapshot_preserves_recent_execution_audit(self):
+        s = self.session(orders=True)
+        controller = live.CtpSessionLifecycle(s.transport, md_front="tcp://fake:1234", orders=True)
+        controller.driver = s.driver
+        context = SimpleNamespace(references=s.references)
+        audit = controller.snapshot(s, context)["execution_audit"]
+        self.assertTrue(any(item["action"] == "DEMO_ARMED" for item in audit))
+        for index in range(35):
+            s.client.disarm(f"diagnostic-{index}")
+        audit = controller.snapshot(s, context)["execution_audit"]
+        self.assertEqual(len(audit), 30)
+        self.assertEqual(audit[-1]["action"], "DISARMED")
+        self.assertEqual(audit[-1]["detail"], "diagnostic-34")
+        self.assertNotIn("fake-password", str(audit))
+
     def test_slow_reference_refresh_blocks_bar_before_strategy_decision(self):
         s = self.session(orders=True)
         self.now = BASE + 2 * MINUTE
@@ -654,13 +867,13 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(s.transport._api.sent, [])
 
     def test_runtime_construction_does_not_connect_or_open_database(self):
-        args = live.parse_args(["--connect", "--product", "RB", "--reference-source", "dolphindb",
+        args = live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921", "--reference-source", "dolphindb",
             "--report-dir", str(self.root / "reports")])
         environment = {"CTP_BROKER_ID": "9999", "CTP_ACCOUNT_ID": "demo", "CTP_PASSWORD": "fake",
             "CTP_TD_ADDRESS": "tcp://fake:1234", "CTP_MD_ADDRESS": "tcp://fake:1234"}
         with patch.dict("os.environ", environment, clear=True), \
                 patch.object(CtpTdApiTransport, "connect") as connect, \
-                patch.object(live.ReferenceSourceFactory, "create") as create:
+                patch.object(live.ReferenceSourceFactory, "create_for") as create:
             runtime = live.build_runtime(args)
             self.assertIsNone(runtime.report.path)
             runtime.stop()
@@ -672,7 +885,7 @@ class LiveTests(unittest.TestCase):
         from .test_reference_sources import FakeSession
         from bomber.framework.dataprep.sources import DolphinDbReferenceConfig, DolphinDbReferenceSource
         from bomber.framework.datahub.sector_roles import SectorDataUnavailable
-        args = live.parse_args(["--connect", "--product", "RB", "--reference-source", "dolphindb",
+        args = live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921", "--reference-source", "dolphindb",
             "--query-timeout", "0.05", "--report-dir", str(self.root / "reports")])
         sdk = FakeSession()
         sdk.data["fut_adjustment_factors"] = sdk.data["fut_adjustment_factors"].iloc[:0]
@@ -691,7 +904,7 @@ class LiveTests(unittest.TestCase):
             "DDB_HOST": "fake", "DDB_USERNAME": "fake", "DDB_PASSWORD": "fake"}
         with patch.dict("os.environ", environment, clear=True), \
                 patch.object(live, "CtpTdApiTransport", side_effect=td_factory), \
-                patch.object(live.ReferenceSourceFactory, "create", return_value=source):
+                patch.object(live.ReferenceSourceFactory, "create_for", return_value=source):
             with self.assertRaises(SectorDataUnavailable):
                 live.run_session(args)
         summary = json.loads(next((self.root / "reports").glob("*/summary.json")).read_text())
@@ -702,7 +915,7 @@ class LiveTests(unittest.TestCase):
         self.assertIsNone(transports[0]._api)
 
     def test_runtime_holds_shared_and_legacy_account_locks_before_td_start(self):
-        args = live.parse_args(["--connect", "--product", "RB"])
+        args = live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921"])
         environment = {"CTP_BROKER_ID": "9999", "CTP_ACCOUNT_ID": "demo", "CTP_PASSWORD": "fake",
             "CTP_TD_ADDRESS": "tcp://fake:1234", "CTP_MD_ADDRESS": "tcp://fake:1234",
             "CTP_TD_FLOW_PATH": str(self.root / "td-lock")}
@@ -731,13 +944,14 @@ class LiveTests(unittest.TestCase):
 
     def complete_entry(self, orders, database=False, replay=False):
         args = live.parse_args(["--connect", "--product", "RB", "--fast", "2", "--slow", "3",
+            "--expected-source-day", "20260921",
             "--seconds", "0.01", "--query-timeout", "0.05", "--contract-struct", str(self.role_path),
             "--fut-basic", str(self.basic_path), "--factors", str(self.factor_path),
             "--report-dir", str(self.root / "reports"), *(
                 ["--mode", "simnow", "--enable-orders", "--confirm-simnow",
-                 "--state-file", str(self.root / "complete-state.json"),
-                 "--expected-source-day", "20260921"] if orders else []), *(
-                ["--reference-source", "dolphindb"] if database else []), *(
+                 "--state-file", str(self.root / "complete-state.json")] if orders else []), *(
+                ["--reference-source", "dolphindb"] if database else
+                ["--reference-source", "file", "--allow-file-reference-test"]), *(
                 ["--simnow-environment", "replay", "--replay-md-trading-day", "20260921"]
                 if replay else [])])
         upstream = ManualMd()
@@ -788,7 +1002,7 @@ class LiveTests(unittest.TestCase):
                 patch.object(live, "CtpTdApiTransport", side_effect=td_factory), \
                 patch.object(live, "CtpLiveDataFeed", return_value=upstream), \
                 patch("time.sleep", side_effect=pump), \
-                (patch.object(live.ReferenceSourceFactory, "create", return_value=database_source)
+                (patch.object(live.ReferenceSourceFactory, "create_for", return_value=database_source)
                  if database else nullcontext()), \
                 (patch.object(live, "resolve_paths", side_effect=AssertionError("数据库模式不应读取文件路径"))
                  if database else nullcontext()):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 import time
+import threading
 
 from bomber.framework.market.basic.base import (
     BarType,
@@ -59,6 +60,7 @@ class TradeTickBarFeed(MarketDataFeed):
         self._interval_ns = _BAR_SPEC_TO_NS[normalized]
         self._states: dict[InstrumentId, _TradeBarState] = {}
         self._handler_attached = False
+        self._aggregation_lock = threading.RLock()
 
     @property
     def health_snapshot(self):
@@ -125,12 +127,36 @@ class TradeTickBarFeed(MarketDataFeed):
         if self._is_connected:
             self.upstream.subscribe(request.instrument_id, DataType.TRADE_TICK)
 
+    def drain_completed(self, now_ns: int):
+        """在已确认收盘边界取走完整桶；未结束的桶保留，不触发行情回调。"""
+        with self._aggregation_lock:
+            return self._drain_completed(now_ns)
+
+    def _drain_completed(self, now_ns):
+        result = []
+        for instrument, state in tuple(self._states.items()):
+            end = (state.bucket + 1) * self._interval_ns
+            if end > now_ns:
+                continue
+            meta = self.get_instrument_meta(instrument)
+            if meta is None:
+                raise RuntimeError(f"实时聚合缺少合约元数据: {instrument}")
+            result.append(make_bar(instrument_id=instrument, open=state.open, high=state.high,
+                low=state.low, close=state.close, volume=state.volume,
+                ts_event=end - 1, ts_init=now_ns, meta=meta, bar_type=self.bar_spec))
+            del self._states[instrument]
+        return tuple(result)
+
     def _on_subscription_removed(self, request: SubscriptionRequest) -> None:
         if self._is_connected and request.instrument_id not in self._subscriptions:
             self.upstream.unsubscribe(request.instrument_id, DataType.TRADE_TICK)
         self._states.pop(request.instrument_id, None)
 
     def _on_trade_tick(self, tick: TradeTick) -> None:
+        with self._aggregation_lock:
+            self._aggregate_tick(tick)
+
+    def _aggregate_tick(self, tick: TradeTick) -> None:
         instrument_id = tick.instrument_id
         if instrument_id not in self._subscriptions:
             return

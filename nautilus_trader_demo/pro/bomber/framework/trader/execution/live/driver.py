@@ -71,37 +71,33 @@ class NautilusTradingNodeDriver:
         if self._started:
             return
         gateway = NautilusOrderGateway(self.driver_id, report_sink)
-        self.node.trader.add_strategy(gateway)
-        self.node.build()
+        try:
+            self.node.trader.add_strategy(gateway)
+            self.node.build()
+        except BaseException:
+            self.node.dispose()
+            raise
         self._gateway = gateway
         self._thread = threading.Thread(
             target=self.node.run,
             name=f"{self.driver_id}-TradingNode",
             daemon=True,
         )
-        self._thread.start()
-        if self._ready_callback is not None:
-            deadline = time.monotonic() + self._startup_timeout
-            while not self._ready_callback():
-                if self._thread is not None and not self._thread.is_alive():
-                    self.node.dispose()
-                    self._gateway = None
-                    self._thread = None
-                    raise RuntimeError("TradingNode在完成启动前已经退出")
-                if time.monotonic() >= deadline:
-                    try:
-                        self.node.stop()
-                    finally:
-                        if self._thread is not None and self._thread.is_alive():
-                            self._thread.join(timeout=5.0)
-                        self.node.dispose()
-                        self._gateway = None
-                        self._thread = None
-                    raise TimeoutError(
-                        f"TradingNode在{self._startup_timeout:g}秒内未就绪",
-                    )
-                time.sleep(0.05)
         self._started = True
+        try:
+            self._thread.start()
+            if self._ready_callback is not None:
+                deadline = time.monotonic() + self._startup_timeout
+                while not self._ready_callback():
+                    if not self._thread.is_alive():
+                        raise RuntimeError("TradingNode在完成启动前已经退出")
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(f"TradingNode在{self._startup_timeout:g}秒内未就绪")
+                    time.sleep(0.05)
+        except BaseException:
+            # 即使ready回调抛错，也必须结束线程；未结束时保留Driver以便重试停机。
+            self.stop()
+            raise
 
     def stop(self) -> None:
         if not self._started:
@@ -110,9 +106,12 @@ class NautilusTradingNodeDriver:
             self.node.stop()
             if self._thread is not None and self._thread.is_alive():
                 self._thread.join(timeout=10.0)
+                if self._thread.is_alive():
+                    raise RuntimeError("TradingNode线程尚未结束，不能释放账户写入所有权")
         finally:
-            self.node.dispose()
-            self._started = False
+            if self._thread is None or not self._thread.is_alive():
+                self.node.dispose()
+                self._started = False
 
     def submit_order(self, order: OrderIntent) -> None:
         if self._gateway is None:

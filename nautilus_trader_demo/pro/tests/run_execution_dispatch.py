@@ -69,7 +69,17 @@ class Observer(StrategyTemplate):
                             self.working_quantity("leg")))
 
 
-def _setup(*, legacy: bool = False, same_instrument: bool = False):
+class OrderObserver(Observer):
+    def on_order(self, event) -> None:
+        Observer.on_order_update(self, event)
+
+
+class BothOrderObserver(OrderObserver):
+    def on_order_update(self, event) -> None:
+        raise AssertionError("同时重写时不应自动二次调用旧订单入口")
+
+
+def _setup(*, legacy: bool = False, same_instrument: bool = False, observer_type=Observer):
     positions = PositionManager()
     backend = FakeBackend()
     client = BackendExecutionClient(
@@ -77,7 +87,7 @@ def _setup(*, legacy: bool = False, same_instrument: bool = False):
     )
     runner = UnifiedStrategyRunner(RuntimeMode.LIVE, position_manager=positions)
     runner.add_execution_client(client)
-    alpha = Observer("alpha")
+    alpha = observer_type("alpha")
     beta = StrategyTemplate("beta") if legacy else Observer("beta")
     runner.add_strategy(alpha, data_bindings=(),
                         execution_routes=(ExecutionRoute("leg", "fake-live", RB),))
@@ -92,8 +102,11 @@ def _setup(*, legacy: bool = False, same_instrument: bool = False):
 
 
 def _report(status, sequence: int, *, filled: int = 0, strategy_id: str | None = "alpha",
-            trade_id: str | None = None) -> ExecutionReport:
-    metadata = {} if strategy_id is None else {"strategy_id": strategy_id}
+            order_metadata=None,
+            trade_id: str | None = None, reason: str | None = None) -> ExecutionReport:
+    metadata = dict(order_metadata or {})
+    if strategy_id is not None:
+        metadata["strategy_id"] = strategy_id
     if trade_id is not None:
         metadata["trade_id"] = trade_id
     return ExecutionReport(
@@ -101,15 +114,16 @@ def _report(status, sequence: int, *, filled: int = 0, strategy_id: str | None =
         report_type=status, ts_event=sequence, filled_quantity=filled,
         fill_price=3126 if filled else None, order_side=OrderSide.BUY,
         order_quantity=2, report_id=f"order-1:{sequence}", sequence=sequence,
-        metadata=metadata,
+        metadata=metadata, reason=reason,
     )
 
 
 def test1_ordering_and_isolation() -> None:
     runner, client, backend, alpha, beta, positions = _setup(same_instrument=True)
     try:
-        backend.emit(_report(ExecutionReportType.ACCEPTED, 1))
-        partial = _report(ExecutionReportType.PARTIALLY_FILLED, 2, filled=1, trade_id="trade-1")
+        metadata = backend.orders[0].metadata
+        backend.emit(_report(ExecutionReportType.ACCEPTED, 1, order_metadata=metadata))
+        partial = _report(ExecutionReportType.PARTIALLY_FILLED, 2, filled=1, trade_id="trade-1", order_metadata=metadata)
         backend.emit(partial)
         backend.emit(partial)  # 重发不得二次通知。
         backend.emit(_report(ExecutionReportType.ACCEPTED, 1))  # 乱序回报不得重放。
@@ -134,7 +148,7 @@ def test2_legacy_and_fail_closed() -> None:
     runner, client, backend, alpha, beta, positions = _setup(legacy=True)
     try:
         assert beta.is_started  # 旧策略不实现新回调仍可启动。
-        backend.emit(_report(ExecutionReportType.ACCEPTED, 1))
+        backend.emit(_report(ExecutionReportType.ACCEPTED, 1, order_metadata=backend.orders[0].metadata))
         backend.emit(_report(ExecutionReportType.PARTIALLY_FILLED, 2,
                              filled=1, trade_id="trade-1", strategy_id="beta"))
         assert not client.is_reconciled and client.report_errors
@@ -158,7 +172,42 @@ def test2_legacy_and_fail_closed() -> None:
     print("P1b通过：旧策略兼容；错误归属或缺失关联键关闭闸门而不串投")
 
 
-STAGES = {"dispatch": test1_ordering_and_isolation, "failure": test2_legacy_and_fail_closed}
+def test3_order_callback_compatibility() -> None:
+    for observer_type in (Observer, OrderObserver, BothOrderObserver):
+        runner, client, backend, alpha, beta, positions = _setup(observer_type=observer_type)
+        try:
+            metadata = backend.orders[0].metadata
+            backend.emit(_report(ExecutionReportType.ACCEPTED, 1, order_metadata=metadata))
+            partial = _report(ExecutionReportType.PARTIALLY_FILLED, 2,
+                filled=1, trade_id="trade-1", order_metadata=metadata)
+            backend.emit(partial)
+            backend.emit(partial)
+            backend.emit(_report(ExecutionReportType.CANCELED, 3, order_metadata=metadata))
+            assert alpha.events == [
+                ("order", "ACCEPTED", Decimal(0), Decimal(2)),
+                ("order", "PARTIALLY_FILLED", Decimal(1), Decimal(1)),
+                ("fill", "trade-1", Decimal(1), Decimal(1)),
+                ("order", "CANCELED", Decimal(1), Decimal(0)),
+            ], observer_type.__name__
+            assert not beta.events
+            assert positions.position("alpha", "leg") == 1
+            assert not client.report_errors
+        finally:
+            runner.stop()
+        runner, client, backend, alpha, _, positions = _setup(observer_type=observer_type)
+        try:
+            backend.emit(_report(ExecutionReportType.REJECTED, 1,
+                order_metadata=backend.orders[0].metadata, reason="测试柜台拒单"))
+            assert alpha.events == [("order", "REJECTED", Decimal(0), Decimal(0))]
+            assert positions.position("alpha", "leg") == 0
+            assert not client.report_errors
+        finally:
+            runner.stop()
+    print("P1c通过：on_order与旧on_order_update兼容、双入口不重复、订单先于成交")
+
+
+STAGES = {"dispatch": test1_ordering_and_isolation, "failure": test2_legacy_and_fail_closed,
+          "callbacks": test3_order_callback_compatibility}
 
 
 def main() -> None:

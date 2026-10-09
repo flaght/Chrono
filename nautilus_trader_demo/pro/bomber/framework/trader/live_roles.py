@@ -73,6 +73,16 @@ class FixedRoleLiveRunner(UnifiedStrategyRunner):
         client.cancel_strategy(binding.strategy.strategy_id)
         raise RuntimeError(reason)
 
+    def adopt_initial_position(self, quantity):
+        """柜台核验后、Runner启动前，把已有仓位归属到明确绑定的唯一策略。"""
+        binding = self._role_binding
+        if self._started or binding is None:
+            raise RuntimeError("须在固定角色绑定完成、Runner启动前接管仓位")
+        if self.position_manager.account_position(binding.client_id, binding.instrument_id) != quantity:
+            raise RuntimeError("接管策略仓位前须与已对账的权威账户净仓一致")
+        self.position_manager.attribution.adopt(binding.client_id, binding.instrument_id,
+            binding.strategy.strategy_id, binding.target_key, quantity)
+
     def publish(self, feed_id, event):
         if not isinstance(event, Bar) or self._role_binding is None:
             return super().publish(feed_id, event)
