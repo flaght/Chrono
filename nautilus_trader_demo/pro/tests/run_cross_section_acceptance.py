@@ -11,6 +11,9 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = {
+    "ema-recovery": ("tests.test_main_ema_recovery",),
+    "continuous": ("tests.test_main_ema_continuous",),
+    "live-common": ("unittest", "tests.test_live_common", "tests.test_live_channels", "tests.test_live_recovery"),
     "cross-section": ("tests.test_cross_section_live",),
     "signal": ("tests.test_demo_cross_section_signal",),
     "entry": ("tests.run_main_ema_live",),
@@ -24,6 +27,40 @@ CASES = {
     "ctp-driver": ("tests.run_p4_ctp_driver",),
 }
 SOURCES = (
+    "bomber/framework/trader/runtime/live/recovery.py",
+    "bomber/framework/trader/runtime/live/channels/ctp_recovery.py",
+    "demos/01_main_ema/recovery.py",
+    "tests/test_live_recovery.py",
+    "tests/test_main_ema_recovery.py",
+    "scripts/integration/ctp_binance/run.py",
+    "bomber/framework/trader/runtime/__init__.py",
+    "bomber/framework/trader/runtime/direct.py",
+    "bomber/framework/trader/runtime/live/__init__.py",
+    "bomber/framework/trader/runtime/live/channels/__init__.py",
+    "bomber/framework/trader/runtime/live/channels/binance.py",
+    "bomber/framework/trader/runtime/live/channels/ctp.py",
+    "bomber/framework/trader/runtime/live/contracts.py",
+    "bomber/framework/trader/runtime/live/health.py",
+    "bomber/framework/trader/runtime/live/profiles.py",
+    "bomber/framework/trader/runtime/live/runtime.py",
+    "tests/test_live_channels.py",
+
+    "bomber/framework/trader/runtime/live_policy.py",
+    "bomber/framework/trader/runtime/ctp_setup.py",
+    "bomber/framework/trader/runtime/ctp_account.py",
+    "bomber/framework/dataprep/live_cache.py",
+    "bomber/framework/dataprep/live_cached_role.py",
+    "bomber/framework/dataprep/live_portfolio.py",
+    "bomber/framework/trader/live_roles.py",
+    "bomber/framework/market/stream/aggregation.py",
+    "tests/test_live_common.py",
+    "demos/01_main_ema/continuous.py",
+    "demos/01_main_ema/checkpoint.py",
+    "demos/01_main_ema/shfe_cu_2026.json",
+    "bomber/framework/trader/runtime/trading_sessions.py",
+    "tests/test_main_ema_continuous.py",
+    "bomber/framework/market/basic/base.py",
+
     "bomber/framework/market/stream/ctp/feed.py",
     "bomber/framework/market/stream/ctp/converter.py",
     "bomber/framework/trader/runner.py", "bomber/framework/trader/execution/builders.py",
@@ -73,6 +110,11 @@ def main(argv=None):
         entry = import_module("demos.04_cross_section.run_live")
         runtime = import_module("demos.04_cross_section.live_runtime")
         feed = import_module("bomber.framework.market.stream.ctp.feed")
+        recovery = import_module("demos.04_cross_section.recovery")
+        common_recovery = import_module("bomber.framework.trader.runtime.live.channels.ctp_recovery")
+        if not issubclass(recovery.ResumeLifecycle, common_recovery.CtpResumeLifecycle):
+            raise RuntimeError("部署版本不一致：04/recovery.py仍为旧恢复流程；同步"
+                "doc/evidence/checksums/PF2026101037_REV2_SHA256.txt所列文件并核对摘要后再测试")
         expected_interfaces = (
             (entry, "parse_args", "04 run_live.parse_args"),
             (runtime.CrossSectionSessionRunner, "bar_is_current", "04 runner.bar_is_current"),

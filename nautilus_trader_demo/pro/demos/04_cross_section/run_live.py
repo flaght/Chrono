@@ -6,12 +6,13 @@ import argparse
 from datetime import datetime
 from decimal import Decimal
 import math
-import os
 from pathlib import Path
 import time
 from types import SimpleNamespace
 
 from dotenv import load_dotenv
+from bomber.framework.trader.runtime.live.channels.ctp import required, build_simnow_transport, build_md_config
+from bomber.framework.trader.runtime.live.channels.ctp import add_environment_arguments, validate_environment_arguments
 
 from bomber.framework.dataprep.live_references import LiveFuturesReferences, live_factor_policy
 from bomber.framework.dataprep.reference_freshness import ReferenceFreshnessPolicy
@@ -19,7 +20,7 @@ from bomber.framework.dataprep.sources import DataSourcePurpose, DolphinDbRefere
 from bomber.framework.market.basic.base import InstrumentId
 from bomber.framework.market.stream.ctp import CtpLiveDataFeed, CtpMdConfig
 from bomber.framework.trader.execution.ctp import CtpTdApiTransport
-from bomber.framework.trader.runtime.managed import ManagedLiveRuntime
+from bomber.framework.trader.runtime.live.runtime import ManagedLiveRuntime
 from bomber.framework.trader.runtime.reports import LiveRunReport
 
 from .live_runtime import CLIENT_ID, CrossSectionLifecycle, PortfolioReferences, assemble
@@ -31,6 +32,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--connect", action="store_true")
     parser.add_argument("--mode", choices=("recording", "simnow"), default="recording")
+    add_environment_arguments(parser)
     parser.add_argument("--products", required=True, help="至少两个不同品种，逗号分隔；首轮RB,HC")
     parser.add_argument("--expected-instrument", action="append", default=[],
                         help="可选手工核对PRODUCT=symbol.VENUE；省略则自动读取当前主力，传入时须覆盖全部品种")
@@ -38,8 +40,6 @@ def parse_args(argv=None):
     parser.add_argument("--expected-source-day", required=True)
     parser.add_argument("--reference-database")
     parser.add_argument("--reference-timeout", type=int, default=15)
-    parser.add_argument("--instrument-max-age-seconds", type=float, default=10,
-                        help="每合约深度快照事件与接收最大年龄，默认10秒，范围(0,120]")
     parser.add_argument("--reference-refresh-seconds", type=float, default=5)
     parser.add_argument("--reference-max-source-age-days", type=int, default=14)
     parser.add_argument("--reference-max-observation-seconds", type=int, default=30)
@@ -87,6 +87,7 @@ def parse_args(argv=None):
         for value in (args.expected_trading_day, args.expected_source_day):
             if datetime.strptime(value, "%Y%m%d").strftime("%Y%m%d") != value:
                 raise ValueError("日期须为YYYYMMDD")
+        validate_environment_arguments(args)
         args.factor_availability = live_factor_policy(args.factor_date_basis, args.factor_availability)
     except (ValueError, TypeError) as error:
         parser.error(str(error))
@@ -105,8 +106,6 @@ def parse_args(argv=None):
         parser.error("target-quantity-cap须为不超过max-quantity的正整数")
     if any(not math.isfinite(v) or v <= 0 for v in (args.seconds, args.query_timeout)):
         parser.error("运行时长和查询超时须为有限正数")
-    if not math.isfinite(args.instrument_max_age_seconds) or not 0 < args.instrument_max_age_seconds <= 120:
-        parser.error("instrument-max-age-seconds须为(0,120]内有限数")
     if (not math.isfinite(args.reference_refresh_seconds) or not 0 <= args.reference_refresh_seconds <= 60
             or args.reference_timeout <= 0):
         parser.error("参考刷新须在[0,60]秒，读取超时须为正")
@@ -124,13 +123,6 @@ def parse_args(argv=None):
     elif args.enable_orders or args.confirm_simnow or args.state_file or args.resume:
         parser.error("Recording不接受报单开关或交易状态文件")
     return args
-
-
-def required(name):
-    value = os.getenv(name, "").strip()
-    if not value:
-        raise ValueError(f"缺少环境变量: {name}")
-    return value
 
 
 def prepare_inputs(args, context, lifecycle):
@@ -157,10 +149,8 @@ def prepare_inputs(args, context, lifecycle):
         print(f"横截面参考: product={p} instrument={actual[p]} TD={context.trading_day} "
               f"source_day={assignment.source_day} factor={assignment.factor(p, 'main')} "
               f"tick={spec.tick} multiplier={spec.multiplier}", flush=True)
-    upstream = CtpLiveDataFeed(CtpMdConfig(front=lifecycle.md_front, broker_id="9999",
-        user_id=lifecycle.transport.investor_id, password=lifecycle.transport.password,
-        flow_path=os.getenv("CTP_MD_FLOW_PATH", "/tmp/bomber-cross-section-md"),
-        production_mode=lifecycle.transport.production_mode))
+    upstream = CtpLiveDataFeed(build_md_config(CtpMdConfig, lifecycle,
+        flow_path="/tmp/bomber-cross-section-md"))
     return SimpleNamespace(references=references, upstream=upstream)
 
 
@@ -184,22 +174,18 @@ def describe(session):
 
 
 def build_runtime(args):
-    if required("CTP_BROKER_ID") != "9999":
-        raise ValueError("本入口仅允许SimNow BrokerID9999")
-    investor = required("CTP_ACCOUNT_ID")
-    transport = CtpTdApiTransport(client_id=CLIENT_ID, account_id=investor,
-        front=required("CTP_TD_ADDRESS"), broker_id="9999", investor_id=investor,
-        password=required("CTP_PASSWORD"), app_id=os.getenv("CTP_APP_ID", ""),
-        auth_code=os.getenv("CTP_AUTH_CODE", ""),
-        flow_path=os.getenv("CTP_TD_FLOW_PATH", "/tmp/bomber-cross-section-td"),
-        production_mode=os.getenv("CTP_PRODUCTION_MODE", "true").lower() in {"1", "true", "yes", "on"},
-        timeout_seconds=args.query_timeout)
+    transport = build_simnow_transport(CtpTdApiTransport, client_id=CLIENT_ID,
+        flow_path="/tmp/bomber-cross-section-td", timeout_seconds=args.query_timeout)
     lifecycle = CrossSectionLifecycle(transport, md_front=required("CTP_MD_ADDRESS"),
         orders=args.mode == "simnow", max_session_orders=args.max_session_orders,
+        environment=args.simnow_environment, replay_md_trading_day=args.replay_md_trading_day,
         resume=args.resume,
+        scope_to_reference_instruments=True,
         expected_trading_day=args.expected_trading_day, legacy_lock_namespaces=("bomber-main-ema",))
     report = LiveRunReport(args.report_dir, prefix="cross-section-simnow", describe=describe, metadata={
         "mode": args.mode, "strategy_id": CLIENT_ID, "products": args.products,
+        "simnow_environment": args.simnow_environment,
+        "replay_md_trading_day": args.replay_md_trading_day,
         "expected_instruments": args.expected_instruments, "reference_source": "dolphindb",
         "instrument_selection": "assert_expected" if args.expected_instruments else "automatic_main",
         "lookback": args.lookback, "rebalance_interval": args.rebalance_interval,

@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, PropertyMock
 
 import pandas as pd
 
@@ -198,7 +198,13 @@ class LiveTests(unittest.TestCase):
         if replay:
             upstream.latest_trading_day = "20260921"
         if adopt:
-            controller = live.MainEmaSessionLifecycle(transport, md_front="tcp://fake:1234", orders=orders,
+            if replay:
+                transport.front = "tcp://182.254.243.31:40001"
+                transport.production_mode = True
+            controller = live.MainEmaSessionLifecycle(transport,
+                md_front="tcp://182.254.243.31:40011" if replay else "tcp://fake:1234", orders=orders,
+                environment="replay" if replay else "realtime",
+                replay_md_trading_day="20260921" if replay else None,
                 adopt_instrument="rb2704.SHFE", expected_position=Decimal(-1))
             controller.driver = driver
             resources = ExitStack()
@@ -207,6 +213,7 @@ class LiveTests(unittest.TestCase):
             context.references = self.reference()
             controller.finish_preparation(context)
         s = live.assemble(args, self.reference(), driver, upstream)
+        s.args = args
         holder["session"] = s
         if adopt:
             controller.start(s, context)
@@ -483,15 +490,14 @@ class LiveTests(unittest.TestCase):
             with self.subTest(extra=extra), redirect_stderr(StringIO()), self.assertRaises(SystemExit):
                 live.parse_args(command + extra)
 
-    def test_ema_short_matching_adopted_position_is_reported_as_untriggered(self):
+    def test_ema_short_matching_adopted_position_passes_without_duplicate_order(self):
         s = self.session(orders=True, adopt=True)
         for minute in range(4):
             self.tick(s, minute, 3100 - minute * 10)
         self.assertEqual(s.strategy.last_target, -1)
         self.assertEqual(s.strategy.signal_source, "ema")
         self.assertFalse(s.transport._api.sent)
-        with self.assertRaisesRegex(RuntimeError, "成交验收未触发：目标=-1 策略仓位=-1"):
-            s.controller.verify(s)
+        s.controller.verify(s)
 
     def test_adopted_short_closes_before_long_open_and_duplicate_fill_is_ignored(self):
         for day, offset in (("1", "3"), ("2", "4")):
@@ -792,6 +798,14 @@ class LiveTests(unittest.TestCase):
     def test_complete_replay_database_simnow_entry(self):
         self.complete_entry(orders=True, database=True, replay=True)
 
+    def test_database_callback_rejects_expired_cache_without_control_poll(self):
+        with self.assertRaisesRegex(RuntimeError, "参考缓存观测过期"):
+            self.complete_entry(orders=True, database=True, refresh_controls=False)
+        summary = json.loads(next((self.root / "reports").glob("*/summary.json")).read_text())
+        self.assertEqual(summary["status"], "failed")
+        self.assertEqual(summary["orders_submitted"], 0)
+        self.assertEqual(summary["cleanup_errors"], [])
+
     def test_reference_date_cli_defaults_and_invalid_policy(self):
         file = live.parse_args(["--connect", "--product", "RB", "--reference-source", "file", "--allow-file-reference-test"])
         database = live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921"])
@@ -865,6 +879,60 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(s.strategy.bars_used, 0)
         self.assertFalse(s.client.is_armed)
         self.assertEqual(s.transport._api.sent, [])
+
+    def test_public_depth_guard_is_used_by_single_role_runner(self):
+        from bomber.framework.market.stream.ctp.feed import CtpDepthObservation
+        for replay in (False, True):
+            with self.subTest(replay=replay):
+                s = self.session(replay=replay)
+                instrument = s.references.instrument_id
+                day = "20260921" if replay else "20260922"
+                old = self.now - 172_352_000_000_000
+                s.upstream.depth_observations = {instrument: CtpDepthObservation(
+                    day, old, time.monotonic_ns())}
+                self.assertEqual(s.runner.session_ready(), replay)
+                s.upstream.depth_observations.clear()
+                self.assertFalse(s.runner.session_ready())
+                s.upstream.depth_observations = {instrument: CtpDepthObservation(
+                    day, self.now, time.monotonic_ns())}
+                self.assertTrue(s.runner.session_ready())
+                s.upstream.depth_observations[instrument] = CtpDepthObservation(
+                    day, self.now, time.monotonic_ns(), True)
+                self.assertFalse(s.runner.session_ready())
+
+    def test_cached_single_role_snapshot_does_not_query_on_bar(self):
+        from bomber.framework.dataprep.live_cached_role import CachedRoleReferences
+        reference = self.reference()
+        # 缓存机制独立于数据源；此处用真实文件适配器作可控fixture。
+        manifest = {**reference.manifest, "freshness_policy": {"max_observation_age_seconds": 30}}
+        with patch.object(type(reference), "manifest", new_callable=PropertyMock, return_value=manifest):
+            cached = CachedRoleReferences(reference)
+            driver = self.transport_driver()[1]
+            driver.start(lambda report: None)
+            args = SimpleNamespace(mode="recording", product="RB", fast=2, slow=3,
+                quantity=Decimal(1), limit_offset_ticks=1, max_notional=Decimal(50000), state_file=None)
+            session = live.assemble(args, cached, driver, ManualMd())
+            session.runner.start()
+            self.addCleanup(session.runner.stop)
+            self.assertIs(cached.publication_lock, session.runner._submit_lock)
+            session.runner.accept_bars = True
+            self.now = BASE + 2 * MINUTE
+            # 控制线程刷新缓存，然后确认行情分派没有读取源。
+            manifest["observed_at_ns"] = self.now
+            cached.refresh()
+            stamp = self.now - 1
+            with patch.object(reference, "snapshot", side_effect=AssertionError("行情回调不可查参考源")):
+                session.runner.publish("ctp-bars", make_bar(cached.instrument_id,
+                    3100, 3100, 3100, 3100, 1, stamp, meta=cached.instrument_meta()))
+            self.assertEqual(session.strategy.bars_used, 1)
+            self.write_factor(pcr_cumfactor="3")
+            self.now += MINUTE
+            manifest["observed_at_ns"] = self.now
+            cached.refresh()
+            with self.assertRaisesRegex(RuntimeError, "固定路由闭闸"):
+                session.runner.publish("ctp-bars", make_bar(cached.instrument_id,
+                    3100, 3100, 3100, 3100, 1, self.now - 1, meta=cached.instrument_meta()))
+            self.assertFalse(session.runner.accept_bars)
 
     def test_runtime_construction_does_not_connect_or_open_database(self):
         args = live.parse_args(["--connect", "--product", "RB", "--expected-source-day", "20260921", "--reference-source", "dolphindb",
@@ -942,7 +1010,7 @@ class LiveTests(unittest.TestCase):
             with account_lock("demo", namespace=namespace):
                 pass
 
-    def complete_entry(self, orders, database=False, replay=False):
+    def complete_entry(self, orders, database=False, replay=False, refresh_controls=True):
         args = live.parse_args(["--connect", "--product", "RB", "--fast", "2", "--slow", "3",
             "--expected-source-day", "20260921",
             "--seconds", "0.01", "--query-timeout", "0.05", "--contract-struct", str(self.role_path),
@@ -974,6 +1042,13 @@ class LiveTests(unittest.TestCase):
 
         pumped = False
         original_sleep = time.sleep
+        runtimes = []
+        original_build = live.build_runtime
+
+        def build_runtime(arguments):
+            runtime = original_build(arguments)
+            runtimes.append(runtime)
+            return runtime
 
         def pump(seconds):
             nonlocal pumped
@@ -981,7 +1056,17 @@ class LiveTests(unittest.TestCase):
                 pumped = True
                 instrument = next(iter(upstream.get_subscribed_instruments()))
                 for minute in range(4):
-                    self.now = BASE + minute * MINUTE + 1000
+                    tick_ns = BASE + minute * MINUTE + 1000
+                    if database and refresh_controls:
+                        # 同时模拟控制线程的参考刷新；不能在一个sleep里跨过
+                        # 整分钟却不运行poll，让30秒缓存必然过期。
+                        while self.now < tick_ns:
+                            self.now = min(self.now + 5_000_000_000, tick_ns)
+                            upstream.latest_receive_monotonic_ns = time.monotonic_ns()
+                            runtime = runtimes[0]
+                            self.assertTrue(runtime.controller.poll(runtime.session))
+                    else:
+                        self.now = tick_ns
                     upstream.latest_receive_monotonic_ns = time.monotonic_ns()
                     upstream._emit_trade_tick(make_trade_tick(
                         instrument_id=instrument, price=3100, size=1, trade_id=f"FULL{minute}",
@@ -999,6 +1084,7 @@ class LiveTests(unittest.TestCase):
             environment.update(CTP_MD_ADDRESS="tcp://182.254.243.31:40011",
                 CTP_TD_ADDRESS="tcp://182.254.243.31:40001", CTP_PRODUCTION_MODE="true")
         with patch.dict("os.environ", environment, clear=True), \
+                patch.object(live, "build_runtime", side_effect=build_runtime), \
                 patch.object(live, "CtpTdApiTransport", side_effect=td_factory), \
                 patch.object(live, "CtpLiveDataFeed", return_value=upstream), \
                 patch("time.sleep", side_effect=pump), \

@@ -5,20 +5,26 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 from decimal import Decimal
-import os
 from pathlib import Path
 import time
 from types import SimpleNamespace
 
 from dotenv import load_dotenv
+from bomber.framework.trader.runtime.live.channels.ctp import (
+    required, build_simnow_transport, build_md_config)
+from bomber.framework.trader.runtime.live.profiles import build_minute_feed
+from bomber.framework.trader.runtime.live.contracts import SessionReadiness
+from bomber.framework.trader.runtime.live.channels.ctp import (
+    CtpLiveProfile, InstrumentHealthGate, CtpMarketChannel, CtpExecutionChannel,
+    add_environment_arguments, validate_environment_arguments)
 
 from bomber.framework.datahub.sector_roles import SectorDataUnavailable
 from bomber.framework.dataprep.paths import resolve_paths
 from bomber.framework.dataprep.live_references import live_factor_policy
 from bomber.framework.dataprep.reference_freshness import ReferenceFreshnessPolicy
 from bomber.framework.dataprep.live_role import FileRoleReferences, SourceRoleReferences
+from bomber.framework.dataprep.live_cached_role import CachedRoleReferences
 from bomber.framework.dataprep.sources import DolphinDbReferenceConfig, ReferenceSourceFactory
-from bomber.framework.market.stream import ReceiveTimeTradeTickBarFeed, TradeTickBarFeed
 from bomber.framework.market.stream.ctp import CtpLiveDataFeed, CtpMdConfig
 from bomber.framework.market.basic.base import DataType, InstrumentId
 from bomber.framework.trader import DataBinding, ExecutionRoute, RiskLimits
@@ -26,19 +32,28 @@ from bomber.framework.trader.assembly import RoleGuard, StrategyBindings, assemb
 from bomber.framework.trader.execution.builders import build_ctp_execution, attach_ctp_persistence
 from bomber.framework.trader.live_roles import SessionRoleLiveRunner
 from bomber.framework.trader.execution.ctp import CtpTdApiTransport
-from bomber.framework.trader.runtime.ctp import (
+from bomber.framework.trader.runtime.live.channels.ctp import (
     CtpSessionLifecycle, assert_flat_account, session_ready, validate_replay_environment)
-from bomber.framework.trader.runtime.managed import ManagedLiveRuntime
+from bomber.framework.trader.runtime.live.runtime import ManagedLiveRuntime
+from bomber.framework.trader.runtime.live.recovery import StrategyPositionBinding, SessionIdentityCheckpoint
+from bomber.framework.trader.runtime.live.channels.ctp_recovery import CtpResumeLifecycle
 from bomber.framework.trader.runtime.reports import LiveRunReport
 
 from .strategy import MainEmaConfig, MainEmaStrategy
+from .recovery import recovery_identity, validate_restored_session, verify_managed_position
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CLIENT_ID = "main-ema-simnow"
 
 
-class MainEmaSessionLifecycle(CtpSessionLifecycle):
+class MainEmaSessionLifecycle(CtpResumeLifecycle, CtpSessionLifecycle):
+    def validate_restored_session(self, session, day):
+        return validate_restored_session(session, day)
+
     def verify(self, session):
+        if self.orders and (self.resuming or self.adopted_position is not None):
+            verify_managed_position(session, self.transport)
+            return
         if self.orders and not self.driver.submitted_orders:
             target = session.strategy.last_target
             position = session.strategy.position(session.strategy.config.target_key)
@@ -46,21 +61,18 @@ class MainEmaSessionLifecycle(CtpSessionLifecycle):
                 f"signal_source={session.strategy.signal_source}，本次报单0；不算成交通过")
         super().verify(session)
 
-
-def required(name):
-    value = os.getenv(name, "").strip()
-    if not value:
-        raise ValueError(f"缺少环境变量: {name}")
-    return value
+    def snapshot(self, session, context):
+        return {**super().snapshot(session, context),
+            "signal_state_recovery": "rewarm" if self.resuming else "fresh",
+            "verification_basis": ("target_and_position_reconciliation"
+                if self.resuming or self.adopted_position is not None else "new_signal_and_execution")}
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--connect", action="store_true")
     parser.add_argument("--mode", choices=("recording", "simnow"), default="recording")
-    parser.add_argument("--simnow-environment", choices=("realtime", "replay"), default="realtime",
-                        help="replay仅用于第二套工程联调，按实际Tick接收时间聚合Bar")
-    parser.add_argument("--replay-md-trading-day", help="replay必填：原始Tick实际TradingDay，YYYYMMDD")
+    add_environment_arguments(parser)
     parser.add_argument("--product", required=True)
     parser.add_argument("--expected-instrument", help="核对本次真实合约；IM Recording须显式声明，含交易所后缀")
     parser.add_argument("--data-root", type=Path)
@@ -90,7 +102,7 @@ def parse_args(argv=None):
     parser.add_argument("--quantity", type=Decimal, default=Decimal(1))
     parser.add_argument("--seconds", type=float, default=600)
     parser.add_argument("--run-forever", action="store_true", help="按CU交易日历持续会话，休市暂停并恢复同一检查点")
-    parser.add_argument("--resume", action="store_true", help="恢复已有账户/订单/EMA检查点；仅用于持续模式")
+    parser.add_argument("--resume", action="store_true", help="恢复原状态文件；单次会话同交易日对账后重新预热EMA，持续模式恢复EMA检查点")
     parser.add_argument("--resume-report", type=Path, help="首次迁移旧版首次开仓状态时对应的summary.json")
     parser.add_argument("--recovery-bars", type=Path, help="权威完整分钟JSONL：ts_event/instrument_id/adjusted_close，恢复缺口只预热不报单")
     parser.add_argument("--history-minutes", type=int, default=0, help="声明启动预热窗口；0保留原实时预热，240表示240根完整交易分钟")
@@ -107,7 +119,7 @@ def parse_args(argv=None):
     parser.add_argument("--max-session-orders", type=int, default=4)
     parser.add_argument("--enable-orders", action="store_true")
     parser.add_argument("--confirm-simnow", action="store_true")
-    parser.add_argument("--state-file", type=Path, help="报单模式必填；本次新检查点文件，不覆盖旧文件")
+    parser.add_argument("--state-file", type=Path, help="报单模式必填；新会话用新文件，--resume使用原文件")
     parser.add_argument("--report-dir", type=Path, default=Path(__file__).resolve().parent / "results")
     args = parser.parse_args(argv)
     if args.product.upper() == "IM":
@@ -145,16 +157,10 @@ def parse_args(argv=None):
         parser.error(str(error))
     if args.reference_refresh_seconds > args.reference_max_observation_seconds:
         parser.error("资料刷新间隔不能超过最近观测年龄上限")
-    if args.simnow_environment == "replay":
-        try:
-            value = args.replay_md_trading_day or ""
-            if len(value) != 8 or not value.isdigit():
-                raise ValueError()
-            datetime.strptime(value, "%Y%m%d")
-        except ValueError:
-            parser.error("replay模式须显式提供有效--replay-md-trading-day YYYYMMDD")
-    elif args.replay_md_trading_day:
-        parser.error("--replay-md-trading-day仅用于replay模式")
+    try:
+        validate_environment_arguments(args)
+    except ValueError as error:
+        parser.error(str(error))
     if not 0 < args.fast < args.slow:
         parser.error("EMA周期须满足0 < fast < slow")
     if not args.quantity.is_finite() or args.quantity <= 0 or args.quantity != args.quantity.to_integral_value():
@@ -184,8 +190,8 @@ def parse_args(argv=None):
                 raise ValueError("交易所不支持")
         except (ValueError, TypeError):
             parser.error("接管合约须为真实SHFE／INE合约并带交易所后缀")
-        if args.simnow_environment != "realtime" or not args.expected_source_day or not args.expected_trading_day:
-            parser.error("接管须使用realtime并声明预期TD日及资料来源日")
+        if not args.expected_source_day or not args.expected_trading_day:
+            parser.error("接管须声明预期TD日及资料来源日")
         if args.mode == "simnow" and args.max_session_orders < 2:
             parser.error("接管反手至少需要--max-session-orders 2，平仓和开仓各一笔")
     if args.expected_source_day:
@@ -197,12 +203,16 @@ def parse_args(argv=None):
     if args.mode == "simnow":
         if not args.enable_orders or not args.confirm_simnow or args.state_file is None:
             parser.error("simnow模式须同时提供--enable-orders --confirm-simnow --state-file")
-        if args.state_file.exists() and not (args.run_forever and args.resume):
+        if args.resume and (not args.state_file.is_file() or args.adopt_existing_position):
+            parser.error("恢复须使用已有原state-file，且不能同时接管仓位")
+        if args.resume and not args.run_forever and not args.expected_trading_day:
+            parser.error("单次恢复须声明--expected-trading-day核对相同TD交易日")
+        if args.state_file.exists() and not args.resume:
             parser.error("状态文件已存在：保留旧检查点并先对账，本入口不自动恢复或覆盖")
         if not args.expected_source_day and not args.run_forever:
             parser.error("simnow报单须显式--expected-source-day核对角色资料来源日")
-    elif args.enable_orders or args.confirm_simnow or args.state_file:
-        parser.error("recording模式不接受报单授权或交易状态文件")
+    elif args.enable_orders or args.confirm_simnow or args.state_file or args.resume:
+        parser.error("recording模式不接受报单授权、交易状态文件或恢复参数")
     if args.run_forever:
         if (args.mode != "simnow" or args.simnow_environment != "realtime"
                 or args.product.upper() != "CU" or args.reference_source != "dolphindb"
@@ -213,8 +223,10 @@ def parse_args(argv=None):
             parser.error("首期持续模式限定一手目标且须提供有效交易日历")
         if args.resume and not args.state_file.is_file():
             parser.error("--resume要求已有检查点")
-    elif args.resume or args.resume_report or args.recovery_bars:
-        parser.error("恢复参数仅用于--run-forever")
+    elif args.resume_report or args.recovery_bars:
+        parser.error("resume-report/recovery-bars仅用于--run-forever")
+    if args.resume and not args.run_forever and (args.history_minutes or args.history_config or args.history_file):
+        parser.error("单次恢复使用当前完整分钟重新预热，不同时装配历史预热")
     if args.resume_report and not (args.resume and args.resume_report.is_file()):
         parser.error("旧报告迁移须--resume且summary.json存在")
     if args.recovery_bars and not args.recovery_bars.is_file():
@@ -277,6 +289,8 @@ def prepare_inputs(args, context, lifecycle):
             refresh_seconds=args.reference_refresh_seconds,
             allowed_venues=("CFFEX",) if args.product.upper() == "IM" else ("SHFE", "INE"),
             required_currency="CNY", freshness=freshness)
+    if args.reference_source != "file":
+        references = CachedRoleReferences(references)
     context.references = references
     if getattr(args, "expected_instrument", None) and references.instrument_id != InstrumentId.from_str(args.expected_instrument):
         raise SectorDataUnavailable(f"本次参考合约不符：expected={args.expected_instrument} actual={references.instrument_id}")
@@ -284,11 +298,8 @@ def prepare_inputs(args, context, lifecycle):
     if args.expected_source_day and assignment.source_day.strftime("%Y%m%d") != args.expected_source_day:
         raise SectorDataUnavailable(
             f"角色资料来源日不符: expected={args.expected_source_day} actual={assignment.source_day}")
-    upstream = CtpLiveDataFeed(CtpMdConfig(front=lifecycle.md_front,
-        broker_id="9999", user_id=lifecycle.transport.investor_id,
-        password=lifecycle.transport.password,
-        flow_path=os.getenv("CTP_MD_FLOW_PATH", "/tmp/bomber-main-ema-md"),
-        production_mode=lifecycle.transport.production_mode))
+    upstream = CtpLiveDataFeed(build_md_config(CtpMdConfig, lifecycle,
+        flow_path="/tmp/bomber-main-ema-md"))
     print(f"主力EMA: mode={args.mode} TD交易日={context.trading_day} source_day={assignment.source_day} "
           f"factor_basis={references.factor_date_basis} factor_day={references.factor_date} "
           f"main={references.instrument_id} factor={assignment.factor(args.product.upper(), 'main')} "
@@ -312,11 +323,15 @@ def assemble(args, references, driver, upstream, *, positions=None):
     replay_day = getattr(args, "replay_md_trading_day", None) if replay else None
     if replay and not replay_day:
         raise ValueError("第二套联调缺少固定MD交易日")
-    feed_type = ReceiveTimeTradeTickBarFeed if replay else TradeTickBarFeed
-    feed = feed_type("MAIN_EMA_1M", upstream)
+    policy = CtpLiveProfile("replay" if replay else "realtime", replay_day)
+    health = InstrumentHealthGate(upstream, (instrument,), expected_day, policy=policy,
+        max_age_seconds=getattr(args, "instrument_max_age_seconds", 10))
+    feed = build_minute_feed("MAIN_EMA_1M", upstream, policy,
+        max_age_seconds=getattr(args, "instrument_max_age_seconds", 10))
     feed.register_instrument(references.instrument_meta())
-    check = lambda: session_ready(driver, upstream, expected_day,
-        require_orders=orders, replay_md_trading_day=replay_day)
+    check = SessionReadiness(
+        CtpMarketChannel(upstream, expected_day, profile=policy, instrument_health=health),
+        CtpExecutionChannel(driver, expected_day, require_orders=orders))
     execution = build_ctp_execution(driver, instrument_id=instrument, trading_day=expected_day,
         price_increment=references.spec.tick, multiplier=references.spec.multiplier,
         risk_limits=RiskLimits(max_order_quantity=args.quantity, max_abs_position=args.quantity,
@@ -333,13 +348,16 @@ def assemble(args, references, driver, upstream, *, positions=None):
         from .checkpoint import EmaCheckpoint
     runner_type = CheckpointedRunner if continuous or history_enabled else SessionRoleLiveRunner
     runner = runner_type(references=references, session_check=check,
-        orders=orders, position_manager=execution.positions)
+        orders=orders, position_manager=execution.positions, instrument_health=health)
+    if not getattr(references, "refresh_on_event", True):
+        references.publication_lock = runner._submit_lock
     bindings = StrategyBindings(
         data=(DataBinding(str(instrument), "ctp-bars", instrument, DataType.BAR, "1-MINUTE"),),
         execution=(ExecutionRoute(strategy.config.target_key, execution.client.client_id, instrument),),
         role_guard=RoleGuard(references, args.product, "main", lambda: strategy.last_processed_ns))
     assemble_strategy(runner, strategy, feeds={"ctp-bars": feed}, execution=execution, bindings=bindings)
-    components = {"ema": EmaCheckpoint(strategy, instrument)} if continuous or history_enabled else None
+    components = ({"ema": EmaCheckpoint(strategy, instrument)} if continuous or history_enabled else
+                  {"live_session": SessionIdentityCheckpoint(recovery_identity(args, references, policy))})
     manager = attach_ctp_persistence(execution, runner, state_file=args.state_file,
         state_components=components) if orders else None
     runner.manager = manager
@@ -374,21 +392,16 @@ def assemble(args, references, driver, upstream, *, positions=None):
             legacy_states = legacy_ema_state(args.resume_report, components["ema"], persisted, args.state_file)
     return SimpleNamespace(runner=runner, strategy=strategy, execution=execution, client=execution.client,
         driver=driver, upstream=upstream, ledger=execution.ledger, manager=manager, references=references,
-        bar_feed=feed, replay_md_trading_day=replay_day, legacy_component_states=legacy_states)
+        bar_feed=feed, market_profile=policy, readiness=check,
+        recovery_binding=StrategyPositionBinding(strategy.strategy_id, execution.client.client_id,
+            {strategy.config.target_key: instrument}),
+        replay_md_trading_day=replay_day, legacy_component_states=legacy_states)
 
 
 def build_runtime(args):
     """选择通道生命周期、策略组装工厂与报告积木；构造期间不连接。"""
-    if required("CTP_BROKER_ID") != "9999":
-        raise ValueError("本入口只允许SimNow BrokerID=9999")
-    investor = required("CTP_ACCOUNT_ID")
-    transport = CtpTdApiTransport(client_id=CLIENT_ID, account_id=investor,
-        front=required("CTP_TD_ADDRESS"), broker_id="9999", investor_id=investor,
-        password=required("CTP_PASSWORD"), app_id=os.getenv("CTP_APP_ID", ""),
-        auth_code=os.getenv("CTP_AUTH_CODE", ""),
-        flow_path=os.getenv("CTP_TD_FLOW_PATH", "/tmp/bomber-main-ema-td"),
-        production_mode=os.getenv("CTP_PRODUCTION_MODE", "true").lower() in {"1", "true", "yes", "on"},
-        timeout_seconds=args.query_timeout)
+    transport = build_simnow_transport(CtpTdApiTransport, client_id=CLIENT_ID,
+        flow_path="/tmp/bomber-main-ema-td", timeout_seconds=args.query_timeout)
     lifecycle_type, extra = MainEmaSessionLifecycle, {}
     if getattr(args, "run_forever", False):
         from .continuous import ContinuousLifecycle
@@ -399,6 +412,7 @@ def build_runtime(args):
         orders=args.mode == "simnow", max_session_orders=args.max_session_orders,
         environment=args.simnow_environment, replay_md_trading_day=args.replay_md_trading_day,
         adopt_instrument=args.adopt_existing_position, expected_position=args.expected_position,
+        **({"resume": args.resume} if not getattr(args, "run_forever", False) else {}),
         expected_trading_day=args.expected_trading_day, legacy_lock_namespaces=("bomber-main-ema",), **extra)
     report = LiveRunReport(args.report_dir, prefix="simnow", metadata={
         "mode": args.mode, "product": args.product, "reference_source": args.reference_source,

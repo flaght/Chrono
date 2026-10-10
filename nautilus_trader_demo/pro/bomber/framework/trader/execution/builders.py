@@ -16,7 +16,11 @@ from .contracts import ExecutionReportType
 
 
 class _CtpPortfolioBackend(NautilusLiveExecutionBackend):
+    instrument_scope = None
+
     def submit_order(self, order):
+        if self.instrument_scope is not None and not self.instrument_scope.contains(order.instrument_id):
+            raise RuntimeError("订单合约不在本次执行范围内")
         # 每腿发送前再次检查；同步拒单/断线后不能继续本批其余腿。
         if not self.submission_check():
             raise RuntimeError("多合约会话已失效或发生拒单，停止后续腿")
@@ -96,11 +100,13 @@ def attach_ctp_persistence(execution, runner, *, state_file, state_components=No
 def build_ctp_portfolio_execution(driver, *, trading_day, price_increments,
                                   multipliers, instrument_limits, session_check,
                                   orders=False, limit_offset_ticks=1, positions=None,
-                                  prices=None, clock_ns=None):
-    """独占CTP账户的固定多合约装配；每个合约显式声明跳价/乘数/限额。"""
+                                  prices=None, clock_ns=None, instrument_scope=None):
+    """固定多合约装配；可显式限定管理范围，账户快照仍保留全部仓位。"""
     keys = set(price_increments)
     if not keys or keys != set(multipliers) or keys != set(instrument_limits):
         raise ValueError("多合约跳价、乘数与风控限额须覆盖同一非空集合")
+    if instrument_scope is not None and instrument_scope.instruments != frozenset(str(i) for i in keys):
+        raise ValueError("执行合约范围须与多合约配置一致")
     for key in keys:
         multiplier = Decimal(str(multipliers[key]))
         if not multiplier.is_finite() or multiplier <= 0:
@@ -115,6 +121,7 @@ def build_ctp_portfolio_execution(driver, *, trading_day, price_increments,
         return ExecutionComponents(RecordingExecutionClient(driver.driver_id),
             positions, prices, ledger=ledger, driver=driver)
     backend = _CtpPortfolioBackend(driver.driver_id, driver)
+    backend.instrument_scope = instrument_scope
     client = _CtpPortfolioClient(driver.driver_id, planner, backend, positions,
         PreTradeRiskManager(driver.driver_id, positions, prices, instrument_limits=instrument_limits),
         account_id=driver.account_id, demo_environment_check=session_check,

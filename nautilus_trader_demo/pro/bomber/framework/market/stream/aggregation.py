@@ -42,6 +42,9 @@ class TradeTickBarFeed(MarketDataFeed):
     当前只开放1分钟周期。只有看到下一分钟的首个成交后，上一分钟Bar才会
     发出，因此不会把尚未结束的实时分钟误当成完整Bar。没有成交的分钟不会
     人工补零；是否补齐交易日时间轴应由更高层的数据质量策略决定。
+
+    after_tick在聚合及Bar回调完成后调用，用于推进保留执行目标；回放Feed
+    传入接收时间副本，原始上游Tick不变。默认不安装此回调。
     """
 
     def __init__(
@@ -50,6 +53,7 @@ class TradeTickBarFeed(MarketDataFeed):
         upstream: MarketDataFeed,
         *,
         bar_spec: str = "1-MINUTE",
+        after_tick=None,
     ) -> None:
         super().__init__(source_id)
         normalized = bar_spec.strip().upper()
@@ -57,6 +61,7 @@ class TradeTickBarFeed(MarketDataFeed):
             raise ValueError(f"暂不支持实时聚合周期: {bar_spec}")
         self.upstream = upstream
         self.bar_spec = normalized
+        self._after_tick = after_tick
         self._interval_ns = _BAR_SPEC_TO_NS[normalized]
         self._states: dict[InstrumentId, _TradeBarState] = {}
         self._handler_attached = False
@@ -155,6 +160,8 @@ class TradeTickBarFeed(MarketDataFeed):
     def _on_trade_tick(self, tick: TradeTick) -> None:
         with self._aggregation_lock:
             self._aggregate_tick(tick)
+        if self._after_tick is not None:
+            self._after_tick(tick)
 
     def _aggregate_tick(self, tick: TradeTick) -> None:
         instrument_id = tick.instrument_id
@@ -256,7 +263,7 @@ class ReceiveTimeTradeTickBarFeed(TradeTickBarFeed):
         current = make_trade_tick(
             instrument_id=tick.instrument_id, price=tick.price.as_decimal(),
             size=tick.size.as_decimal(), trade_id=str(tick.trade_id),
-            ts_event=received, ts_init=received, meta=meta)
+            ts_event=received, ts_init=received, meta=meta, aggressor_side=tick.aggressor_side)
         self._last_receive_ns[tick.instrument_id] = received
         if not self._timing["ticks_used"]:
             self._timing.update(first_source_event_ns=tick.ts_event, first_receive_ns=received)

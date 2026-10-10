@@ -1,19 +1,22 @@
 """04固定多主力会话装配；算法仍由原strategy.py提供。"""
 
-from datetime import datetime
 from dataclasses import replace
-from copy import deepcopy
-from threading import RLock
 from types import SimpleNamespace
 import time
 
-from bomber.framework.market.basic.base import Bar, InstrumentId, InstrumentMeta, DataType
-from bomber.framework.market.stream import TradeTickBarFeed
+from bomber.framework.market.basic.base import Bar, InstrumentId, DataType
 from bomber.framework.trader import DataBinding, ExecutionRoute, PositionManager, RiskLimits, RuntimeMode
 from bomber.framework.trader.runner import UnifiedStrategyRunner
 from bomber.framework.trader.assembly import StrategyBindings, assemble_strategy
 from bomber.framework.trader.execution.builders import build_ctp_portfolio_execution, attach_ctp_persistence
-from bomber.framework.trader.runtime.ctp import CtpSessionLifecycle, session_ready
+from bomber.framework.trader.runtime.live.channels.ctp import CtpSessionLifecycle
+from bomber.framework.dataprep.live_portfolio import PortfolioRoleReferences as PortfolioReferences
+from bomber.framework.trader.runtime.live.channels.ctp import (InstrumentHealthGate, CtpLiveProfile,
+    CtpMarketChannel, CtpExecutionChannel)
+from bomber.framework.trader.runtime.live.contracts import SessionReadiness
+from bomber.framework.trader.runtime.live.recovery import StrategyPositionBinding, InstrumentPositionScope
+from bomber.framework.trader.runtime.live.health import validate_instrument_max_age
+from bomber.framework.trader.runtime.live.profiles import build_minute_feed
 from .recovery import ResumeLifecycle
 
 from .strategy import MainCrossSectionMomentumStrategy
@@ -22,104 +25,6 @@ CLIENT_ID = "cross-section-simnow"
 MINUTE = 60_000_000_000
 
 
-class PortfolioReferences:
-    """适配已有多品种LiveFuturesReferences，固定本次路由及累计因子版本。"""
-    paths = ()
-
-    def __init__(self, service):
-        self.service = service
-        self.products = service.products
-        self.trading_day = service.trading_day
-        self.started_ns = service.started_ns
-        self.factor_date_basis = service.factor_date_basis
-        self._cache_lock = RLock()
-        self.publication_lock = RLock()
-        self._cache = None
-        self._failure = None
-        self._clock_high_water_ns = None
-        self.refresh()
-
-    def validate(self):
-        specs = self.specs
-        if any(s.venue not in {"SHFE", "INE"} or s.currency != "CNY" for s in specs.values()):
-            raise ValueError("04首期SimNow仅支持SHFE/INE人民币期货")
-        if len(set(self.instrument_ids.values())) != len(self.products):
-            raise ValueError("多品种不能映射到同一个真实合约")
-
-    @property
-    def specs(self):
-        with self._cache_lock:
-            return dict(self._cache[1])
-
-    @property
-    def instrument_ids(self):
-        return {p: InstrumentId.from_str(f"{s.symbol.lower()}.{s.venue}")
-                for p, s in self.specs.items()}
-
-    @property
-    def spec(self):
-        # 生命周期函数的固定资料比较包含因子，避免窗口混入新版本复权价。
-        assignment = self.snapshot(time.time_ns())
-        return tuple((p, assignment.instrument(p, "main"), self.specs[p],
-                      assignment.factor(p, "main")) for p in self.products)
-
-    @property
-    def manifest(self):
-        with self._cache_lock:
-            result = deepcopy(self._cache[2]) if self._cache else {}
-            failure = self._failure
-            if failure is None and self._cache:
-                now = time.time_ns()
-                age = now - self._cache[2]["observed_at_ns"]
-                limit = self._cache[2]["freshness_policy"]["max_observation_age_seconds"]
-                if self._clock_high_water_ns is not None and now < self._clock_high_water_ns:
-                    failure = self._failure = "参考缓存时钟回退"
-                elif not 0 <= age <= limit * 1_000_000_000:
-                    failure = "参考缓存观测过期或时钟回退"
-                self._clock_high_water_ns = max(now, self._clock_high_water_ns or now)
-            return {**result, "ready": failure is None and self._cache is not None,
-                    "failure": failure}
-
-    @property
-    def factor_date(self):
-        return datetime.fromisoformat(self.manifest["factor_date"]).date()
-
-    def refresh(self):
-        # 只由启动/控制线程调用。snapshot自身会刷新，不能先refresh再snapshot重复读库。
-        try:
-            assignment = self.service.snapshot(time.time_ns())
-            specs = {p: self.service.instrument_specs[p]["main"] for p in self.products}
-            manifest = deepcopy(self.service.manifest)
-            if not manifest.get("ready", True):
-                raise RuntimeError(manifest.get("failure") or "参考资料未就绪")
-            manifest.setdefault("observed_at_ns", time.time_ns())
-            manifest.setdefault("freshness_policy", {"max_observation_age_seconds": 30})
-            # 发布缓存与策略发单互斥，但整个数据库查询过程不占用策略锁。
-            with self.publication_lock:
-                with self._cache_lock:
-                    self._cache = (assignment, specs, manifest)
-                    self._failure = None
-                    self.validate()
-        except Exception as error:
-            with self._cache_lock:
-                self._failure = str(error)
-            raise
-
-    def snapshot(self, as_of_ns):
-        with self._cache_lock:
-            manifest = self.manifest
-            if not manifest["ready"]:
-                raise RuntimeError(manifest["failure"])
-            assignment = self._cache[0]
-            if type(as_of_ns) is not int or as_of_ns < max(assignment.effective_ns, assignment.available_ns):
-                raise RuntimeError("当前参考版本在Bar时刻尚不可见")
-            return assignment
-
-    def instrument_meta(self, product):
-        s = self.specs[product]
-        return InstrumentMeta(instrument_id=self.instrument_ids[product],
-            price_precision=max(0, -s.tick.normalize().as_tuple().exponent), size_precision=0,
-            price_increment=s.tick, multiplier=s.multiplier, currency=s.currency, exchange=s.venue)
 
 
 class CrossSectionSessionRunner(UnifiedStrategyRunner):
@@ -127,6 +32,8 @@ class CrossSectionSessionRunner(UnifiedStrategyRunner):
     bound_instrument = None  # 单合约生命周期旧报告字段；组合报告另列全部合约。
 
     def _submit_locked(self, intent):
+        intent = replace(intent, metadata={**intent.metadata,
+            **self.session_metadata})
         # 信号属于已收盘分钟；风控估值应与实际执行时刻比较。
         if self.orders:
             intent = replace(intent, ts_event=self._clock_ns(),
@@ -134,15 +41,15 @@ class CrossSectionSessionRunner(UnifiedStrategyRunner):
         return super()._submit_locked(intent)
 
     def __init__(self, *, references, session_check, orders, position_manager, clock_ns=None,
-                 instrument_max_age_seconds=10):
+                 instrument_max_age_seconds=10, session_metadata=None):
         super().__init__(RuntimeMode.LIVE, position_manager=position_manager)
         self.references, self.orders = references, orders
         self._session_check = session_check
         self._clock_ns = clock_ns or (lambda: time.time_ns())
-        if not 0 < instrument_max_age_seconds <= 120:
-            raise ValueError("逐合约深度时效须在(0,120]秒内")
-        self.instrument_max_age_ns = int(instrument_max_age_seconds * 1_000_000_000)
+        self.instrument_max_age_ns = validate_instrument_max_age(instrument_max_age_seconds)
         self.expected_day = references.trading_day.strftime("%Y%m%d")
+        self.session_metadata = dict(session_metadata or {})
+        self.instrument_health = None
         self.fixed_spec = references.spec
         self.instruments = dict(references.instrument_ids)
         self.fixed_ids = frozenset(self.instruments.values())
@@ -192,7 +99,8 @@ class CrossSectionSessionRunner(UnifiedStrategyRunner):
                     self.strategy.last_targets is None or
                     self.target_store.get(self.strategy.strategy_id) is None):
                 return
-            if not 0 <= self._clock_ns() - tick.ts_event <= self.instrument_max_age_ns:
+            stamp = tick.ts_event
+            if stamp <= 0 or not 0 <= self._clock_ns() - stamp <= self.instrument_max_age_ns:
                 return
             try:
                 if not self.session_ready() or self.references.spec != self.fixed_spec:
@@ -211,30 +119,10 @@ class CrossSectionSessionRunner(UnifiedStrategyRunner):
         return not self.stale_instruments()
 
     def stale_instruments(self):
-        now, received = self._clock_ns(), time.monotonic_ns()
-        observations = getattr(self.upstream, "depth_observations", None)
-        if observations:
-            self.depth_records = dict(observations)
-        failures = {}
-        for i in self.fixed_ids:
-            # 手动事件夹具没有原始CTP深度接口；生产CTP必须使用快照接收记录。
-            observation = observations.get(i) if observations is not None else None
-            event = (observation.ts_event if observation else
-                     self.tick_events.get(i) if observations is None else None)
-            receive = (observation.received_monotonic_ns if observation else
-                       self.tick_receives.get(i) if observations is None else None)
-            day_ok = observations is None or (observation and observation.trading_day == self.expected_day)
-            regressed = bool(observation and observation.timestamp_regressed)
-            event_age = None if event is None else now - event
-            receive_age = None if receive is None else received - receive
-            if (not day_ok or regressed or event_age is None or receive_age is None or
-                    not 0 <= event_age <= self.instrument_max_age_ns or
-                    not 0 <= receive_age <= self.instrument_max_age_ns):
-                failures[str(i)] = {"event_age_seconds": None if event_age is None else event_age / 1e9,
-                    "receive_age_seconds": None if receive_age is None else receive_age / 1e9,
-                    "trading_day": observation.trading_day if observation else None,
-                    "max_age_seconds": self.instrument_max_age_ns / 1e9,
-                    "timestamp_regressed": regressed}
+        if self.instrument_health is None:
+            return {}
+        failures = self.instrument_health.stale_instruments()
+        self.depth_records = dict(self.instrument_health.depth_records)
         return failures
 
     def begin_bars(self):
@@ -309,16 +197,6 @@ class CrossSectionSessionRunner(UnifiedStrategyRunner):
                 self.close_role_gate(str(error))
 
 
-class _CrossSectionBarFeed(TradeTickBarFeed):
-    def __init__(self, *args, runner, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.runner = runner
-
-    def _on_trade_tick(self, tick):
-        super()._on_trade_tick(tick)
-        self.runner.continue_on_tick(tick)
-
-
 class CrossSectionLifecycle(ResumeLifecycle, CtpSessionLifecycle):
     @staticmethod
     def _expected_gross(session):
@@ -335,18 +213,9 @@ class CrossSectionLifecycle(ResumeLifecycle, CtpSessionLifecycle):
         stale = session.runner.stale_instruments()
         if stale:
             session.runner.close_role_gate(f"逐合约深度行情陈旧或失效: {stale}")
-        session.references.refresh()
         return super().poll(session)
 
     def shutdown(self, session, context):
-        if self.resuming and not self.resume_ready:
-            # 校验失败不能保存未经核验的状态或撤销未知账户订单。
-            if session:
-                session.runner.accept_bars = False
-                session.runner.stop()
-            self.driver.stop()
-            return {"final_gross": None, "final_active_orders": None,
-                    "cleanup_errors": [], "resume_state_preserved": True}
         if session:
             with session.runner._submit_lock:
                 session.runner.accept_bars = False
@@ -404,13 +273,28 @@ def assemble(args, references, driver, upstream):
     if args.expected_instruments and actual != args.expected_instruments:
         raise ValueError(f"本次主力不符: expected={args.expected_instruments} actual={actual}")
     orders = args.mode == "simnow"
+    environment = getattr(args, "simnow_environment", "realtime")
+    replay_day = getattr(args, "replay_md_trading_day", None)
+    policy = CtpLiveProfile(environment, replay_day)
     expected_day = references.trading_day.strftime("%Y%m%d")
     positions = PositionManager()
+    market_channel = CtpMarketChannel(upstream, expected_day, profile=policy)
+    check = SessionReadiness(market_channel,
+        CtpExecutionChannel(driver, expected_day, require_orders=orders))
     runner = CrossSectionSessionRunner(references=references, orders=orders,
         instrument_max_age_seconds=getattr(args, "instrument_max_age_seconds", 10),
-        position_manager=positions, session_check=lambda: session_ready(driver, upstream,
-            expected_day, require_orders=orders))
+        session_metadata={"simnow_environment": policy.environment, "replay_md_trading_day": replay_day},
+        position_manager=positions, session_check=check)
+    runner.replay_md_trading_day = replay_day  # 旧检查点/报告兼容字段，非策略输入。
+    runner.expected_md_day = policy.expected_md_day(expected_day)
+    runner.upstream = upstream
+    runner.instrument_health = InstrumentHealthGate(upstream, runner.fixed_ids, expected_day,
+        policy=policy, max_age_seconds=getattr(args, "instrument_max_age_seconds", 10),
+        clock_ns=runner._clock_ns, fallback_events=runner.tick_events,
+        fallback_receives=runner.tick_receives)
+    market_channel.instrument_health = runner.instrument_health
     ids, specs = references.instrument_ids, references.specs
+    position_scope = InstrumentPositionScope(ids.values())
     limits = {ids[p]: RiskLimits(max_order_quantity=args.max_quantity,
         max_abs_position=args.max_quantity, max_order_notional=args.max_notional,
         max_abs_position_notional=args.max_notional, max_market_age_ns=120_000_000_000,
@@ -419,7 +303,7 @@ def assemble(args, references, driver, upstream):
         price_increments={ids[p]: specs[p].tick for p in args.products},
         multipliers={ids[p]: specs[p].multiplier for p in args.products},
         instrument_limits=limits, session_check=runner.session_ready, orders=orders,
-        positions=positions, limit_offset_ticks=args.limit_offset_ticks)
+        positions=positions, limit_offset_ticks=args.limit_offset_ticks, instrument_scope=position_scope)
     strategy = MainCrossSectionMomentumStrategy(CLIENT_ID, products=args.products, roles=references,
         instruments={str(ids[p].symbol).lower(): ids[p] for p in args.products},
         multipliers={ids[p]: specs[p].multiplier for p in args.products},
@@ -429,10 +313,11 @@ def assemble(args, references, driver, upstream):
         require_full_groups=getattr(args, "require_full_groups", False))
     runner.strategy, runner.client = strategy, execution.client
     references.publication_lock = runner._submit_lock
-    runner.upstream = upstream
     # 先记录各腿Tick新鲜度，再让聚合器分派由新Tick收盘的Bar。
     upstream.register_trade_tick_handler(runner.observe_tick)
-    feed = _CrossSectionBarFeed("CROSS_SECTION_1M", upstream, runner=runner)
+    feed = build_minute_feed("CROSS_SECTION_1M", upstream,
+        policy, after_tick=runner.continue_on_tick,
+        max_age_seconds=getattr(args, "instrument_max_age_seconds", 10), clock_ns=runner._clock_ns)
     for p in args.products:
         feed.register_instrument(references.instrument_meta(p))
     bindings = StrategyBindings(
@@ -443,4 +328,7 @@ def assemble(args, references, driver, upstream):
     runner.manager = manager
     return SimpleNamespace(runner=runner, strategy=strategy, client=execution.client,
         execution=execution, ledger=execution.ledger, manager=manager, driver=driver,
-        references=references, upstream=upstream, bar_feed=feed)
+        references=references, upstream=upstream, bar_feed=feed, market_profile=policy, readiness=check,
+        position_scope=position_scope,
+        recovery_binding=StrategyPositionBinding(strategy.strategy_id, execution.client.client_id,
+            {str(i): i for i in ids.values()}))

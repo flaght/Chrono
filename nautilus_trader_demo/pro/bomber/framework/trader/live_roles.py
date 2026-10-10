@@ -37,6 +37,7 @@ class FixedRoleLiveRunner(UnifiedStrategyRunner):
         self._last_live_bar_ns = {}
         self._role_binding = None
         self._role_change_reason = None
+        self._restored_target_revisions = {}
 
     @property
     def bound_instrument(self):
@@ -83,6 +84,22 @@ class FixedRoleLiveRunner(UnifiedStrategyRunner):
         self.position_manager.attribution.adopt(binding.client_id, binding.instrument_id,
             binding.strategy.strategy_id, binding.target_key, quantity)
 
+    def hold_restored_target(self, strategy_id, revision):
+        """启动前暂停旧目标续执行；只有策略发布更高版本的新目标才能解除。"""
+        if (self._started or self._role_binding is None
+                or strategy_id != self._role_binding.strategy.strategy_id
+                or isinstance(revision, bool) or not isinstance(revision, int) or revision < 0):
+            raise ValueError("须在固定策略Runner启动前声明恢复目标版本")
+        self._restored_target_revisions[strategy_id] = revision
+
+    def continue_execution_target(self, strategy_id, target_key, as_of_ns, **kwargs):
+        held = self._restored_target_revisions.get(strategy_id)
+        if held is not None:
+            target = self.target_store.get(strategy_id)
+            if target is None or target.revision <= held:
+                return False
+        return super().continue_execution_target(strategy_id, target_key, as_of_ns, **kwargs)
+
     def publish(self, feed_id, event):
         if not isinstance(event, Bar) or self._role_binding is None:
             return super().publish(feed_id, event)
@@ -120,21 +137,30 @@ class SessionRoleLiveRunner(FixedRoleLiveRunner):
     SimNow端口或回放日期。参考源遵循snapshot／refresh／spec接口。
     """
 
-    def __init__(self, *, references, session_check, orders, clock_ns=None, **kwargs):
+    def __init__(self, *, references, session_check, orders, clock_ns=None, instrument_health=None, **kwargs):
         super().__init__(RuntimeMode.LIVE, **kwargs)
         self.references = references
         self.orders = orders
         self._session_check = session_check
+        self.instrument_health = instrument_health
         self._clock_ns = clock_ns or (lambda: time.time_ns())
         self.expected_day = references.trading_day.strftime("%Y%m%d")
         self.fixed_spec = references.spec
+        self.fixed_reference_version = getattr(references, "version", self.fixed_spec)
         minute = 60_000_000_000
         self.first_complete_bar_ns = ((references.started_ns + minute - 1) // minute + 1) * minute - 1
         self.failure = None
         self.accept_bars = False
 
     def session_ready(self):
-        return self._session_check()
+        return bool(not self.failure and self._session_check() and not self.stale_instruments())
+
+    def stale_instruments(self):
+        return self.instrument_health.stale_instruments() if self.instrument_health else {}
+
+    def reference_is_current(self):
+        return (self.references.spec == self.fixed_spec and
+                getattr(self.references, "version", self.references.spec) == self.fixed_reference_version)
 
     def begin_bars(self):
         minute = 60_000_000_000
@@ -148,22 +174,24 @@ class SessionRoleLiveRunner(FixedRoleLiveRunner):
             return
         if event.ts_event < self.first_complete_bar_ns:
             return
-        try:
-            if not self.session_ready():
-                raise RuntimeError("MD／TD会话失效、交易日不一致或行情停滞")
-            if not 0 <= self._clock_ns() - event.ts_event <= 120_000_000_000:
-                raise RuntimeError("分钟Bar与墙钟不匹配；默认不接受历史回放")
-            self.references.refresh()
-            if self.references.spec != self.fixed_spec:
-                self.close_role_gate("角色合约或条款变更，固定路由闭闸并要求重新核对")
-            if not self.session_ready():
-                raise RuntimeError("参考资料刷新后MD／TD会话已失效或行情停滞")
-            if not 0 <= self._clock_ns() - event.ts_event <= 120_000_000_000:
-                raise RuntimeError("参考资料刷新后分钟Bar已过期")
-            return super().publish(feed_id, event)
-        except Exception as error:
-            self.failure = str(error)
-            self.accept_bars = False
-            if self.orders and self._role_binding is not None:
-                self._clients[self._role_binding.client_id].disarm("bar_dispatch_failed")
-            raise
+        with self._submit_lock:
+            try:
+                if not self.session_ready():
+                    raise RuntimeError("MD／TD会话失效、交易日不一致或行情停滞")
+                if not 0 <= self._clock_ns() - event.ts_event <= 120_000_000_000:
+                    raise RuntimeError("分钟Bar与墙钟不匹配；默认不接受历史回放")
+                if getattr(self.references, "refresh_on_event", True):
+                    self.references.refresh()
+                if not self.reference_is_current():
+                    self.close_role_gate("角色合约或条款变更，固定路由闭闸并要求重新核对")
+                if not self.session_ready():
+                    raise RuntimeError("参考资料刷新后MD／TD会话已失效或行情停滞")
+                if not 0 <= self._clock_ns() - event.ts_event <= 120_000_000_000:
+                    raise RuntimeError("参考资料刷新后分钟Bar已过期")
+                return super().publish(feed_id, event)
+            except Exception as error:
+                self.failure = str(error)
+                self.accept_bars = False
+                if self.orders and self._role_binding is not None:
+                    self._clients[self._role_binding.client_id].disarm("bar_dispatch_failed")
+                raise

@@ -1,6 +1,7 @@
 """04完整策略与实际CTP传输的无网络装配验证；全部MD/TD使用假API。"""
 
 from contextlib import redirect_stderr
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from importlib import import_module
@@ -37,6 +38,13 @@ class RejectFirstApi(fixtures.FlatTdApi):
         super().reqOrderInsert(data, reqid)
         self.onRspOrderInsert(data, {"ErrorID": 42, "ErrorMsg": "fake reject"}, reqid, True)
         return 0
+
+
+class ExternalPositionApi(fixtures.AdoptTdApi):
+    """测试组合为RB/HC，AU空一手代表策略范围外的柜台仓位。"""
+    def __init__(self):
+        super().__init__()
+        self.gross = {"au2612.SHFE": (0, 1)}
 
 
 class CrossSectionLiveTests(unittest.TestCase):
@@ -230,33 +238,159 @@ class CrossSectionLiveTests(unittest.TestCase):
             max_notional=Decimal(50000), limit_offset_ticks=1, state_file=self.root / "state.json")
         for name, value in options.items():
             setattr(args, name, value)
-        s = runtime.assemble(args, refs, driver, fixtures.ManualMd())
+        upstream = fixtures.ManualMd()
+        if getattr(args, "replay_md_trading_day", None):
+            upstream.latest_trading_day = args.replay_md_trading_day
+        s = runtime.assemble(args, refs, driver, upstream)
         holder["s"] = s
         s.transport, s.args = transport, args
         if not orders:
             driver.start(lambda report: None)
         s.runner.start()
         self.addCleanup(s.runner.stop)
-        assert_flat_account(driver, transport)
+        assert_flat_account(driver, transport, position_scope=s.position_scope)
         self.raw_ticks(s, BASE, {p: 3100 if p == "RB" else 3000 for p in self.service.products})
         if orders:
             s.client.arm_demo(s.client.DEMO_CONFIRMATION)
         s.runner.accept_bars = True
         return s
 
-    def raw_ticks(self, s, stamp, prices):
+    def raw_ticks(self, s, stamp, prices, replay_day=None):
         self.now = stamp
         s.references.refresh()  # 模拟控制线程刷新；行情回调自身不得访问数据库。
         s.upstream.latest_receive_monotonic_ns = time.monotonic_ns()
+        replay_day = replay_day or getattr(getattr(s, "runner", None), "replay_md_trading_day", None)
+        source_stamp = stamp - 2 * 86_400_000_000_000 if replay_day else stamp
+        if replay_day:
+            s.upstream.latest_trading_day = replay_day
+            s.upstream.depth_observations = {i: CtpDepthObservation(replay_day, source_stamp,
+                time.monotonic_ns()) for i in s.references.instrument_ids.values()}
         # 测试按整分钟跳时钟；先模拟两腿边界前持续Tick心跳，再依次触发聚合。
         # 生产行情没有此预填路径，实际逐腿Tick回调独立更新时间。
         if hasattr(s, "runner"):
             for p, value in prices.items():
                 s.runner.observe_tick(make_trade_tick(s.references.instrument_ids[p], value, 1,
-                    ts_event=stamp, meta=s.references.instrument_meta(p), trade_id=f"heartbeat-{p}-{stamp}"))
+                    ts_event=source_stamp, meta=s.references.instrument_meta(p), trade_id=f"heartbeat-{p}-{stamp}"))
         for p, value in prices.items():
             s.upstream._emit_trade_tick(make_trade_tick(s.references.instrument_ids[p], value, 1,
-                ts_event=stamp, ts_init=stamp, meta=s.references.instrument_meta(p), trade_id=f"{p}-{stamp}"))
+                ts_event=source_stamp, ts_init=stamp, meta=s.references.instrument_meta(p), trade_id=f"{p}-{stamp}"))
+
+    def test_replay_cli_requires_explicit_valid_md_day(self):
+        args = live.parse_args(self.command("--simnow-environment", "replay",
+            "--replay-md-trading-day", "20260920"))
+        self.assertEqual(args.simnow_environment, "replay")
+        self.assertEqual(args.replay_md_trading_day, "20260920")
+        self.assertEqual(live.parse_args(self.command()).simnow_environment, "realtime")
+        for extra in (("--simnow-environment", "replay"),
+                      ("--replay-md-trading-day", "20260920"),
+                      ("--simnow-environment", "replay", "--replay-md-trading-day", "20260931")):
+            with self.subTest(extra=extra), redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                live.parse_args(self.command(*extra))
+
+    def test_replay_old_source_ticks_form_current_frames_and_targets(self):
+        s = self.session(simnow_environment="replay", replay_md_trading_day="20260920")
+        s.runner.begin_bars()
+        raw = []
+        s.upstream.register_trade_tick_handler(raw.append)
+        for minute in range(1, 4):
+            self.raw_ticks(s, BASE + minute * MINUTE + 1,
+                {"RB": 3100 + minute * 30, "HC": 3000 - minute * 30})
+        self.assertEqual(s.strategy.synchronized_frames, 3)
+        self.assertEqual(len(s.client.requests), 1)
+        self.assertEqual(s.client.requests[0].ts_event, BASE + 2 * MINUTE - 1)
+        self.assertEqual(raw[0].ts_init - raw[0].ts_event, 2 * 86_400_000_000_000)
+        self.assertTrue(s.runner.session_ready())
+        self.assertEqual(s.bar_feed.timing_snapshot["bar_time_basis"], "receive")
+        self.assertFalse(s.transport._api.sent)
+
+    def test_realtime_still_rejects_old_source_depth(self):
+        s = self.session()
+        s.upstream.depth_observations = {i: CtpDepthObservation("20260922",
+            self.now - 2 * 86_400_000_000_000, time.monotonic_ns()) for i in s.runner.fixed_ids}
+        self.assertFalse(s.runner.session_ready())
+
+    def test_replay_still_rejects_missing_stale_wrong_day_and_regressed_depth(self):
+        s = self.session(simnow_environment="replay", replay_md_trading_day="20260920")
+        original = dict(s.upstream.depth_observations)
+        instrument = next(iter(s.runner.fixed_ids))
+        old = self.now - 2 * 86_400_000_000_000
+        invalid = (None, CtpDepthObservation("20260921", old, time.monotonic_ns()),
+            CtpDepthObservation("20260920", old, time.monotonic_ns() - 11_000_000_000),
+            CtpDepthObservation("20260920", old, time.monotonic_ns(), True),
+            CtpDepthObservation("20260920", self.now + 1, time.monotonic_ns()))
+        for observation in invalid:
+            s.upstream.depth_observations = dict(original)
+            if observation is None:
+                del s.upstream.depth_observations[instrument]
+            else:
+                s.upstream.depth_observations[instrument] = observation
+            with self.subTest(observation=observation):
+                self.assertFalse(s.runner.session_ready())
+        s.upstream.depth_observations = original
+        s.upstream.latest_trading_day = "20260921"
+        self.assertFalse(s.runner.session_ready())
+
+    def test_replay_reverse_close_fills_continue_on_receive_time_ticks(self):
+        s = self.session(orders=True, simnow_environment="replay", replay_md_trading_day="20260920",
+                         rebalance_interval=1)
+        self.raw_ticks(s, BASE + MINUTE + 1, {"RB": 3130, "HC": 2970})
+        self.raw_ticks(s, BASE + 2 * MINUTE + 1, {"RB": 2990, "HC": 3110})
+        self.assertEqual(len(s.transport._api.sent), 2)
+        self.fill(s, 0)
+        self.fill(s, 1)
+        self.raw_ticks(s, BASE + 3 * MINUTE + 1, {"RB": 2990, "HC": 3110})
+        self.assertEqual(len(s.transport._api.sent), 4)
+        self.fill(s, 2)
+        self.fill(s, 3)
+        revision = s.runner.target_store.get(runtime.CLIENT_ID).revision
+        frames = s.strategy.synchronized_frames
+        self.raw_ticks(s, self.now + 1_000_000_000, {"RB": 2990, "HC": 3110})
+        self.assertEqual(len(s.transport._api.sent), 6)
+        self.assertEqual(s.strategy.synchronized_frames, frames)
+        target = s.runner.target_store.get(runtime.CLIENT_ID)
+        self.assertEqual(target.revision, revision)
+        self.assertEqual(target.metadata["replay_md_trading_day"], "20260920")
+        self.assertFalse(s.client.report_errors)
+
+    def test_replay_partial_start_minute_is_excluded(self):
+        s = self.session(simnow_environment="replay", replay_md_trading_day="20260920")
+        self.now = BASE + 30_000_000_000
+        s.runner.begin_bars()
+        self.raw_ticks(s, BASE + MINUTE + 1, {"RB": 3130, "HC": 2970})
+        self.assertEqual(s.strategy.synchronized_frames, 0)
+        self.raw_ticks(s, BASE + 2 * MINUTE + 1, {"RB": 3140, "HC": 2960})
+        self.assertEqual(s.strategy.synchronized_frames, 1)
+
+    def test_replay_invalid_receive_timestamps_are_rejected(self):
+        s = self.session(simnow_environment="replay", replay_md_trading_day="20260920")
+        instrument = s.references.instrument_ids["RB"]
+        source = s.runner.tick_events[instrument]
+        for received in (0, self.now + 1, self.now - 10_000_000_001, self.now - 1):
+            tick = make_trade_tick(instrument, 3100, 1, trade_id=f"bad-{received}",
+                ts_event=source, ts_init=received, meta=s.references.instrument_meta("RB"))
+            with self.subTest(received=received), self.assertRaisesRegex(RuntimeError, "接收时间"):
+                s.upstream._emit_trade_tick(tick)
+
+    def test_resume_rejects_environment_or_replay_day_change(self):
+        s = self.restored_session()
+        s.runner.replay_md_trading_day = "20260920"
+        with self.assertRaisesRegex(RuntimeError, "SimNow环境"):
+            recovery.validate_restored_session(s, "20260922")
+        s.runner.replay_md_trading_day = None
+        target = s.runner.target_store.get(runtime.CLIENT_ID)
+        target = replace(target, metadata={**target.metadata, "simnow_environment": "replay",
+                                           "replay_md_trading_day": "20260920"})
+        s.runner.replay_md_trading_day = "20260921"
+        with patch.object(s.runner.target_store, "all", return_value={runtime.CLIENT_ID: target}), \
+                self.assertRaisesRegex(RuntimeError, "SimNow环境"):
+            recovery.validate_restored_session(s, "20260922")
+
+    def test_replay_invalid_front_pair_rejected_before_connect(self):
+        transport = SimpleNamespace(broker_id="9999", front="tcp://182.254.243.31:40001",
+                                    production_mode=True)
+        with self.assertRaisesRegex(ValueError, "同组SimNow"):
+            runtime.CrossSectionLifecycle(transport, md_front="tcp://182.254.243.31:30011",
+                environment="replay", replay_md_trading_day="20260920")
 
     def bar(self, s, p, stamp, price):
         s.references.refresh()  # 手动跳时钟的夹具模拟控制线程更新缓存。
@@ -928,10 +1062,53 @@ class CrossSectionLiveTests(unittest.TestCase):
                 live.parse_args(self.command("--target-quantity-cap", value))
 
     def test_complete_managed_lifecycle_preflight_relogin_fill_shutdown(self):
+        self.complete_managed_lifecycle()
+
+    def test_complete_replay_managed_lifecycle_preflight_relogin_fill_shutdown(self):
+        self.complete_managed_lifecycle(replay=True)
+
+    def test_complete_managed_lifecycle_preserves_external_position(self):
+        self.complete_managed_lifecycle(external=True)
+
+    def test_complete_replay_lifecycle_preserves_external_position(self):
+        self.complete_managed_lifecycle(replay=True, external=True)
+
+    def test_scoped_session_rejects_existing_position_in_managed_contract(self):
+        with self.assertRaisesRegex(RuntimeError, "账户已有总仓"):
+            self.session(orders=True, api_base=fixtures.AdoptTdApi)
+
+    def test_external_position_remains_unassigned_after_own_fills_and_restore_validation(self):
+        s = self.session(orders=True, api_base=ExternalPositionApi)
+        external = runtime.InstrumentId.from_str("au2612.SHFE")
+        self.frame(s, 0, 3100, 3000)
+        self.frame(s, 1, 3130, 2970)
+        self.fill(s, 0)
+        self.fill(s, 1)
+        positions = s.runner.position_manager
+        self.assertEqual(positions.account_position(runtime.CLIENT_ID, external), -1)
+        self.assertEqual(positions.unassigned_position(runtime.CLIENT_ID, external), -1)
+        self.assertEqual(positions.position(s.strategy.strategy_id, str(external)), 0)
+        with self.assertRaisesRegex(ValueError, "未知策略目标"):
+            s.strategy.position(str(external))
+        self.assertEqual(s.ledger.snapshot(external).net_position, 0)
+        recovery.validate_restored_session(s, "20260922")
+        recovery.validate_account(s, s.transport)
+        api = s.transport._api  # stop会清空Transport引用，保留假API以核对完整委托记录。
+        self.assertEqual(len(api.sent), 2)
+        s.manager.save()
+        s.runner.stop()  # 原生关联检查点只能在Driver停机后恢复。
+        s.manager.restore()
+        recovery.validate_restored_session(s, "20260922")
+        self.assertEqual(positions.unassigned_position(runtime.CLIENT_ID, external), -1)
+        self.assertEqual(len(api.sent), 2)
+        self.assertTrue(all(o["InstrumentID"] != "au2612" for o in api.sent))
+
+    def complete_managed_lifecycle(self, replay=False, external=False):
+        replay_flags = ("--simnow-environment", "replay", "--replay-md-trading-day", "20260920") if replay else ()
         args = live.parse_args(self.command("--mode", "simnow", "--enable-orders", "--confirm-simnow",
             "--state-file", str(self.root / "complete.json"), "--report-dir", str(self.root / "reports"),
             "--lookback", "1", "--rebalance-interval", "2", "--target-notional", "35000",
-            "--max-notional", "50000", "--seconds", "1", "--query-timeout", "0.05"))
+            "--max-notional", "50000", "--seconds", "1", "--query-timeout", "0.05", *replay_flags))
         refs = runtime.PortfolioReferences(self.service)
         owner = self
 
@@ -939,7 +1116,7 @@ class CrossSectionLiveTests(unittest.TestCase):
             def connect(self):
                 super().connect()
                 owner.raw_ticks(SimpleNamespace(upstream=self, references=refs), BASE,
-                                {"RB": 3100, "HC": 3000})
+                                {"RB": 3100, "HC": 3000}, replay_day="20260920" if replay else None)
 
         def inputs(options, context, controller):
             context.references = refs
@@ -948,12 +1125,15 @@ class CrossSectionLiveTests(unittest.TestCase):
         original = CtpTdApiTransport
 
         def transport(**kwargs):
-            return original(**kwargs, td_api_base=fixtures.FlatTdApi)
+            return original(**kwargs, td_api_base=ExternalPositionApi if external else fixtures.FlatTdApi)
 
         env = {"CTP_BROKER_ID": "9999", "CTP_ACCOUNT_ID": "demo", "CTP_PASSWORD": "fake",
             "CTP_TD_ADDRESS": "tcp://fake:1234", "CTP_MD_ADDRESS": "tcp://fake:1234",
             "CTP_APP_ID": "fake-app", "CTP_AUTH_CODE": "fake-auth", "CTP_PRODUCTION_MODE": "true",
             "CTP_TD_FLOW_PATH": str(self.root / "complete-td")}
+        if replay:
+            env.update(CTP_TD_ADDRESS="tcp://182.254.243.31:40001",
+                       CTP_MD_ADDRESS="tcp://182.254.243.31:40011")
         with patch.dict("os.environ", env), patch.object(live, "CtpTdApiTransport", side_effect=transport), \
                 patch.object(live, "prepare_inputs", side_effect=inputs):
             managed = live.build_runtime(args)
@@ -986,8 +1166,14 @@ class CrossSectionLiveTests(unittest.TestCase):
             self.assertEqual(result["fills_received"], 2)
             self.assertEqual(result["final_active_orders"], 0)
             self.assertEqual(result["cleanup_errors"], [])
-            self.assertEqual(result["final_gross"], {"rb2704.SHFE": (1, 0), "hc2704.SHFE": (0, 1)})
+            managed_gross = {"rb2704.SHFE": (1, 0), "hc2704.SHFE": (0, 1)}
+            external_gross = {"au2612.SHFE": (0, 1)} if external else {}
+            self.assertEqual(result["final_gross"], {**managed_gross, **external_gross})
+            self.assertEqual(result["final_managed_gross"], managed_gross)
+            self.assertEqual(result["external_gross"], external_gross)
             self.assertEqual(result["fixed_instruments"], args.expected_instruments)
+            self.assertEqual(result["simnow_environment"], "replay" if replay else "realtime")
+            self.assertEqual(result["bar_time_basis"], "receive" if replay else "event")
             self.assertTrue(args.state_file.is_file())
             managed.stop()
 

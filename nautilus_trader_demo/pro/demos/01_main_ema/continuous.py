@@ -1,5 +1,6 @@
 """按交易窗口续接同一EMA状态；休市不执行策略，恢复必须权威对账。"""
 
+from bomber.framework.trader.runtime.ctp_account import position_buckets
 from contextlib import ExitStack, nullcontext
 from copy import copy
 from datetime import datetime
@@ -13,8 +14,8 @@ import time
 from bomber.framework.trader.execution.ctp.ledger import CtpLedgerState, CtpPositionSnapshot
 from bomber.framework.trader.live_roles import SessionRoleLiveRunner
 from bomber.framework.trader.persistence import JsonStateStore
-from bomber.framework.trader.runtime.ctp import CtpSessionLifecycle, account_lock, occupied_positions
-from bomber.framework.trader.runtime.managed import LiveRunContext
+from bomber.framework.trader.runtime.live.channels.ctp import CtpSessionLifecycle, account_lock, occupied_positions
+from bomber.framework.trader.runtime.live.contracts import LiveRunContext
 from bomber.framework.trader.runtime.trading_sessions import CopperSessions, SHANGHAI
 from bomber.framework.market.basic.base import Bar
 
@@ -168,22 +169,12 @@ class ContinuousLifecycle(CtpSessionLifecycle):
         expected = {} if not net else {str(instrument): (max(net, 0), max(-net, 0))}
         if gross != expected or abs(net) > 1:
             raise RuntimeError("恢复时全账户总仓与已知单策略一手仓不一致")
-        values, bases = [Decimal(0)] * 4, [Decimal(0)] * 4
-        totals = {}
-        for row in self.transport.query_position_details():
-            qty = Decimal(str(row["Position"]))
-            if not qty:
-                continue
-            if (row["InstrumentID"] + "." + row["ExchangeID"] != str(instrument)
-                    or str(row.get("HedgeFlag")) != "1" or str(row.get("PositionDate")) not in {"1", "2"}
-                    or str(row.get("PosiDirection")) not in {"2", "3"}):
-                raise RuntimeError("权威今昨仓明细不可恢复")
-            index = (0 if str(row["PosiDirection"]) == "2" else 2) + (0 if str(row["PositionDate"]) == "1" else 1)
-            cost = Decimal(str(row["PositionCost"]))
-            if not cost.is_finite() or cost <= 0 or index in totals:
-                raise RuntimeError("持仓成本或今昨仓分桶无效")
-            totals[index] = qty
-            values[index], bases[index] = qty, cost / (qty * session.references.spec.multiplier)
+        buckets = position_buckets(self.transport.query_position_details(), (instrument,),
+            require_cost=True, unique_buckets=True)
+        bucket = buckets.get(str(instrument))
+        values = bucket.quantities if bucket else (Decimal(0),) * 4
+        bases = tuple(cost / (qty * session.references.spec.multiplier) if qty else Decimal(0)
+                      for qty, cost in zip(values, bucket.costs if bucket else (Decimal(0),) * 4))
         if (values[0] + values[1], values[2] + values[3]) != expected.get(str(instrument), (0, 0)):
             raise RuntimeError("权威总仓与今昨明细不一致")
         snap = CtpPositionSnapshot(instrument, *values, *bases)
