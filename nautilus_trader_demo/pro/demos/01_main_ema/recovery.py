@@ -9,7 +9,7 @@ from bomber.framework.trader.runtime.live.channels.ctp_recovery import (
 def recovery_identity(args, references, policy):
     assignment = references.snapshot(time.time_ns())
     product = args.product.strip().upper()
-    return {
+    result = {
         "strategy_id": "main-ema-simnow", "client_id": "main-ema-simnow",
         "product": product, "instrument": str(references.instrument_id),
         "target_key": f"{product.lower()}_main",
@@ -24,6 +24,11 @@ def recovery_identity(args, references, policy):
         "listed": str(references.spec.listed), "last_trade": str(references.spec.last_trade),
         "fast": args.fast, "slow": args.slow, "quantity": str(args.quantity),
     }
+    from bomber.framework.trader.execution.policy import ExecutionPolicy, execution_policy_from_args
+    execution = execution_policy_from_args(args)
+    if execution != ExecutionPolicy():
+        result["execution_policy"] = execution.snapshot_state()
+    return result
 
 
 def validate_restored_session(session, day):

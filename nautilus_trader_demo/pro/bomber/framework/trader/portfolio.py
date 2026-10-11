@@ -283,7 +283,7 @@ class PortfolioCoordinator:
 
 @dataclass(frozen=True)
 class AccountReconciliationState:
-    """某个交易客户端最近一次成功权威对账的版本。"""
+    """执行仓位基准版本；严格模式来自柜台，独立模式来自本地成交账本。"""
 
     revision: int
     ts_event: int
@@ -352,8 +352,10 @@ class PositionManagerState:
 class PositionManager:
     """保存策略归属仓位、账户真实仓位和在途数量。
 
-    account_positions 必须由撮合器或交易客户端查询/回报更新，是账户级权威
-    状态；working_quantities 是尚未完全成交的有符号数量，买入为正、卖出为负。
+    account_positions 是执行客户端的规划基准，由撮合器或交易客户端更新。
+    strict时应用物理账户权威快照；observe/off时仅维护归属成交基准，物理
+    快照另存于客户端account_observation，不能把这里的值报告为真实账户仓位。
+    working_quantities 是尚未完全成交的有符号数量，买入为正、卖出为负。
     客户端用归属账本冻结净额订单的分配计划，并在状态机接受成交后更新归属。
     未知外部仓位保持未归属，不能按当前目标或触发策略猜测分配。
     """

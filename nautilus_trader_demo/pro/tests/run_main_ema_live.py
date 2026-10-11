@@ -9,6 +9,7 @@ from importlib import import_module
 from io import StringIO
 from pathlib import Path
 import json
+import os
 from tempfile import TemporaryDirectory
 import time
 from types import SimpleNamespace
@@ -187,9 +188,9 @@ class LiveTests(unittest.TestCase):
         self.addCleanup(driver.stop)
         return transport, driver, holder
 
-    def session(self, orders=False, replay=False, adopt=False):
+    def session(self, orders=False, replay=False, adopt=False, model=False):
         transport, driver, holder = self.transport_driver(orders, AdoptTdApi if adopt else FlatTdApi)
-        args = SimpleNamespace(mode="simnow" if orders else "recording", product="RB",
+        args = SimpleNamespace(mode="model" if model else "simnow" if orders else "recording", product="RB",
             fast=2, slow=3, quantity=Decimal(1), limit_offset_ticks=1,
             max_notional=Decimal(50000), state_file=self.root / "state.json",
             simnow_environment="replay" if replay else "realtime",
@@ -212,7 +213,7 @@ class LiveTests(unittest.TestCase):
             context = controller.prepare(resources)
             context.references = self.reference()
             controller.finish_preparation(context)
-        s = live.assemble(args, self.reference(), driver, upstream)
+        s = live.assemble(args, self.reference(), None if model else driver, upstream)
         s.args = args
         holder["session"] = s
         if adopt:
@@ -222,11 +223,12 @@ class LiveTests(unittest.TestCase):
             s.controller = controller
             s.adoption_resources = resources
             return s
-        if not orders:
+        if not orders and not model:
             driver.start(lambda report: None)
         s.runner.start()
         self.addCleanup(s.runner.stop)
-        live.assert_flat_account(driver, transport)
+        if not model:
+            live.assert_flat_account(driver, transport)
         if orders:
             s.client.arm_demo(s.client.DEMO_CONFIRMATION)
         s.runner.accept_bars = True
@@ -262,6 +264,31 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(str(reference.instrument_id), "rb2704.SHFE")
         self.assertEqual(assignment.factor("RB", "main"), 2)
         self.assertEqual(reference.instrument_meta().multiplier, 10)
+
+    def test_model_ema_updates_own_position_without_td_or_account_query(self):
+        s = self.session(model=True)
+        for minute, price in enumerate((3100, 3110, 3120, 3130, 3140)):
+            self.tick(s, minute, price)
+        self.assertIsNone(s.transport._api)
+        self.assertIsNone(s.driver)
+        self.assertFalse(s.client.report_errors)
+        self.assertIsNotNone(s.strategy.last_target)
+        self.assertEqual(s.strategy.position(s.strategy.config.target_key), s.strategy.last_target)
+        self.assertGreater(s.strategy.fills_received, 0)
+        with self.assertRaisesRegex(RuntimeError, "未关联"):
+            s.strategy.account_position(s.strategy.config.target_key)
+
+    def test_model_runtime_build_does_not_require_td_credentials_or_transport(self):
+        args = live.parse_args(["--connect", "--mode", "model", "--product", "RB",
+            "--expected-trading-day", "20260922", "--expected-source-day", "20260921",
+            "--state-file", str(self.root / "model.json")])
+        env = {"CTP_MD_ADDRESS": "tcp://fake:1234", "CTP_ACCOUNT_ID": "demo", "CTP_PASSWORD": "fake"}
+        with patch.dict(os.environ, env, clear=True), patch.object(live, "build_simnow_transport",
+                side_effect=AssertionError("模型不能创建TD")):
+            managed = live.build_runtime(args)
+        self.assertIsNone(managed.controller.driver)
+        self.assertEqual(args.execution_policy.account_reconciliation.value, "off")
+        self.assertEqual(args.execution_policy.position_source.value, "model")
 
     def test_public_fixed_role_runner_supports_non_ema_secondary_strategy(self):
         reference = self.reference()

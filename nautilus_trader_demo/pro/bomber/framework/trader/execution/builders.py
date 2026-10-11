@@ -13,6 +13,7 @@ from .recording import RecordingExecutionClient
 from .risk import MarketReferencePriceStore, PreTradeRiskManager
 from .simulation import SimulationExecutionClient
 from .contracts import ExecutionReportType
+from .policy import AccountReconciliationMode, ExecutionPolicy, StrategyPositionSource
 
 
 class _CtpPortfolioBackend(NautilusLiveExecutionBackend):
@@ -62,7 +63,8 @@ def build_simulation_execution(backend, *, instrument_limits, positions=None, pr
 
 def build_ctp_execution(driver, *, instrument_id, trading_day, price_increment,
                         multiplier, risk_limits, session_check, orders=False,
-                        limit_offset_ticks=1, positions=None, prices=None, clock_ns=None):
+                        limit_offset_ticks=1, positions=None, prices=None, clock_ns=None,
+                        account_reconciliation=AccountReconciliationMode.STRICT):
     positions = PositionManager() if positions is None else positions
     prices = MarketReferencePriceStore() if prices is None else prices
     ledger = CtpPositionLedger(trading_day)
@@ -74,6 +76,7 @@ def build_ctp_execution(driver, *, instrument_id, trading_day, price_increment,
         CtpLimitPlanner(ledger, positions, prices, price_increment, limit_offset_ticks),
         backend, positions, PreTradeRiskManager(driver.driver_id, positions, prices,
             instrument_limits={instrument_id: risk_limits}), account_id=driver.account_id,
+        account_reconciliation=account_reconciliation,
         demo_environment_check=session_check, max_request_wall_age_ns=120_000_000_000,
         wall_clock_ns=clock_ns or (lambda: time.time_ns()))
     backend.register_report_handler(CtpExecutionAccounting(
@@ -88,11 +91,15 @@ def attach_ctp_persistence(execution, runner, *, state_file, state_components=No
     if runner.position_manager is not execution.positions:
         raise ValueError("Runner和执行组件须共享PositionManager")
     client_id = execution.client.client_id
+    components = dict(state_components or {})
+    mode = execution.client.account_reconciliation
+    if mode is not AccountReconciliationMode.STRICT:
+        components.setdefault("execution_policy", ExecutionPolicy(mode))
     manager = RuntimeStateManager(JsonStateStore(state_file), runner.target_store,
         runner.portfolio_coordinator, execution.positions,
         order_machines={client_id: execution.client.order_state_machine},
         ctp_ledgers={client_id: execution.ledger}, ctp_drivers={client_id: execution.driver},
-        state_components=state_components)
+        state_components=components)
     manager.enable_ctp_autosave(client_id, execution.client)
     return manager
 
@@ -100,7 +107,8 @@ def attach_ctp_persistence(execution, runner, *, state_file, state_components=No
 def build_ctp_portfolio_execution(driver, *, trading_day, price_increments,
                                   multipliers, instrument_limits, session_check,
                                   orders=False, limit_offset_ticks=1, positions=None,
-                                  prices=None, clock_ns=None, instrument_scope=None):
+                                  prices=None, clock_ns=None, instrument_scope=None,
+                                  account_reconciliation=AccountReconciliationMode.STRICT):
     """固定多合约装配；可显式限定管理范围，账户快照仍保留全部仓位。"""
     keys = set(price_increments)
     if not keys or keys != set(multipliers) or keys != set(instrument_limits):
@@ -125,9 +133,54 @@ def build_ctp_portfolio_execution(driver, *, trading_day, price_increments,
     client = _CtpPortfolioClient(driver.driver_id, planner, backend, positions,
         PreTradeRiskManager(driver.driver_id, positions, prices, instrument_limits=instrument_limits),
         account_id=driver.account_id, demo_environment_check=session_check,
+        account_reconciliation=account_reconciliation,
         max_request_wall_age_ns=120_000_000_000,
         wall_clock_ns=clock_ns or (lambda: time.time_ns()))
     backend.submission_check = lambda: (session_check() and client.is_reconciled and not client.portfolio_failure
                                        and not client.report_errors)
     backend.register_report_handler(CtpExecutionAccounting(ledger, multipliers).on_report)
     return ExecutionComponents(client, positions, prices, backend, ledger, driver)
+
+
+def build_model_execution(client_id, *, instrument_limits, positions=None, prices=None):
+    """仅行情的独立策略账本；按参考价模拟成交，物理账户执行另行装配。"""
+    from .live.client import BackendExecutionClient
+    from .model import ReferencePriceExecutionBackend
+    positions = PositionManager() if positions is None else positions
+    prices = MarketReferencePriceStore() if prices is None else prices
+    backend = ReferencePriceExecutionBackend(client_id, prices)
+    client = BackendExecutionClient(client_id, NetTargetOrderPlanner(positions), backend, positions,
+        PreTradeRiskManager(client_id, positions, prices, instrument_limits=instrument_limits),
+        account_reconciliation=AccountReconciliationMode.OFF, account_id=f"model:{client_id}")
+    return ExecutionComponents(client, positions, prices, backend=backend)
+
+
+def attach_execution_persistence(execution, runner, *, state_file, state_components=None):
+    """通用策略执行检查点；物理账户跟随端须使用自己的状态管理器。"""
+    if runner.position_manager is not execution.positions:
+        raise ValueError("Runner和策略执行须共享策略PositionManager")
+    client_id = execution.client.client_id
+    from .fanout import TargetFanoutClient
+    components = dict(state_components or {})
+    from .contracts import ExecutionBackendKind
+    source = StrategyPositionSource.MODEL if execution.backend.kind is ExecutionBackendKind.SIMULATION else StrategyPositionSource.FILLS
+    components.setdefault("execution_policy", ExecutionPolicy(execution.client.account_reconciliation, source))
+    if isinstance(execution.client, TargetFanoutClient):
+        components["account_dispatch"] = execution.client
+    manager = RuntimeStateManager(JsonStateStore(state_file), runner.target_store,
+        runner.portfolio_coordinator, execution.positions,
+        order_machines={client_id: execution.client.order_state_machine},
+        state_components=components)
+    if isinstance(execution.client, TargetFanoutClient):
+        execution.client.set_checkpoint(manager.save)
+    execution.client.register_submit_failure_handler(manager.save)
+    execution.client.register_execution_event_handler(lambda event: manager.save())
+    return manager
+
+
+def build_fanout_execution(position_execution, account_routes, *, checkpoint=None):
+    """只替换执行端口；Runner/策略仍共享唯一主账本，账户端保持独立。"""
+    from .fanout import TargetFanoutClient
+    client = TargetFanoutClient(position_execution.client, account_routes, checkpoint=checkpoint)
+    return ExecutionComponents(client, position_execution.positions, position_execution.prices,
+        position_execution.backend, position_execution.ledger, position_execution.driver)

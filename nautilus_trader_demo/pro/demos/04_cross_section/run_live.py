@@ -24,6 +24,8 @@ from bomber.framework.trader.runtime.live.runtime import ManagedLiveRuntime
 from bomber.framework.trader.runtime.reports import LiveRunReport
 
 from .live_runtime import CLIENT_ID, CrossSectionLifecycle, PortfolioReferences, assemble
+from bomber.framework.trader.execution.policy import add_execution_policy_arguments, execution_policy_from_args, observed_account_positions
+from bomber.framework.trader.runtime.live.channels.ctp_market import CtpMarketSessionLifecycle
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,7 +33,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--connect", action="store_true")
-    parser.add_argument("--mode", choices=("recording", "simnow"), default="recording")
+    parser.add_argument("--mode", choices=("recording", "simnow", "model"), default="recording")
+    add_execution_policy_arguments(parser)
     add_environment_arguments(parser)
     parser.add_argument("--products", required=True, help="至少两个不同品种，逗号分隔；首轮RB,HC")
     parser.add_argument("--expected-instrument", action="append", default=[],
@@ -120,8 +123,17 @@ def parse_args(argv=None):
             parser.error("恢复须--resume及已有原state-file；新会话须使用不存在的文件")
         if args.state_file.exists() and not args.state_file.is_file():
             parser.error("state-file不是普通文件")
+    elif args.mode == "model":
+        if args.enable_orders or args.confirm_simnow or args.state_file is None:
+            parser.error("模型模式须独立state-file，不接受物理账户报单授权")
+        if args.resume != args.state_file.is_file():
+            parser.error("模型恢复须原状态文件；新会话须使用不存在的文件")
     elif args.enable_orders or args.confirm_simnow or args.state_file or args.resume:
         parser.error("Recording不接受报单开关或交易状态文件")
+    try:
+        args.execution_policy = execution_policy_from_args(args)
+    except ValueError as error:
+        parser.error(str(error))
     return args
 
 
@@ -169,11 +181,24 @@ def describe(session):
         "last_order_status": s.last_order_update.status.value if s.last_order_update else None,
         "fill_positions": s.fill_positions,
         "strategy_positions": {str(i): positions.position(s.strategy_id, str(i)) for i in session.runner.fixed_ids},
-        "account_positions": {str(i): positions.account_position(CLIENT_ID, i) for i in session.runner.fixed_ids},
+        "account_positions": observed_account_positions(session.client, session.runner.fixed_ids, positions=positions),
+        "execution_positions": {str(i): positions.account_position(CLIENT_ID, i) for i in session.runner.fixed_ids},
         "unassigned_positions": {str(i): positions.unassigned_position(CLIENT_ID, i) for i in session.runner.fixed_ids}}
 
 
-def build_runtime(args):
+def build_runtime(args, *, account_routes=()):
+    if args.mode == "model":
+        lifecycle = CtpMarketSessionLifecycle(expected_trading_day=args.expected_trading_day,
+            environment=args.simnow_environment, replay_md_trading_day=args.replay_md_trading_day, resume=args.resume, state_file=args.state_file)
+        report = LiveRunReport(args.report_dir, prefix="cross-section-model", describe=describe, metadata={
+            "mode": "model", "products": args.products, "state_file": str(args.state_file),
+            "simnow_environment": args.simnow_environment, "replay_md_trading_day": args.replay_md_trading_day})
+        return ManagedLiveRuntime(CLIENT_ID, controller=lifecycle,
+            prepare_inputs=lambda context: prepare_inputs(args, context, lifecycle),
+            assemble_session=lambda inputs, context: assemble(args, inputs.references, None, inputs.upstream, account_routes=account_routes),
+            report=report, seconds=args.seconds)
+    if account_routes:
+        raise ValueError("跟随账户装配须选择model策略来源")
     transport = build_simnow_transport(CtpTdApiTransport, client_id=CLIENT_ID,
         flow_path="/tmp/bomber-cross-section-td", timeout_seconds=args.query_timeout)
     lifecycle = CrossSectionLifecycle(transport, md_front=required("CTP_MD_ADDRESS"),
@@ -181,6 +206,7 @@ def build_runtime(args):
         environment=args.simnow_environment, replay_md_trading_day=args.replay_md_trading_day,
         resume=args.resume,
         scope_to_reference_instruments=True,
+        account_reconciliation=execution_policy_from_args(args).account_reconciliation,
         expected_trading_day=args.expected_trading_day, legacy_lock_namespaces=("bomber-main-ema",))
     report = LiveRunReport(args.report_dir, prefix="cross-section-simnow", describe=describe, metadata={
         "mode": args.mode, "strategy_id": CLIENT_ID, "products": args.products,

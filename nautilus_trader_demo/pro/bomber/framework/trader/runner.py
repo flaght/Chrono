@@ -609,6 +609,15 @@ class UnifiedStrategyRunner:
 
     def account_position(self, strategy_id: str, target_key: str) -> Decimal:
         route = self._static_execution_route(strategy_id, target_key)
+        client = self._clients[route.client_id]
+        mode = getattr(getattr(client, "account_reconciliation", None), "value", "strict")
+        if mode == "off":
+            raise RuntimeError("当前策略未关联物理账户仓位，请使用策略position")
+        if mode == "observe":
+            observation = getattr(client, "account_observation", None)
+            if observation is None:
+                raise RuntimeError("尚未取得物理账户仓位观测")
+            return observation.positions.get(route.instrument_id, Decimal(0))
         return self._position_manager.account_position(route.client_id, route.instrument_id)
 
     def working_quantity(self, strategy_id: str, target_key: str) -> Decimal:

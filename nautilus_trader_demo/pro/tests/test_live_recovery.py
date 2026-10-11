@@ -116,6 +116,33 @@ def session(controller):
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_native_off_lifecycle_does_not_query_or_compare_physical_positions(self):
+        channel, c, s, gross, calls = self.scoped_controller()
+        c.account_reconciliation = 'off'
+        c.transport.query_gross_positions = lambda: self.fail('off不应查询总仓')
+        c.driver.reconcile = lambda: self.fail('off不应查询净仓')
+        with patch.object(channel, 'account_lock', return_value=nullcontext()), ExitStack() as resources:
+            context = c.prepare(resources)
+            context.references = s.references
+            c.finish_preparation(context)
+            c.start(s, context)
+            c._next_check = 0
+            self.assertTrue(c.poll(s))
+            result = c.shutdown(s, context)
+        self.assertIsNone(result['final_gross'])
+        self.assertFalse(result['cleanup_errors'])
+
+    def test_detached_ctp_recovery_still_checks_own_ledger_without_physical_query(self):
+        c = Lifecycle(resume=True)
+        s = session(c)
+        s.client.account_reconciliation = NS(value='off')
+        c.transport.query_gross_positions = lambda: self.fail('off恢复不能查询总仓')
+        c.transport.query_position_details = lambda: self.fail('off恢复不能查询今昨仓')
+        ctp.validate_ctp_account(s, c.transport, s.recovery_binding)
+        s.ledger.snapshot('RB.SHFE').net_position = Decimal(0)
+        with self.assertRaisesRegex(RuntimeError, '账本不一致'):
+            ctp.validate_ctp_account(s, c.transport, s.recovery_binding)
+
     def test_cross_section_failed_resume_uses_public_state_file_protection(self):
         aliases = {'bomber.framework.trader.runtime.live.recovery': recovery,
                    'bomber.framework.trader.runtime.live.channels.ctp_recovery': ctp}

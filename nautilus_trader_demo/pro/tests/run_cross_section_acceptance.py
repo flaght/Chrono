@@ -11,9 +11,10 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = {
+    "execution-composition": ("tests.test_execution_composition",),
     "ema-recovery": ("tests.test_main_ema_recovery",),
     "continuous": ("tests.test_main_ema_continuous",),
-    "live-common": ("unittest", "tests.test_live_common", "tests.test_live_channels", "tests.test_live_recovery"),
+    "live-common": ("unittest", "tests.test_live_common", "tests.test_live_channels", "tests.test_live_recovery", "tests.test_execution_composition"),
     "cross-section": ("tests.test_cross_section_live",),
     "signal": ("tests.test_demo_cross_section_signal",),
     "entry": ("tests.run_main_ema_live",),
@@ -27,6 +28,17 @@ CASES = {
     "ctp-driver": ("tests.run_p4_ctp_driver",),
 }
 SOURCES = (
+    "bomber/framework/trader/execution/policy.py",
+    "bomber/framework/trader/execution/fanout.py",
+    "bomber/framework/trader/execution/account.py",
+    "bomber/framework/trader/execution/model.py",
+    "bomber/framework/trader/execution/__init__.py",
+    "bomber/framework/trader/runtime/live/local.py",
+    "bomber/framework/trader/runtime/live/channels/ctp_market.py",
+    "tests/test_execution_composition.py",
+    "bomber/framework/trader/template.py",
+    "bomber/framework/trader/portfolio.py",
+    "bomber/framework/trader/execution/planner.py",
     "bomber/framework/trader/runtime/live/recovery.py",
     "bomber/framework/trader/runtime/live/channels/ctp_recovery.py",
     "demos/01_main_ema/recovery.py",

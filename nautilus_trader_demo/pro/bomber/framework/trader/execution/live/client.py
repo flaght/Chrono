@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Callable
 
 from bomber.framework.trader.contracts import ExecutionRequest
@@ -17,6 +18,7 @@ from bomber.framework.trader.execution.order_state import (
 )
 from bomber.framework.trader.execution.ports import LiveExecutionBackendPort, OrderPlannerPort
 from bomber.framework.trader.execution.risk import KillSwitchMode, PreTradeRiskManager
+from bomber.framework.trader.execution.policy import AccountReconciliationMode
 from bomber.framework.trader.portfolio import PositionManager
 
 
@@ -32,6 +34,7 @@ class BackendExecutionClient:
         risk_manager: PreTradeRiskManager | None = None,
         *,
         account_id: str | None = None,
+        account_reconciliation: AccountReconciliationMode | str = AccountReconciliationMode.STRICT,
     ) -> None:
         if client_id != backend.backend_id:
             raise ValueError("client_id必须与backend_id一致")
@@ -44,6 +47,9 @@ class BackendExecutionClient:
         self.backend = backend
         self.position_manager = position_manager
         self.risk_manager = risk_manager
+        self.account_reconciliation = AccountReconciliationMode(account_reconciliation)
+        self.account_observation = None
+        self.account_observation_error = None
         self._started = False
         self._reconciled = False
         self._order_states = OrderReportStateMachine(client_id)
@@ -122,9 +128,30 @@ class BackendExecutionClient:
                 "存在执行回报状态冲突；仅账户仓位对账不足以恢复活动订单状态",
             )
         self._reconciled = False
-        snapshot = self.backend.reconcile()
-        if snapshot.backend_id != self.client_id:
-            raise ValueError("权威仓位快照Backend不匹配")
+        mode = self.account_reconciliation
+        snapshot = None
+        if mode is not AccountReconciliationMode.OFF:
+            self.account_observation = None
+            try:
+                snapshot = self.backend.reconcile()
+            except Exception as error:
+                if mode is AccountReconciliationMode.STRICT:
+                    raise
+                self.account_observation_error = str(error)
+            else:
+                self.account_observation_error = None
+        if snapshot is not None:
+            if snapshot.backend_id != self.client_id:
+                raise ValueError("权威仓位快照Backend不匹配")
+            self.account_observation = snapshot
+        if mode is not AccountReconciliationMode.STRICT:
+            # 这里的执行账本仅由本客户端归属成交更新；物理账户观测另存。
+            from bomber.framework.trader.execution.contracts import AccountPositionSnapshot
+            current = self.position_manager.account_reconciliation(self.client_id)
+            snapshot = AccountPositionSnapshot(self.client_id, 1 if current is None else current.revision + 1,
+                max(time.time_ns(), 0 if current is None else current.ts_event),
+                {key.instrument_id: quantity for key, quantity in self.position_manager.snapshot().account_positions.items()
+                 if key.client_id == self.client_id})
         self.position_manager.apply_account_snapshot(
             self.client_id,
             snapshot.positions,
@@ -137,6 +164,17 @@ class BackendExecutionClient:
                 "检测到重启前活动订单；必须先用柜台查询结果完成在途订单恢复",
             )
         self._reconciled = True
+
+    @property
+    def position_differences(self):
+        """仅观测差异，不将真实账户仓位写进独立执行账本。"""
+        if self.account_observation is None:
+            return {}
+        local = {key.instrument_id: q for key, q in self.position_manager.snapshot().account_positions.items()
+                 if key.client_id == self.client_id}
+        return {i: self.account_observation.positions.get(i, 0) - local.get(i, 0)
+                for i in local.keys() | self.account_observation.positions.keys()
+                if self.account_observation.positions.get(i, 0) != local.get(i, 0)}
 
     def submit_targets(self, request: ExecutionRequest) -> None:
         with self._submit_lock:
@@ -211,6 +249,13 @@ class BackendExecutionClient:
 
     def cancel_strategy(self, strategy_id: str) -> None:
         self.backend.cancel_strategy(strategy_id)
+
+    def disarm(self, reason="operator"):
+        """通用策略执行也能闭闸；模型和第三方端不依赖DEMO授权接口。"""
+        if self.risk_manager is not None:
+            self.set_risk_mode(KillSwitchMode.HALTED)
+        else:
+            self._reconciled = False
 
     def _on_report(self, report: ExecutionReport) -> None:
         # 状态机先接受并更新仓位/在途，然后才允许对策略投递事件。

@@ -37,6 +37,7 @@ class NetTargetOrderPlanner:
                 "target": str(target),
                 "current": str(current),
                 "request_revision": request.revision,
+                "request_ts": request.ts_event,
             }
             if current > 0 and target < current:
                 close_quantity = min(current, current - target)

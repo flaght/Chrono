@@ -20,6 +20,9 @@ from bomber.framework.trader.runtime.live.profiles import build_minute_feed
 from .recovery import ResumeLifecycle
 
 from .strategy import MainCrossSectionMomentumStrategy
+from bomber.framework.trader.execution.policy import execution_policy_from_args, ExecutionPolicy
+from bomber.framework.trader.execution.builders import build_model_execution, attach_execution_persistence
+from bomber.framework.trader.runtime.live.local import LocalExecutionChannel
 
 CLIENT_ID = "cross-section-simnow"
 MINUTE = 60_000_000_000
@@ -267,23 +270,28 @@ class CrossSectionLifecycle(ResumeLifecycle, CtpSessionLifecycle):
             "portfolio_failure": getattr(session.client, "portfolio_failure", None) if session else None}
 
 
-def assemble(args, references, driver, upstream):
+def assemble(args, references, driver, upstream, *, account_routes=()):
     references.validate()
     actual = {p: str(i) for p, i in references.instrument_ids.items()}
     if args.expected_instruments and actual != args.expected_instruments:
         raise ValueError(f"本次主力不符: expected={args.expected_instruments} actual={actual}")
-    orders = args.mode == "simnow"
+    model = args.mode == "model"
+    orders = args.mode in {"simnow", "model"}
+    execution_policy = execution_policy_from_args(args)
     environment = getattr(args, "simnow_environment", "realtime")
     replay_day = getattr(args, "replay_md_trading_day", None)
     policy = CtpLiveProfile(environment, replay_day)
     expected_day = references.trading_day.strftime("%Y%m%d")
     positions = PositionManager()
     market_channel = CtpMarketChannel(upstream, expected_day, profile=policy)
-    check = SessionReadiness(market_channel,
-        CtpExecutionChannel(driver, expected_day, require_orders=orders))
+    client_holder = {}
+    execution_channel = (LocalExecutionChannel(CLIENT_ID, lambda: bool(client_holder.get("client") and client_holder["client"].is_reconciled))
+                         if model else CtpExecutionChannel(driver, expected_day, require_orders=orders))
+    check = SessionReadiness(market_channel, execution_channel)
     runner = CrossSectionSessionRunner(references=references, orders=orders,
         instrument_max_age_seconds=getattr(args, "instrument_max_age_seconds", 10),
-        session_metadata={"simnow_environment": policy.environment, "replay_md_trading_day": replay_day},
+        session_metadata={"simnow_environment": policy.environment, "replay_md_trading_day": replay_day,
+                          **({"execution_policy": execution_policy.snapshot_state()} if execution_policy != ExecutionPolicy() else {})},
         position_manager=positions, session_check=check)
     runner.replay_md_trading_day = replay_day  # 旧检查点/报告兼容字段，非策略输入。
     runner.expected_md_day = policy.expected_md_day(expected_day)
@@ -299,11 +307,22 @@ def assemble(args, references, driver, upstream):
         max_abs_position=args.max_quantity, max_order_notional=args.max_notional,
         max_abs_position_notional=args.max_notional, max_market_age_ns=120_000_000_000,
         contract_multiplier=specs[p].multiplier) for p in args.products}
-    execution = build_ctp_portfolio_execution(driver, trading_day=expected_day,
-        price_increments={ids[p]: specs[p].tick for p in args.products},
-        multipliers={ids[p]: specs[p].multiplier for p in args.products},
-        instrument_limits=limits, session_check=runner.session_ready, orders=orders,
-        positions=positions, limit_offset_ticks=args.limit_offset_ticks, instrument_scope=position_scope)
+    if model:
+        execution = build_model_execution(CLIENT_ID, instrument_limits=limits, positions=positions)
+    else:
+        execution = build_ctp_portfolio_execution(driver, trading_day=expected_day,
+            price_increments={ids[p]: specs[p].tick for p in args.products},
+            multipliers={ids[p]: specs[p].multiplier for p in args.products},
+            instrument_limits=limits, session_check=runner.session_ready, orders=orders,
+            positions=positions, limit_offset_ticks=args.limit_offset_ticks, instrument_scope=position_scope,
+            account_reconciliation=execution_policy.account_reconciliation)
+    client_holder["client"] = execution.client
+    if account_routes:
+        if not model:
+            raise ValueError("入口的一对多装配须使用独立模型主账本；归属成交源可通过公共builder显式选择")
+        from bomber.framework.trader.execution.builders import build_fanout_execution
+        execution = build_fanout_execution(execution, account_routes)
+        client_holder["client"] = execution.client
     strategy = MainCrossSectionMomentumStrategy(CLIENT_ID, products=args.products, roles=references,
         instruments={str(ids[p].symbol).lower(): ids[p] for p in args.products},
         multipliers={ids[p]: specs[p].multiplier for p in args.products},
@@ -324,7 +343,9 @@ def assemble(args, references, driver, upstream):
         data=tuple(DataBinding(str(i), "ctp-bars", i, DataType.BAR, "1-MINUTE") for i in ids.values()),
         execution=tuple(ExecutionRoute(str(i), CLIENT_ID, i) for i in ids.values()))
     assemble_strategy(runner, strategy, feeds={"ctp-bars": feed}, execution=execution, bindings=bindings)
-    manager = attach_ctp_persistence(execution, runner, state_file=args.state_file) if orders else None
+    components = {"execution_policy": execution_policy} if execution_policy != ExecutionPolicy() else {}
+    attach = attach_execution_persistence if model else attach_ctp_persistence
+    manager = attach(execution, runner, state_file=args.state_file, state_components=components) if orders else None
     runner.manager = manager
     return SimpleNamespace(runner=runner, strategy=strategy, client=execution.client,
         execution=execution, ledger=execution.ledger, manager=manager, driver=driver,

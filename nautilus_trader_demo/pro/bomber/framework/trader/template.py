@@ -130,6 +130,13 @@ class StrategyTemplate(ABC):
     def position(self, target_key: str) -> Decimal:
         return self._require_context().position(target_key)
 
+    def restore_target_revision(self, revision: int) -> None:
+        """运行前恢复目标版本；信号窗口仍由策略自身的检查点决定。"""
+        if self._started or isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+            raise ValueError("目标版本恢复须在策略启动前且版本为非负整数")
+        with self._revision_lock:
+            self._revision = revision
+
     def account_position(self, target_key: str) -> Decimal:
         """按逻辑目标键查询账户真实净仓，不等同于策略独占持仓。"""
         return self._require_context().account_position(target_key)
