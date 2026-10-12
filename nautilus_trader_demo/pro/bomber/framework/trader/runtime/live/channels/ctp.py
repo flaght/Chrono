@@ -347,7 +347,7 @@ class CtpSessionLifecycle:
             raise RuntimeError("TD交易日与指定交易日不一致")
         print(f"本次会话: environment={self.environment} TD交易日={day} "
               f"MD要求交易日={self.replay_md_trading_day or day} MD={self.md_front} "
-              f"TD={self.transport.front} bar_time_basis={self.profile.bar_time_basis}",
+              f"TD={self.transport.front} bar_time_basis={getattr(self, 'bar_time_basis', self.profile.bar_time_basis)}",
               flush=True)
         return LiveRunContext(day, resources)
 
@@ -495,7 +495,7 @@ class CtpSessionLifecycle:
     def shutdown(self, session, context):
         errors = []
         final_gross = final_active = None
-        self._observed_md_day = session.upstream.latest_trading_day if session else None
+        self._observed_md_day = getattr(session.upstream, "latest_trading_day", None) if session else None
         self._observed_td_day = self.driver.trading_day or self._observed_td_day
         if session:
             session.runner.accept_bars = False

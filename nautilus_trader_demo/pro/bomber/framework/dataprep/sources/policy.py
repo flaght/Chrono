@@ -3,6 +3,9 @@ from enum import Enum
 
 
 class DataSourcePurpose(str, Enum):
+    OFFLINE_FEATURE = "offline_feature"
+    LIVE_FEATURE = "live_feature"
+    FEATURE_EXPORT = "feature_export"
     OFFLINE_REFERENCE = "offline_reference"
     OFFLINE_MARKET_HISTORY = "offline_market_history"
     LIVE_REFERENCE = "live_reference"
@@ -15,6 +18,11 @@ class DataSourcePurpose(str, Enum):
 def validate_source(backend, purpose):
     purpose = DataSourcePurpose(purpose)
     name = str(backend).strip().lower()
+    if purpose in {DataSourcePurpose.OFFLINE_FEATURE, DataSourcePurpose.LIVE_FEATURE, DataSourcePurpose.FEATURE_EXPORT}:
+        allowed = {"file"} if purpose is DataSourcePurpose.OFFLINE_FEATURE else {"dolphindb", "dolphindb-raw", "mongodb"}
+        if name not in allowed:
+            raise ValueError(f"{purpose.value}不允许{name}特征来源")
+        return purpose
     if purpose in {DataSourcePurpose.LIVE_MARKET_HISTORY, DataSourcePurpose.LIVE_RECOVERY}:
         allowed = ({"file", "dolphindb", "mongodb"} if purpose is DataSourcePurpose.LIVE_MARKET_HISTORY
             else {"dolphindb", "mongodb"})

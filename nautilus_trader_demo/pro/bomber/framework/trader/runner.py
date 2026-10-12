@@ -63,6 +63,9 @@ class _RuntimeContext(StrategyContext):
     def working_quantity(self, target_key: str) -> Decimal:
         return self._runner.working_quantity(self._strategy_id, target_key)
 
+    def strategy_working_quantity(self, target_key: str) -> Decimal:
+        return self._runner.strategy_working_quantity(self._strategy_id, target_key)
+
 
 class UnifiedStrategyRunner:
     """装配行情源、策略和交易客户端，同时保持策略层无感知。
@@ -623,6 +626,11 @@ class UnifiedStrategyRunner:
     def working_quantity(self, strategy_id: str, target_key: str) -> Decimal:
         route = self._static_execution_route(strategy_id, target_key)
         return self._position_manager.working_quantity(route.client_id, route.instrument_id)
+
+    def strategy_working_quantity(self, strategy_id: str, target_key: str) -> Decimal:
+        route = self._static_execution_route(strategy_id, target_key)
+        return self._position_manager.attribution.working_quantity(
+            route.client_id, route.instrument_id, strategy_id, target_key)
 
     def _position_attribution_targets(self, snapshot, client_id):
         """把各策略完整逻辑贡献与真实合约关联，不能只携带触发提交的策略。"""

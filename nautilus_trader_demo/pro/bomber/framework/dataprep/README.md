@@ -1,5 +1,7 @@
 # 公共本地输入层开发说明
 
+2026-10-12 PF2026101201增加[通用特征准备](features/README.md)：CSV/Parquet标准导入导出、DolphinDB/MongoDB特征Provider、显式来源工厂和控制线程刷新，交给DataHub统一版本/对齐；本机未运行，远程待验。既有基本信息/历史行情MongoDB占位保持独立，不能混同。
+
 2026-10-08 新增 [参考资料数据源工厂](sources/README.md)：统一文件和 DolphinDB 字段适配，MySQL／MongoDB 保留子类扩展契约；原文件加载入口保留，在线组合器独立于历史场景。新增代码及数据库联调待远程验证。
 
 PF2026100804区分日期口径：原回测已对齐文件的trading/aligned默认保持不变；实盘原始数据库默认source，即此前角色来源日与同日因子，条款有效性仍按TD当前日。公共LiveFuturesReferences新增factor_date_basis，原直接调用默认trading兼容，01数据库装配与只读探针显式用source。日期修正版待远程复验，详见[数据源时间规则](sources/README.md)。
@@ -10,7 +12,7 @@ PF2026100804区分日期口径：原回测已对齐文件的trading/aligned默�
 
 2026-10-05 补充外部累计因子接口 dataprep.factors：主力 EMA 与黑色板块入口传入 factors_path 并直接使用 pcr_cumfactor，不再自计算。用户确认资料已按使用当天对齐，两入口固定 factor_date_basis="trading"、默认 aligned，不再要求命令行选择日期；有显式 available_ns 时仍校验。角色合约冲突以同角色因子表 symbol 为准，并写覆盖诊断；信号因子缺失、无效或尚未发布仍失败。其他未迁移场景保留原模式。新接口未运行测试，历史 80 项通过和 EMA 成功结果属于切换前证据。
 
-本地仅做代码生成与静态核对，不执行程序。2026-10-05 用户运行环境已通过 80 项 unittest 方法及三个规则脚本，并完成 RB 单品种主力 EMA 的真实行情模拟回测：16 个交易日、5,493 根 Bar、2,275 笔订单和成交、unavailable=0。此结果证明该样本链路可运行，尚不代表换月行为、逐笔交易正确性或九策略整体签收。实施记录见 [第一阶段交接文档](../doc/DEMOS_INPUT_STAGE1_IMPLEMENTATION_2026-10-04.md)。
+本地仅做代码生成与静态核对，不执行程序。2026-10-05 用户运行环境已通过 80 项 unittest 方法及三个规则脚本，并完成 RB 单品种主力 EMA 的真实行情模拟回测：16 个交易日、5,493 根 Bar、2,275 笔订单和成交、unavailable=0。此结果证明该样本链路可运行，尚不代表换月行为、逐笔交易正确性或九策略整体签收。实施记录见 [第一阶段交接文档](../../../doc/strategies/DEMOS_INPUT_STAGE1_IMPLEMENTATION_2026-10-04.md)。
 
 逐函数参数、返回值、调用顺序和单品种 main 场景边界见 [dataprep 函数使用说明](API_USAGE.md)。当前主力 EMA 直接使用 prepare_role_research，不必先构造 DataRequirements 或 HistoricalInputBundle；这两个契约保留给声明式组装及第二阶段运行工厂。
 
@@ -129,4 +131,4 @@ with InputSession() as session:
 
 [live_role.py](live_role.py) 提供单品种单角色的FileRoleReferences／SourceRoleReferences，统一snapshot、spec、instrument_id、instrument_meta接口。前者读取文件，后者消费[ReferenceSource工厂](sources/README.md)提供的数据源；可选main／secondary／near／far，执行通道约束显式传入。该适配保留已对齐文件trading与原始数据库source的日期契约，不修改历史场景准备接口。多品种多角色参考快照使用既有LiveFuturesReferences。
 
-01主力EMA在run_live.py选择和组装适配器，策略不查询数据库。运行路由／会话守卫位于公共trader/live_roles.py，单策略固定角色，参数注入会话与策略处理时间；多腿及LIVE自动换约仍须独立开发与验收。迁移及同步见[PF2026100806](../../../doc/HANDOFF/HANDOFF_PARALLEL_BACKTEST_LIVE_2026-10-07.md#pf2026100806-实盘仅保留一个组装入口)。
+01主力EMA在run_live.py选择和组装适配器，策略不查询数据库。运行路由／会话守卫位于公共trader/live_roles.py，单策略固定角色，参数注入会话与策略处理时间；多腿及LIVE自动换约仍须独立开发与验收。迁移及同步见[PF2026100806](../../../doc/HANDOFF/coordination/HANDOFF_PARALLEL_BACKTEST_LIVE_2026-10-07.md#pf2026100806-实盘仅保留一个组装入口)。

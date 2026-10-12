@@ -116,6 +116,20 @@ def session(controller):
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_resume_refreshes_optional_query_channel_while_waiting_for_readiness(self):
+        c = Lifecycle(resume=True)
+        s = session(c)
+        ready = [False]
+        s.runner.session_ready = lambda: ready[0]
+        def poll_features():
+            c.calls.append('poll.index')
+            ready[0] = True
+        s.runner.poll_features = poll_features
+        with patch.object(ctp.time, 'sleep', return_value=None):
+            c.start(s, NS(trading_day='20261009'))
+        self.assertLess(c.calls.index('poll.index'), c.calls.index('arm'))
+        self.assertTrue(c.resume_ready)
+
     def test_native_off_lifecycle_does_not_query_or_compare_physical_positions(self):
         channel, c, s, gross, calls = self.scoped_controller()
         c.account_reconciliation = 'off'

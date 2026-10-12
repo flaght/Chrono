@@ -53,6 +53,8 @@ class Context:
         return self.actual.get(key, Decimal(0))
     def working_quantity(self, key):
         return self.working.get(key, Decimal(0))
+    def strategy_working_quantity(self, key):
+        return self.working.get(key, Decimal(0))
 
 
 def ns(value):

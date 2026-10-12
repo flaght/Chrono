@@ -167,8 +167,19 @@ class StreamHealthMonitor:
 
     def on_event(self, event: Any) -> bool:
         """登记事件并返回是否允许该事件进入分发队列。"""
-        event_ts = _event_timestamp(event)
-        key = _event_key(event)
+        return self._observe(_event_timestamp(event), _event_key(event))
+
+    def on_observation(self, timestamp_ns: int, instrument_id: str, *, kind="source") -> bool:
+        """Register a validated source receipt even when no derived event is emitted.
+
+        This updates transport health only: it creates no Tick/Bar/price and
+        preserves sticky queue/dispatch/rollback failures.
+        """
+        if type(timestamp_ns) is not int or timestamp_ns < 0 or not instrument_id or not kind:
+            raise ValueError("来源观测须声明有效时间、标的和类型")
+        return self._observe(timestamp_ns, (kind, str(instrument_id), ""))
+
+    def _observe(self, event_ts, key) -> bool:
         notification: MarketHealthSnapshot | None = None
         accepted = True
         with self._lock:

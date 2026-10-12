@@ -21,6 +21,8 @@ class StrategyContext(Protocol):
 
     def working_quantity(self, target_key: str) -> Decimal: ...
 
+    def strategy_working_quantity(self, target_key: str) -> Decimal: ...
+
 
 class StrategyTemplate(ABC):
     """单标的、价差和组合策略共用的基础模板。
@@ -144,6 +146,14 @@ class StrategyTemplate(ABC):
     def working_quantity(self, target_key: str) -> Decimal:
         """按逻辑目标键查询账户在途净数量。"""
         return self._require_context().working_quantity(target_key)
+
+    def strategy_working_quantity(self, target_key: str) -> Decimal:
+        """只查询本策略归属委托的未成交量。"""
+        return self._require_context().strategy_working_quantity(target_key)
+
+    def on_market_frame(self, frame) -> None:
+        """接收来源无关的已封闭行情帧；估值时间与请求时间分别提供。"""
+        pass
 
     def _handle_execution_event(self, event: OrderUpdateEvent | FillEvent) -> None:
         if not self._started:

@@ -251,6 +251,10 @@ class CtpLiveDataFeed(StreamDataFeed):
                 self._depth_observations[instrument_id] = CtpDepthObservation(
                     trading_day, ts_event, self._latest_receive_monotonic_ns,
                     previous is not None and (previous.timestamp_regressed or ts_event < previous.ts_event))
+            # Raw depth continues when cumulative volume/quotes are unchanged.
+            # Source health cannot depend on a derived TradeTick being emitted.
+            if not self._health_monitor.on_observation(ts_event, str(instrument_id), kind="ctp-depth"):
+                return
             for event in events:
                 if self._event_is_subscribed(instrument_id, event):
                     self.enqueue_event(event)

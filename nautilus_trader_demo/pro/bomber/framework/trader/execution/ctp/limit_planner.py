@@ -11,7 +11,7 @@ from bomber.framework.trader.execution.ctp.planner import CtpClosePlanner
 class CtpLimitPlanner:
     """先平旧方向，确认成交后由后续目标推进开新方向。"""
 
-    def __init__(self, ledger, positions, prices, tick_size, offset_ticks):
+    def __init__(self, ledger, positions, prices, tick_size, offset_ticks, *, generic_close_venues=()):
         ticks = ({key: Decimal(str(value)) for key, value in tick_size.items()}
                  if isinstance(tick_size, Mapping) else Decimal(str(tick_size)))
         values = tuple(ticks.values()) if isinstance(ticks, dict) else (ticks,)
@@ -19,7 +19,8 @@ class CtpLimitPlanner:
             raise ValueError("CTP价格步长须为正且有限")
         if isinstance(offset_ticks, bool) or not isinstance(offset_ticks, int) or offset_ticks < 0:
             raise ValueError("CTP限价偏移须为非负整数")
-        self._planner = CtpClosePlanner(ledger, close_today_first=True)
+        self._planner = CtpClosePlanner(ledger, close_today_first=True,
+            generic_close_venues=frozenset(generic_close_venues))
         self._positions = positions
         self._prices = prices
         self._tick_size = ticks

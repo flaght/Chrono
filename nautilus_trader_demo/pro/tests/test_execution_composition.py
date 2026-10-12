@@ -7,6 +7,7 @@ from importlib import import_module
 from pathlib import Path
 from contextlib import ExitStack
 from tempfile import TemporaryDirectory
+import os
 import sys
 from types import ModuleType, SimpleNamespace as NS
 import unittest
@@ -468,6 +469,31 @@ class ExecutionCompositionTests(unittest.TestCase):
             self.assertTrue(result['resume_state_preserved'])
             self.assertEqual(path.read_text(), 'original')
             self.assertEqual(calls, ['stop'])
+
+    def test_ctp_model_report_preserves_observed_md_day_after_feed_stop(self):
+        import_module('tests.test_live_common')
+        module = import_module('_test_live_runtime.live.channels.ctp_market')
+        env = {'CTP_MD_ADDRESS': 'tcp://fake:1234', 'CTP_ACCOUNT_ID': 'demo', 'CTP_PASSWORD': 'fake'}
+        with patch.dict(os.environ, env, clear=True):
+            lifecycle = module.CtpMarketSessionLifecycle(expected_trading_day='20261009')
+        upstream = NS(latest_trading_day='20261009')
+        session = NS(upstream=upstream, manager=None,
+            runner=NS(accept_bars=True, stop=lambda: setattr(upstream, 'latest_trading_day', None)),
+            client=NS(backend=NS(reports=())))
+        lifecycle.shutdown(session, None)
+        self.assertIsNone(upstream.latest_trading_day)
+        self.assertEqual(lifecycle.snapshot(session, None)['observed_md_trading_day'], '20261009')
+
+    def test_ctp_model_report_never_substitutes_expected_day_when_md_is_missing(self):
+        import_module('tests.test_live_common')
+        module = import_module('_test_live_runtime.live.channels.ctp_market')
+        env = {'CTP_MD_ADDRESS': 'tcp://fake:1234', 'CTP_ACCOUNT_ID': 'demo', 'CTP_PASSWORD': 'fake'}
+        with patch.dict(os.environ, env, clear=True):
+            lifecycle = module.CtpMarketSessionLifecycle(expected_trading_day='20261009')
+        session = NS(upstream=NS(latest_trading_day=None), manager=None,
+            runner=NS(accept_bars=False, stop=lambda: None), client=NS(backend=NS(reports=())))
+        lifecycle.shutdown(session, None)
+        self.assertIsNone(lifecycle.snapshot(session, None)['observed_md_trading_day'])
 
     def test_policy_defaults_and_mode_switch_recovery_rejected(self):
         strict = self.policy.ExecutionPolicy()

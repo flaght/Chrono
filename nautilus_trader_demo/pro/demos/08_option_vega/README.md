@@ -135,7 +135,7 @@ python demos/08_option_vega/run_backtest.py \
 
 | 关键接口 | 本例用途 |
 | --- | --- |
-| 本例不调用参考资料库 | 固定认购条款、同月期货映射及日历由公共层准备，策略直接使用这些静态资料，不查询连续主力角色或复权价格 |
+| 参考资料来源 | 回测使用文件条款；Live使用DolphinDB条款快照。策略只使用准备后的认购条款、同月期货映射和日历，不查询数据库、连续主力角色或复权价格 |
 
 ### market：真实行情回放
 
@@ -155,3 +155,144 @@ python demos/08_option_vega/run_backtest.py \
 | MarketReferencePriceStore / PreTradeRiskManager / RiskLimits | 校验真实报价时效、手数和名义金额，指数没有交易风控路由 |
 | DataBinding / ExecutionRoute | 按符号绑定三类信号行情，只给期权与期货创建执行路由 |
 | UnifiedStrategyRunner / NautilusMarketFeedAdapter / UnifiedHistoricalRuntime | 串联真实行情、策略、模拟执行与历史回放生命周期 |
+
+## 回测与 Live 共用装配（2026-10-11）
+
+`assembly.py` 统一创建策略、数据绑定和执行路由；`run_backtest.py` 和
+`run_live.py` 分别提供行情与执行积木。08 不引用其他 demo 文件。
+策略使用 `position()` 和 `strategy_working_quantity()` 查询自己的归属成交及
+委托分配；物理账户总仓和其他策略的委托不参与 Vega／Delta 对冲计算。
+
+```text
+文件历史 Bar → 有序历史分钟 ─────────────────┐
+CTP LAST成交／MID报价 → 分钟Bar ─┐           │
+DolphinDB期权／期货分钟流 ──────┼─ 公共分钟帧 ├─ 同一个 OptionVegaStrategy
+DolphinDB指数分钟流（独立来源）─┘           │             │
+                                          ┘         完整组合目标
+                                                        │
+                                 回测模拟／Recording／Model／原生CTP
+```
+
+Live 入口支持：
+
+- `--market-source ctp|dolphindb`：期权及同月期货；来源明确绑定，禁止隐式回退。
+- `--index-source dolphindb`：独立指数通道，只有行情绑定，没有交易路由。
+- `--mode recording`：仅记录目标，不连接 TD、不产生假成交。
+- `--mode model`：公共参考价模型成交，维护独立策略账本，不查询物理仓位。
+- `--mode simnow`：公共原生 CTP 执行，需要显式报单授权；支持
+  `--account-reconciliation strict|observe|off`，默认 strict。
+- 一对多第三方跟随端通过 `build_runtime(args, account_routes=...)` 与公共
+  `AccountExecutionRoute` 装配，策略主账本选择 Model；没有新增第三方连接器。
+
+指数流表和期权／期货流表必须是**已收盘分钟流**，字段遵循公共
+`DolphinDbStreamSpec.bar()` 契约。`--index-bar-timestamp`、
+`--market-bar-timestamp` 显式声明 start/end 标签。Live 不读取静态指数文件
+假装当前指数行情，不用期货价格替代指数；历史文件仍走回测入口。
+
+### 时间、同步与 Replay
+
+08 的 Replay 与 01 的接收时间工程聚合不同：**保留原始事件时间估值**。
+`--simnow-environment replay --replay-md-trading-day YYYYMMDD` 只豁免历史事件
+相对墙钟的年龄；原始 MD 交易日、接收健康、时间倒退和来源日期仍受校验。
+
+- 行情帧 `valuation_ns` 决定选约日期、13:58 时点和 Black76 剩余期限。
+- `request_ns` 使用本次接收墙钟，供执行请求和下单时效检查。
+- 同一分钟等待 `--frame-wait-seconds`（默认2秒），封闭后迟到 Bar 不追溯修改决策。
+- 无行情的候选不入选；持仓腿、对应期货、指数缺失或过期会等待恢复或失败闭闸。
+- LAST 模式没有成交就不造 Bar；显式 `--ctp-price-type mid` 使用 MID 报价 Bar，
+  volume=0。MID 不表示已成交，也不证明盘口可以按中间价成交。
+- Replay 的期权、期货、指数必须来自相同估值日；不能混用旧 CTP 价格和今天的指数。
+  日内时点仍匹配原始行情时刻，接收时刻到13:58并不会自动触发历史13:58信号。
+- 资料按估值日检查上市、最后交易日；原生 CTP 还检查合约在实际 TD 日仍可交易。
+  资料内容版本变化或日期跨日要求停止并重新装配，不会删除旧持仓腿继续运行。
+
+### 首次验收命令
+
+在项目 `pro` 目录、具备原生 Bomber 的远程 Python 环境先执行无网络回归：
+
+```bash
+python -u -m tests.run_cross_section_acceptance \
+  --only option-vega --only option-vega-live \
+  --only live-common --only attribution --only assembly
+```
+
+`option-vega-live` 使用真实框架与 SDK 行情实体，但网络和成交仍是夹具，
+不连接柜台。本地没有原生 SDK 时可分别执行：
+
+```bash
+python -m unittest tests.test_demo_option_vega tests.test_option_vega_live
+python -m tests.run_option_vega_offline
+```
+
+第二条只替换 SDK 行情实体和未使用的 SDK 桥，实际 Runner、归属、风控、
+执行状态机与 JSON 持久化保持原代码。它不能替代目标环境的原生实体检查。
+
+在线首轮选 Recording。下面四个变量必须使用已核验的值，不能从示例猜测：
+
+```bash
+read -r -p "实际TD/参考会话交易日 YYYYMMDD: " TD_DAY
+read -r -p "Replay原始行情估值日 YYYYMMDD: " MD_DAY
+read -r -p "真实交易日历 CSV/Feather 路径: " CALENDAR_FILE
+read -r -p "同一Replay估值日的指数已收盘分钟流表: " INDEX_TABLE
+
+export CTP_MD_ADDRESS=tcp://182.254.243.31:40011
+export CTP_PRODUCTION_MODE=true
+
+python -u -m demos.08_option_vega.run_live \
+  --connect --mode recording \
+  --market-source ctp --index-source dolphindb \
+  --simnow-environment replay --replay-md-trading-day "$MD_DAY" \
+  --expected-trading-day "$TD_DAY" \
+  --reference-source dolphindb --reference-database dfs://bomber_daily \
+  --calendar "$CALENDAR_FILE" --index-bar-table "$INDEX_TABLE" \
+  --index-bar-timestamp end --ctp-price-type last \
+  --option-product MO --future-product IM --index-code 000852 \
+  --nav 40000000 --vega-budget 1.25 \
+  --max-option-lots 1 --max-total-option-lots 2 --max-future-lots 1 \
+  --max-notional 2000000 --seconds 900
+```
+
+连接凭据由项目 `.env` 读取，DolphinDB 使用 `DDB_HOST`、`DDB_PORT`、
+`DDB_USERNAME`、`DDB_PASSWORD`，流订阅可另配 `DDB_STREAMING_PORT`。
+期权基础表默认 `opt_basic`，可用 `DDB_OPT_BASIC_TABLE` 指定。
+指数表也可配置 `DDB_INDEX_BAR_TABLE`；整条链走 DolphinDB 时再配置
+`--market-source dolphindb --market-bar-table <已收盘期权/期货流表>`。
+
+Recording通过后，改为 `--mode model` 并加：
+
+```bash
+--state-file "demos/08_option_vega/results/model-vega-$(date +%Y%m%d-%H%M%S).json" \
+--require-fills
+```
+
+Model 中的 `--require-fills` 要求本次有策略归属成交；运行时段必须覆盖原始行情
+的选约时点。省略该参数的通过结果只验证行情帧，不等同于信号或成交通过。
+原生 SimNow 则改为 `--mode simnow --enable-orders --confirm-simnow`，提供独立
+`--state-file`、实际 `CTP_TD_ADDRESS`，再按相同步骤核对真实订单、成交及柜台仓位。
+
+### 恢复和停机
+
+- `checkpoint.py` 保存期权／期货目标、当日选约记录和策略计数。
+- 公共状态管理器保存目标版本、归属、订单状态、成交去重键和执行政策。
+- `--resume --state-file <已有原文件>` 保留已成交仓位；不重新生成状态文件名。
+- 恢复不直接续发保存的未完成开仓目标。首次新鲜行情帧以归属成交仓位重建
+  目标并重算对冲；当天已选约不会重复开仓，旧价格和 IV 缓存不恢复为新鲜数据。
+- 合约集合、条款指纹、日历、时间模式、行情来源、参数和执行政策必须一致。
+  当前只支持固定资料会话、同一执行交易日恢复；失败恢复不覆盖原文件。
+- 停机撤销自己的活动订单并保存已成交仓位，**默认不自动平仓**。
+  仅显式 `--flatten-day YYYYMMDD --flatten-slot HH:MM` 才执行策略主动清仓。
+- 状态文件使用独立文件锁；原生 CTP 另使用公共账户锁。
+
+回测示例现在也支持模块方式：
+
+```bash
+python -u -m demos.08_option_vega.run_backtest \
+  --option-product MO --future-product IM --index-code 000852 \
+  --start-day 2026-09-01 --end-day 2026-09-11 \
+  --bar-timestamp end --log-level WARNING --no-tearsheet
+```
+
+当前验收范围：已有策略/资料测试、时间与恢复回归、SDK替身下的实际执行装配。
+真实 DolphinDB 指数流、CTP期权接收、CFFEX原生报单及完整原生回测仍需远程验收。
+回测的权利金比例保证金近似、Model的同步参考价成交、缺少到期结算等限制保持显式；
+本次没有增加期权卖方真实保证金模型或行权／到期结算模型。

@@ -382,3 +382,4 @@ class QuoteMidBarFeed(TradeTickBarFeed):
             bucket, midpoint, midpoint, midpoint, midpoint, Decimal(0),
         )
         self._emit_bar(closed)
+

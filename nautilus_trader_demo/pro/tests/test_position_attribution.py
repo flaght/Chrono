@@ -125,6 +125,17 @@ class AttributionTests(unittest.TestCase):
                 self.assertEqual(runner.position_manager.unassigned_position(backend.backend_id, RB), 0)
                 self.assertFalse(client.report_errors)
 
+    def test_strategy_working_quantity_tracks_its_frozen_share_only(self):
+        runner, client, backend, alpha, beta = self.setup_runner(paused=True)
+        alpha.set_target("leg", 2, 1)
+        client.planner.paused = False
+        beta.set_target("leg", 3, 2)
+        self.assertEqual((alpha.strategy_working_quantity("leg"), beta.strategy_working_quantity("leg")), (2, 3))
+        backend.emit(0, ExecutionReportType.PARTIALLY_FILLED, 3)
+        self.assertEqual((alpha.strategy_working_quantity("leg"), beta.strategy_working_quantity("leg")), (0, 2))
+        backend.emit(0, ExecutionReportType.CANCELED, sequence=2)
+        self.assertEqual((alpha.strategy_working_quantity("leg"), beta.strategy_working_quantity("leg")), (0, 0))
+
     def test_same_direction_merged_order_splits_fill_and_fee(self):
         runner, client, backend, alpha, beta = self.setup_runner(paused=True)
         alpha.set_target("leg", 2, 1)

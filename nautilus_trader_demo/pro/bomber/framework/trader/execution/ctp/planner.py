@@ -16,6 +16,7 @@ class CtpClosePlanner:
     ledger: CtpPositionLedger
     close_today_first: bool = False
     planner_id: str = "ctp-close-offset"
+    generic_close_venues: frozenset[str] = frozenset()
 
     def plan(self, request: ExecutionRequest) -> Sequence[OrderIntent]:
         orders: list[OrderIntent] = []
@@ -45,7 +46,9 @@ class CtpClosePlanner:
                     yesterday_available,
                 ),
             )
-            if not self.close_today_first:
+            if str(instrument_id).rsplit(".", 1)[-1] in self.generic_close_venues:
+                candidates = ((PositionEffect.CLOSE, today_available + yesterday_available),)
+            elif not self.close_today_first:
                 candidates = tuple(reversed(candidates))
             metadata = {
                 **dict(request.metadata),

@@ -16,7 +16,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from vega_signal import Contract, OptionVegaConfig, remaining_trading_days, filter_hedgeable_options
+from importlib import import_module
+_signal = import_module("demos.08_option_vega.vega_signal")
+Contract, OptionVegaConfig = _signal.Contract, _signal.OptionVegaConfig
+remaining_trading_days, filter_hedgeable_options = _signal.remaining_trading_days, _signal.filter_hedgeable_options
 from bomber.framework.dataprep.bars import add_prepared_bar_source
 from bomber.framework.dataprep.calendar import infer_market_calendar, load_calendar
 from bomber.framework.dataprep.catalog import inventory
@@ -63,13 +66,11 @@ def run_case(args):
     from bomber.model.identifiers import InstrumentId, TraderId
     from bomber.framework.market.basic.base import DataType, InstrumentMeta
     from bomber.framework.market.replay.base import FileReplayFeed
-    from bomber.framework.trader import (CtpFuturesBasicProfile, DataBinding, ExecutionRoute,
-        MarketReferencePriceStore, MarketStreamBinding, NautilusMarketFeedAdapter,
-        NautilusSimExecutionBackend, NetTargetOrderPlanner, PositionManager,
-        PreTradeRiskManager, RiskLimits, RuntimeMode, SimulationExecutionClient,
+    from bomber.framework.trader import (CtpFuturesBasicProfile, MarketStreamBinding,
+        NautilusMarketFeedAdapter, NautilusSimExecutionBackend, RuntimeMode,
         UnifiedHistoricalRuntime, UnifiedStrategyRunner)
     from bomber.framework.trader.instrument_factory import instrument_meta, make_future, make_option
-    from strategy import OptionVegaStrategy
+    assemble_strategy_components = import_module("demos.08_option_vega.assembly").assemble_strategy_components
 
     started = perf_counter()
     phase = _start_phase("输入路径解析与配置校验")
@@ -228,25 +229,18 @@ def run_case(args):
             add_prepared_bar_source(feed, prepared[identity], all_ids[identity[1]])
         _finish_phase("已准备行情注册到回放源", phase)
         phase = _start_phase("策略、执行路由与风控装配")
-        positions = PositionManager()
-        prices = MarketReferencePriceStore()
-        client = SimulationExecutionClient(backend.backend_id, NetTargetOrderPlanner(positions), backend, positions,
-            risk_manager=PreTradeRiskManager(backend.backend_id, positions, prices,
-                instrument_limits={item: RiskLimits(
-                    max_order_quantity=(config.max_option_lots if key in contracts else config.max_future_lots) * 2,
-                    max_abs_position=config.max_option_lots if key in contracts else config.max_future_lots,
-                    max_order_notional=args.max_notional, max_abs_position_notional=args.max_notional,
-                    max_market_age_ns=config.max_market_age_seconds * 1_000_000_000,
-                    contract_multiplier=multipliers[item]) for key, item in instruments.items()}))
-        strategy = OptionVegaStrategy("option-vega", config, contracts, future_rows, instruments,
-                                      args.index_code, calendar, days[-1], options_by_day)
+        from bomber.framework.trader.execution.builders import build_simulation_execution
+        risk_limits = import_module("demos.08_option_vega.assembly").risk_limits
+        execution = build_simulation_execution(backend, instrument_limits=risk_limits(
+            config, contracts, instruments, multipliers, args.max_notional))
+        positions, prices, client = execution.positions, execution.prices, execution.client
         runner = UnifiedStrategyRunner(RuntimeMode.HISTORICAL, position_manager=positions)
-        runner.add_market_observer(prices)
-        runner.add_data_feed("option-bars", feed)
-        runner.add_execution_client(client)
-        runner.add_strategy(strategy,
-            data_bindings=tuple(DataBinding(key, "option-bars", item, DataType.BAR, "1-MINUTE") for key, item in all_ids.items()),
-            execution_routes=tuple(ExecutionRoute(str(item), backend.backend_id, item) for item in instruments.values()))
+        strategy = assemble_strategy_components(runner, execution, config=config,
+            contracts=contracts, futures=future_rows, instruments=instruments,
+            index_key=args.index_code, index_id=index_id, trading_days=calendar,
+            options_by_day=options_by_day, feeds={"option-bars": feed},
+            feed_by_key={key: "option-bars" for key in all_ids}, final_day=days[-1],
+            strategy_id="option-vega")
         adapter = NautilusMarketFeedAdapter("option-vega-clock", feed, backend,
             tuple(MarketStreamBinding(item, DataType.BAR, "1-MINUTE") for item in instruments.values()), manage_lifecycle=False)
         runtime = UnifiedHistoricalRuntime("option-vega-runtime", runner, adapter)
@@ -270,8 +264,8 @@ def run_case(args):
             position_report.to_csv(output / "positions.csv")
             account_report.to_csv(output / "account.csv")
             pd.DataFrame(strategy.signals).to_csv(output / "signals.csv", index=False)
-            remaining = {key: str(strategy.account_position(str(item))) for key, item in instruments.items()
-                         if strategy.account_position(str(item)) or strategy.working_quantity(str(item))}
+            remaining = {key: str(strategy.position(str(item))) for key, item in instruments.items()
+                         if strategy.position(str(item)) or strategy.strategy_working_quantity(str(item))}
             errors = [str(value) for value in client.report_errors]
             summary = {"requested": [str(args.start_day), str(args.end_day)],
                 "actual": [str(days[0]), str(days[-1])], "trading_days": len(days),

@@ -16,6 +16,7 @@ from tests.test_live_common import ROOT, NOW, MONO, load
 contracts = import_module("_test_live_runtime.live.contracts")
 profiles = import_module("_test_live_runtime.live.profiles")
 health = import_module("_test_live_runtime.live.health")
+dolphin = import_module("_test_live_runtime.live.channels.dolphin")
 ctp = import_module("_test_live_runtime.live.channels.ctp")
 binance = import_module("_test_live_runtime.live.channels.binance")
 
@@ -28,6 +29,24 @@ def feed():
 
 
 class ChannelTests(unittest.TestCase):
+    def test_dolphin_market_retains_source_and_separates_event_and_receive_age(self):
+        upstream = NS(source_id="index-bars", health_snapshot=NS(state="ready", reason="healthy",
+            last_event_ts=NOW - 172_800_000_000_000, last_event_received_ns=NOW))
+        live = dolphin.DolphinMarketChannel(upstream, clock_ns=lambda: NOW)
+        self.assertEqual(live.check().issues[0].code, "EVENT_STALE")
+        replay = dolphin.DolphinMarketChannel(upstream, allow_historical=True, clock_ns=lambda: NOW)
+        self.assertTrue(replay.check())
+        self.assertEqual(replay.identity.channel, "dolphindb")
+        self.assertEqual(replay.identity.source_id, "index-bars")
+        upstream.health_snapshot.last_event_received_ns -= 121_000_000_000
+        self.assertEqual(replay.check().issues[0].code, "RECEIVE_STALE")
+
+    def test_recording_execution_channel_does_not_claim_model_execution(self):
+        local = import_module("_test_live_runtime.live.local")
+        channel = local.LocalExecutionChannel("recording", lambda: True, channel="recording")
+        self.assertTrue(channel.check())
+        self.assertEqual(channel.identity.channel, "recording")
+
     def test_ctp_replay_md_day_is_independent_from_td_day(self):
         upstream = feed()
         md = ctp.CtpMarketChannel(upstream, "20261009",

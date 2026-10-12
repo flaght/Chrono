@@ -146,7 +146,11 @@ def load_futures_basic(path, products=None, *, require_execution=True):
 
 
 def load_cffex_futures(path, product, *, require_execution=False):
-    frame = read_feather(path)
+    return parse_cffex_futures(read_feather(path), product, require_execution=require_execution, source=path)
+
+
+def parse_cffex_futures(frame, product, *, require_execution=False, source=None):
+    path = source
     validate_basic(frame, REQUIRED_BASIC if require_execution else
         {"symbol", "code", "exchangeCD", "listDate", "lastTradeDate"})
     rows = {}
@@ -171,8 +175,15 @@ def load_cffex_futures(path, product, *, require_execution=False):
 
 def load_options_basic(path, product, index_code, tick_override=None, *, kinds=("C", "P"),
                        require_month_dates=True, require_currency=False):
+    return parse_options_basic(read_feather(path), product, index_code, tick_override,
+        kinds=kinds, require_month_dates=require_month_dates, require_currency=require_currency, source=path)
+
+
+def parse_options_basic(frame, product, index_code, tick_override=None, *, kinds=("C", "P"),
+                        require_month_dates=True, require_currency=False, source=None):
     import pandas as pd
-    frame = read_feather(path)
+    path = source
+    frame = frame.copy()
     if not frame.columns.is_unique:
         fail("MISSING_FIELD", "opt_basic重复列", source=path)
     if "symbol" not in frame and "Code" in frame:

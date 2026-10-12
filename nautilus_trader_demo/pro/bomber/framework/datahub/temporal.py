@@ -142,10 +142,19 @@ class DataHubSnapshot:
 class DataHub:
     """格式无关的最小数据查询门面；按数据集装配Provider。"""
 
-    def __init__(self, providers: Mapping[str, AsOfProviderPort]) -> None:
-        if not providers or any(not name for name in providers):
+    def __init__(self, providers: Mapping[str, AsOfProviderPort] | None = None, *, features=None) -> None:
+        providers = {} if providers is None else providers
+        if (not providers and features is None) or any(not name for name in providers):
             raise ValueError("DataHub至少需要一个命名Provider")
         self._providers = MappingProxyType(dict(providers))
+        self.features = features
+
+    def feature_snapshot(self, requirements, query):
+        """标准特征入口；保留旧ReferenceRecord/角色查询的既定语义。"""
+        if self.features is None:
+            from .features import FeatureUnavailable
+            raise FeatureUnavailable("UNREGISTERED", "DataHub未装配特征服务")
+        return self.features.snapshot(requirements, query)
 
     def get(self, dataset: str, key: str, query: AsOfQuery) -> tuple[ReferenceRecord, ...]:
         try:

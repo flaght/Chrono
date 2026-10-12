@@ -108,7 +108,8 @@ def build_ctp_portfolio_execution(driver, *, trading_day, price_increments,
                                   multipliers, instrument_limits, session_check,
                                   orders=False, limit_offset_ticks=1, positions=None,
                                   prices=None, clock_ns=None, instrument_scope=None,
-                                  account_reconciliation=AccountReconciliationMode.STRICT):
+                                  account_reconciliation=AccountReconciliationMode.STRICT,
+                                  generic_close_venues=()):
     """固定多合约装配；可显式限定管理范围，账户快照仍保留全部仓位。"""
     keys = set(price_increments)
     if not keys or keys != set(multipliers) or keys != set(instrument_limits):
@@ -124,7 +125,8 @@ def build_ctp_portfolio_execution(driver, *, trading_day, price_increments,
     positions = PositionManager() if positions is None else positions
     prices = MarketReferencePriceStore() if prices is None else prices
     ledger = CtpPositionLedger(trading_day)
-    planner = CtpLimitPlanner(ledger, positions, prices, price_increments, limit_offset_ticks)
+    planner = CtpLimitPlanner(ledger, positions, prices, price_increments, limit_offset_ticks,
+        generic_close_venues=generic_close_venues)
     if not orders:
         return ExecutionComponents(RecordingExecutionClient(driver.driver_id),
             positions, prices, ledger=ledger, driver=driver)

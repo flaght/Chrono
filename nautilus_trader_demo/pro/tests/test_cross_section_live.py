@@ -7,6 +7,7 @@ from decimal import Decimal
 from importlib import import_module
 from io import StringIO
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import time
@@ -220,7 +221,7 @@ class CrossSectionLiveTests(unittest.TestCase):
             "--expected-source-day", "20260921", "--expected-instrument", "RB=rb2704.SHFE",
             "--expected-instrument", "HC=hc2704.SHFE", *extra]
 
-    def session(self, orders=False, api_base=fixtures.FlatTdApi, **options):
+    def session(self, orders=False, api_base=fixtures.FlatTdApi, model=False, **options):
         transport = CtpTdApiTransport(client_id=runtime.CLIENT_ID, account_id="demo",
             front="tcp://fake:1234", broker_id="9999", investor_id="demo", password="fake",
             app_id="fake-app", auth_code="fake-auth", td_api_base=api_base,
@@ -231,7 +232,7 @@ class CrossSectionLiveTests(unittest.TestCase):
             disconnect_handler=lambda reason: holder["s"].runner.close_role_gate(reason))
         self.addCleanup(driver.stop)
         refs = runtime.PortfolioReferences(self.service)
-        args = SimpleNamespace(mode="simnow" if orders else "recording",
+        args = SimpleNamespace(mode="model" if model else "simnow" if orders else "recording",
             products=self.service.products, expected_instruments={p: str(i) for p, i in refs.instrument_ids.items()},
             lookback=1, rebalance_interval=2, group_fraction=Decimal("0.30"),
             target_notional=Decimal(35000), max_quantity=Decimal(2),
@@ -241,14 +242,15 @@ class CrossSectionLiveTests(unittest.TestCase):
         upstream = fixtures.ManualMd()
         if getattr(args, "replay_md_trading_day", None):
             upstream.latest_trading_day = args.replay_md_trading_day
-        s = runtime.assemble(args, refs, driver, upstream)
+        s = runtime.assemble(args, refs, None if model else driver, upstream)
         holder["s"] = s
         s.transport, s.args = transport, args
-        if not orders:
+        if not orders and not model:
             driver.start(lambda report: None)
         s.runner.start()
         self.addCleanup(s.runner.stop)
-        assert_flat_account(driver, transport, position_scope=s.position_scope)
+        if not model:
+            assert_flat_account(driver, transport, position_scope=s.position_scope)
         self.raw_ticks(s, BASE, {p: 3100 if p == "RB" else 3000 for p in self.service.products})
         if orders:
             s.client.arm_demo(s.client.DEMO_CONFIRMATION)
@@ -1076,6 +1078,41 @@ class CrossSectionLiveTests(unittest.TestCase):
     def test_scoped_session_rejects_existing_position_in_managed_contract(self):
         with self.assertRaisesRegex(RuntimeError, "账户已有总仓"):
             self.session(orders=True, api_base=fixtures.AdoptTdApi)
+
+    def test_model_frames_update_strategy_positions_without_td_connection(self):
+        s = self.session(model=True)
+        self.frame(s, 0, 3100, 3000)
+        self.frame(s, 1, 3130, 2970)
+        self.assertIsNone(s.transport._api)
+        self.assertIsNone(s.driver)
+        self.assertEqual(s.strategy.position("rb2704.SHFE"), 1)
+        self.assertEqual(s.strategy.position("hc2704.SHFE"), -1)
+        self.assertEqual(s.strategy.fills_received, 2)
+        self.assertFalse(s.client.report_errors)
+        with self.assertRaisesRegex(RuntimeError, "未关联"):
+            s.strategy.account_position("rb2704.SHFE")
+        self.assertIsNone(live.describe(s)["account_positions"])
+
+    def test_model_checkpoint_restore_rejects_native_position_policy(self):
+        s = self.session(model=True)
+        self.frame(s, 0, 3100, 3000)
+        self.frame(s, 1, 3130, 2970)
+        s.manager.save()
+        s.runner.stop()
+        s.manager.restore()
+        self.assertEqual(s.runner.position_manager.position(runtime.CLIENT_ID, "rb2704.SHFE"), 1)
+        from bomber.framework.trader.execution.policy import ExecutionPolicy
+        with self.assertRaisesRegex(ValueError, "政策不一致"):
+            ExecutionPolicy().restore_state(s.manager.state_components["execution_policy"].snapshot_state())
+
+    def test_model_runtime_build_has_no_td_connection_or_account_lock(self):
+        args = live.parse_args(self.command("--mode", "model", "--state-file", str(self.root / "model.json")))
+        env = {"CTP_MD_ADDRESS": "tcp://fake:1234", "CTP_ACCOUNT_ID": "demo", "CTP_PASSWORD": "fake"}
+        with patch.dict(os.environ, env, clear=True), patch.object(live, "build_simnow_transport",
+                side_effect=AssertionError("模型不能创建TD")):
+            managed = live.build_runtime(args)
+        self.assertIsNone(managed.controller.driver)
+        self.assertEqual(args.execution_policy.account_reconciliation.value, "off")
 
     def test_external_position_remains_unassigned_after_own_fills_and_restore_validation(self):
         s = self.session(orders=True, api_base=ExternalPositionApi)

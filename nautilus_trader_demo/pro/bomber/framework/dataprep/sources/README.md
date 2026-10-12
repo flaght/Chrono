@@ -2,7 +2,7 @@
 
 参考资料通过统一接口读取，数据源工厂选择文件、DolphinDB 或后续数据库子类。策略消费角色快照或条款模型，不查询数据库。构造和导入不建立连接，调用方显式管理 open／close 生命周期。
 
-2026-10-09正式边界：DolphinDB提供在线参考／特征和回测／研究文件的上游导出；导出任务可连接，离线执行读本地。在线启动和运行中的辅助数据均从库获取。参考用途仍为offline_reference/file_reference_test仅file、live_reference/export仅dolphindb。PF2026100911按用户补充接入独立 [历史行情Provider工厂](../history/README.md)：offline_market_history仅file，live_market_history可用file或数据库，live_recovery仅数据库；盘前文件不足时回退配置数据库，盘中恢复读取数据库。MongoDB历史驱动尚未实现，不等于已能联网读取。构造不联网，回退由历史协调器显式执行；01及联合参考入口默认数据库，file须显式测试标志。通用特征Provider仍归GAP-08；GAP-03专项与所选回归、真实参考导出及纯本地一致性已由用户远程验收通过并关闭，见 [GAP-03交接](../../../../doc/HANDOFF/HANDOFF_GAP03_2026-10-09.md)。历史新增源码验证归PF2026100911/GAP-04，不改写此前验收证据。
+2026-10-09正式边界：DolphinDB提供在线参考／特征和回测／研究文件的上游导出；导出任务可连接，离线执行读本地。在线启动和运行中的辅助数据均从库获取。参考用途仍为offline_reference/file_reference_test仅file、live_reference/export仅dolphindb。PF2026100911按用户补充接入独立 [历史行情Provider工厂](../history/README.md)：offline_market_history仅file，live_market_history可用file或数据库，live_recovery仅数据库；盘前文件不足时回退配置数据库，盘中恢复读取数据库。MongoDB历史驱动尚未实现，不等于已能联网读取。构造不联网，回退由历史协调器显式执行；01及联合参考入口默认数据库，file须显式测试标志。通用特征Provider仍归GAP-08；GAP-03专项与所选回归、真实参考导出及纯本地一致性已由用户远程验收通过并关闭，见 [GAP-03交接](../../../../doc/HANDOFF/gaps/HANDOFF_GAP03_2026-10-09.md)。历史新增源码验证归PF2026100911/GAP-04，不改写此前验收证据。
 
 ## GAP-03时效与参考导出
 

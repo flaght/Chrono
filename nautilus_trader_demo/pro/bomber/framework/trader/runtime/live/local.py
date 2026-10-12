@@ -1,13 +1,32 @@
 """独立策略执行的Live生命周期；不登录、查询或锁定任何物理账户。"""
 
 import time
+from contextlib import contextmanager
 from .contracts import ChannelIdentity, LiveRunContext, ReadinessResult
 from .recovery import validate_finished_orders, validate_owned_positions, restored_target_revision
 
 
+@contextmanager
+def strategy_state_lock(state_file):
+    """仅保护策略状态文件；不意味着占用或关联物理交易账户。"""
+    import fcntl
+    import hashlib
+    from pathlib import Path
+    key = hashlib.sha256(str(Path(state_file).resolve()).encode()).hexdigest()
+    with open(f"/tmp/bomber-strategy-state-{key}.lock", "a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("本策略状态文件已有进程使用") from error
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
 class LocalExecutionChannel:
-    def __init__(self, client_id, ready):
-        self.identity = ChannelIdentity("execution", "model", client_id)
+    def __init__(self, client_id, ready, *, channel="model"):
+        self.identity = ChannelIdentity("execution", channel, client_id)
         self._ready = ready
 
     def check(self):
@@ -29,17 +48,7 @@ class LocalExecutionLifecycle:
 
     def prepare(self, resources):
         if self.state_file is not None:
-            # 保护自己的状态文件；不同策略无需争夺物理账户锁。
-            import fcntl
-            import hashlib
-            from pathlib import Path
-            key = hashlib.sha256(str(Path(self.state_file).resolve()).encode()).hexdigest()
-            handle = resources.enter_context(open(f"/tmp/bomber-strategy-state-{key}.lock", "a"))
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as error:
-                raise RuntimeError("本策略状态文件已有进程使用") from error
-            resources.callback(fcntl.flock, handle, fcntl.LOCK_UN)
+            resources.enter_context(strategy_state_lock(self.state_file))
         return LiveRunContext(self.trading_day, resources)
 
     def finish_preparation(self, context):

@@ -6,7 +6,8 @@ import time
 from ...ctp_account import position_buckets
 from ..contracts import LiveRunContext
 from ..recovery import validate_finished_orders, validate_owned_positions
-from .ctp import account_lock, occupied_positions, readiness_details
+from ..readiness import wait_for_session_ready
+from .ctp import account_lock, occupied_positions
 
 
 def validate_ctp_restored_positions(session, day, binding):
@@ -108,12 +109,7 @@ class CtpResumeLifecycle:
         if self.driver.trading_day != context.trading_day or self.lost:
             raise RuntimeError("恢复期间会话发生变化")
         session.runner.start()
-        deadline = time.monotonic() + self.ready_seconds
-        while not session.runner.session_ready():
-            if self.lost or time.monotonic() >= deadline:
-                raise RuntimeError(f"恢复后MD/TD未就绪，保持闭闸：{readiness_details(session)}")
-            time.sleep(0.2)
-        session.references.refresh()
+        wait_for_session_ready(session, self.ready_seconds, lost=lambda: bool(self.lost))
         current = getattr(session.runner, "reference_is_current", None)
         reference_ok = current() if callable(current) else session.references.spec == session.runner.fixed_spec
         if not reference_ok or not session.runner.session_ready():

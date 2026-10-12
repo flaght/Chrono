@@ -85,6 +85,16 @@ class PositionAttributionLedger:
                 if any(amount for _, amount in self._remaining(order)):
                     self._active_tokens.add(token)
 
+    def working_quantity(self, client_id, instrument_id, strategy_id, target_key):
+        """本策略已冻结分配计划的未成交数量，不读取其他策略的预留量。"""
+        with self.positions._lock:
+            return sum((order["direction"] * remaining
+                for token in self._active_tokens
+                for order in (self._orders[token],)
+                if (order["client_id"], order["instrument_id"]) == (client_id, str(instrument_id))
+                for leg, remaining in self._remaining(order)
+                if (leg["strategy_id"], leg["target_key"]) == (strategy_id, target_key)), Decimal(0))
+
     def unassigned(self, client_id, instrument_id):
         with self.positions._lock:
             assigned = sum((v for k, v in self._owned.items()

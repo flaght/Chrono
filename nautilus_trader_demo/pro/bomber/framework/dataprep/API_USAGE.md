@@ -1,6 +1,6 @@
 # dataprep 函数使用说明
 
-本文按当前源码说明公共输入层的调用方式，重点是单品种动态主力策略。更新日期为 2026-10-05。函数签名是开发接口说明，示例未在本地执行。运行证据来自用户 Linux 环境，详见 [主力 EMA 说明](../demos/01_main_ema/README.md) 和 [实施记录](../doc/DEMOS_INPUT_STAGE1_IMPLEMENTATION_2026-10-04.md)。
+本文按当前源码说明公共输入层的调用方式，重点是单品种动态主力策略。更新日期为 2026-10-05。函数签名是开发接口说明，示例未在本地执行。运行证据来自用户 Linux 环境，详见 [主力 EMA 说明](../../../demos/01_main_ema/README.md) 和 [实施记录](../../../doc/strategies/DEMOS_INPUT_STAGE1_IMPLEMENTATION_2026-10-04.md)。
 
 dataprep 负责路径、文件身份、读取校验、时间标准化、角色研究资料和诊断。DataHub 提供角色与因子的历史查询；market 提供回放和解析；trader 提供原生合约工厂、路由和执行。dataprep 不计算 EMA、不生成交易目标、不启动撮合，也不负责在线订阅。
 

@@ -26,3 +26,17 @@ class CtpMarketSessionLifecycle(LocalExecutionLifecycle):
         self.md_credentials = CtpMarketCredentials(os.getenv("CTP_BROKER_ID", "9999"),
             required("CTP_ACCOUNT_ID"), required("CTP_PASSWORD"),
             os.getenv("CTP_PRODUCTION_MODE", "true").lower() in {"1", "true", "yes", "on"})
+        self._md_shutdown = False
+        self._shutdown_md_day = None
+
+    def shutdown(self, session, context):
+        # Feed停止会清空连接状态；报告保留停止前实际观测值，不能用预期日补齐。
+        self._shutdown_md_day = None if session is None else session.upstream.latest_trading_day
+        self._md_shutdown = True
+        return super().shutdown(session, context)
+
+    def snapshot(self, session, context):
+        fields = super().snapshot(session, context)
+        if self._md_shutdown:
+            fields["observed_md_trading_day"] = self._shutdown_md_day
+        return fields

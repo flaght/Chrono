@@ -4,13 +4,13 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from bomber.framework.trader.template import StrategyTemplate
-from vega_signal import remaining_trading_days, tau, allocate_short, cached_greeks, implied_greeks
+from .vega_signal import remaining_trading_days, tau, allocate_short, cached_greeks, implied_greeks
 
 
 class OptionVegaStrategy(StrategyTemplate):
     """纯数值函数负责选约配仓，策略负责行情时序和实际敞口执行。"""
     def __init__(self, strategy_id, config, contracts, futures, instruments,
-                 index_id, trading_days, final_day, options_by_day):
+                 index_id, trading_days, final_day=None, options_by_day=None):
         super().__init__(strategy_id)
         self.config = config
         self.contracts = dict(contracts)
@@ -19,7 +19,11 @@ class OptionVegaStrategy(StrategyTemplate):
         self.index_id = index_id
         self.trading_days = tuple(trading_days)
         self.final_day = final_day
-        self.options_by_day = options_by_day
+        self.options_by_day = options_by_day or {}
+        self.restored = False
+        self.stopping = False
+        self.order_updates_received = 0
+        self.fills_received = 0
         self.latest = {}
         self.pending_ts = None
         self.resume_ns = None
@@ -31,6 +35,7 @@ class OptionVegaStrategy(StrategyTemplate):
         self.last_actual = None
         self.submissions = 0
         self.entry_decisions = 0
+        self.entry_audit = []
         self.frames = 0
         self.signals = []
         self.flatten_requested = False
@@ -54,6 +59,36 @@ class OptionVegaStrategy(StrategyTemplate):
             raise ValueError(f"同一分钟重复行情: {data_key}")
         self.latest[data_key] = (timestamp, float(bar.close.as_decimal()))
 
+    def on_market_frame(self, frame):
+        """所有输入已封闭；来源和时间适配由市场层完成，不读接收时钟估值。"""
+        timestamp = frame.valuation_ns
+        if timestamp <= self.last_event_ns:
+            raise ValueError("行情帧时间倒退或重复")
+        if self.last_event_ns >= 0 and timestamp - self.last_event_ns > self.config.max_market_age_seconds * 1_000_000_000:
+            self.resume_ns = timestamp
+        if self.restored:
+            # 恢复已成交事实，不继续旧会话尚未完成的开仓目标。
+            self.option_goals = {key: self.position(str(self.instruments[key])) for key in self.contracts}
+            self.future_goals = {key: self.position(str(self.instruments[key])) for key in self.futures}
+            self.resume_ns = timestamp
+            self.restored = False
+        self.last_event_ns = timestamp
+        for key, observation in frame.observations.items():
+            self.latest[key] = (timestamp, float(observation.price))
+        self._frame(timestamp, frame.request_ns)
+
+    def required_market_keys(self):
+        required = {key for key, instrument in self.instruments.items()
+            if self.position(str(instrument)) or self.strategy_working_quantity(str(instrument))
+            or self.option_goals.get(key) or self.future_goals.get(key)}
+        held = required.intersection(self.contracts)
+        required.add(self.index_id)
+        required.update(self.contracts[key].future for key in held)
+        return required
+
+    def on_fill(self, event):
+        self.fills_received += 1
+
     def _remaining_days(self, day, last_day, threshold=None):
         """按已知交易日检查开仓或退出阈值，不把未来日期缺失视为临近到期。"""
         return remaining_trading_days(self.trading_days, day, last_day,
@@ -67,8 +102,8 @@ class OptionVegaStrategy(StrategyTemplate):
             last_time = None if value is None else datetime.fromtimestamp(value[0] / 1e9, ZoneInfo("Asia/Shanghai"))
             age = None if value is None else (signal_ns - value[0]) / 1e9
             instrument = self.instruments.get(symbol)
-            position = None if instrument is None else self.account_position(str(instrument))
-            working = None if instrument is None else self.working_quantity(str(instrument))
+            position = None if instrument is None else self.position(str(instrument))
+            working = None if instrument is None else self.strategy_working_quantity(str(instrument))
             goal = self.option_goals.get(symbol, self.future_goals.get(symbol))
             raise RuntimeError(
                 f"持仓计算缺少新鲜行情: {symbol}; 决策时间={signal_time.isoformat()} "
@@ -100,8 +135,8 @@ class OptionVegaStrategy(StrategyTemplate):
         self.frames += 1
         now = datetime.fromtimestamp(signal_ns / 1e9, ZoneInfo("Asia/Shanghai"))
         day, slot = now.date(), now.strftime("%H:%M")
-        actual = {key: self.account_position(str(instrument)) for key, instrument in self.instruments.items()}
-        working = {key: self.working_quantity(str(instrument)) for key, instrument in self.instruments.items()}
+        actual = {key: self.position(str(instrument)) for key, instrument in self.instruments.items()}
+        working = {key: self.strategy_working_quantity(str(instrument)) for key, instrument in self.instruments.items()}
         current = tuple((key, actual[key]) for key in sorted(self.contracts))
 
         if self.resume_ns is not None:
@@ -132,9 +167,9 @@ class OptionVegaStrategy(StrategyTemplate):
                     for key, position in actual.items():
                         if position:
                             self._price(key, signal_ns)
-                    self._submit(targets, request_ns, signal_ns, "FINAL_FLAT")
                     self.option_goals = {key: Decimal(0) for key in self.contracts}
                     self.future_goals = {key: Decimal(0) for key in self.futures}
+                    self._submit(targets, request_ns, signal_ns, "FINAL_FLAT")
             self.last_actual = current
             return
 
@@ -157,6 +192,10 @@ class OptionVegaStrategy(StrategyTemplate):
                 raise RuntimeError(f"{key}无法计算可靠Delta，停止而不撤掉保护性对冲")
 
         if slot == self.config.option_slot and day not in self.sent_days:
+            audit = {"signal_ns": signal_ns, "request_ns": request_ns, "date": str(day),
+                "slot": slot, "outcome": "WORKING_ORDERS", "candidate_count": 0, "targets": {}}
+            self.entry_audit.append(audit)
+            del self.entry_audit[:-32]
             if not any(working[key] for key in self.contracts):
                 index = self._price(self.index_id, signal_ns)
                 candidates = []
@@ -173,11 +212,16 @@ class OptionVegaStrategy(StrategyTemplate):
                     if greeks is not None:
                         candidates.append((key, greeks, info.multiplier))
                 self.sent_days.add(day)
+                audit["candidate_count"] = len(candidates)
+                audit["outcome"] = "NO_VALID_ENTRY"
                 if candidates:
                     nearest = min(self.contracts[item[0]].last_day for item in candidates)
                     candidates = [item for item in candidates if self.contracts[item[0]].last_day == nearest]
                     goals = allocate_short(candidates, self.config.delta_targets, self.config.vega_cash_per_unit,
                                            self.config.max_option_lots, self.config.max_total_option_lots)
+                    audit["outcome"] = "TARGET" if goals else "ZERO_ALLOCATION"
+                    audit["targets"] = {key: str(value) for key, value in goals.items()}
+                    audit["future_bindings"] = {key: self.contracts[key].future for key in goals}
                     if goals:
                         # 组合总目标替换，不将每日计算数量累加到昨日仓位。
                         self.option_goals = {key: Decimal(goals.get(key, 0)) for key in self.contracts}
@@ -230,6 +274,7 @@ class OptionVegaStrategy(StrategyTemplate):
 
     def on_order_update(self, event):
         """订单拒绝、取消或过期时停止，避免静默留下不完整对冲。"""
+        self.order_updates_received += 1
         status = getattr(event.status, "value", str(event.status))
-        if status in ("REJECTED", "CANCELED", "EXPIRED"):
+        if status == "REJECTED" or (not self.stopping and status in ("CANCELED", "EXPIRED")):
             raise RuntimeError(f"订单{status}: {event.identity.instrument_id} {event.reason}")

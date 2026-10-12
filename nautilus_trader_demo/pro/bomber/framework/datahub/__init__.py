@@ -1,5 +1,10 @@
 """因果参考数据的最小核；真实订单不得使用复权价格。"""
 
+from .features import (Alignment, DatasetRegistry, DatasetSpec, ExternalDataRecord,
+    FeatureHub, FeatureQuery, FeatureRequirement, FeatureFrameAssembler, FeatureStore,
+    FeatureUnavailable, FeatureError, FrequencySpec, PayloadField, StrategyFrame,
+    IndexPrice, MinuteSignal, CommoditySpot)
+
 from .role_prices import (
     ObservedClose,
     RoleAssignment,
@@ -25,6 +30,10 @@ from .temporal import (
 )
 
 __all__ = [
+    "Alignment", "DatasetRegistry", "DatasetSpec", "ExternalDataRecord", "FeatureHub",
+    "FeatureQuery", "FeatureRequirement", "FeatureFrameAssembler", "FeatureStore",
+    "FeatureUnavailable", "FeatureError", "FrequencySpec", "PayloadField", "StrategyFrame",
+    "IndexPrice", "MinuteSignal", "CommoditySpot",
     "FUTURE_BASIC_DATASET",
     "FutureBasic",
     "FutureBasicProvider",

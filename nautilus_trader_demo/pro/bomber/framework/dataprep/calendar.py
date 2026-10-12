@@ -27,6 +27,17 @@ class TradingCalendar:
 
 
 def load_calendar(path, start_day=None, end_day=None):
+    if Path(str(path) + ".manifest.json").exists():
+        from bomber.framework.calendars.trading import ExportedCalendarProvider
+        import json
+        manifest = json.loads(Path(str(path) + ".manifest.json").read_text())
+        snapshot = ExportedCalendarProvider(path).snapshot(
+            start_day or date.fromisoformat(manifest["coverage_start"]),
+            end_day or date.fromisoformat(manifest["coverage_end"]))
+        session = current_session()
+        if session is not None:
+            session.coverage.calendar_source = str(Path(path).resolve())
+        return snapshot.days
     import pandas as pd
     session = current_session()
     if Path(path).suffix.lower() == ".csv":
