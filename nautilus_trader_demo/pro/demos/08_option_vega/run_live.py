@@ -332,6 +332,8 @@ def describe(session):
             "targets": {str(key): str(value) for key, value in request.targets.items()}}
             for request in getattr(session.client, "requests", ())] if session.mode == "recording" else [],
         "entry_audit": s.entry_audit, "frame_audit": session.runner.frame_audit,
+        "bar_time_audit": session.runner.bar_time_audit,
+        "ignored_stale_candidate_bars": session.runner.ignored_stale_candidate_bars,
         "calendar_manifest": session.references.calendar_manifest,
         "market_sources": getattr(session, "source_identity", {}),
         "replay_test_time_mapping": None if time_map is None else time_map.snapshot,

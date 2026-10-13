@@ -1,5 +1,7 @@
 # 单品种跨期价差策略
 
+Live入口已实现，见[第4节](#4-live版本)。当前固定交易日和固定双腿；原生离线及在线验收待Linux运行。
+
 ## 1. 使用方法
 
 ### 启动命令
@@ -149,3 +151,130 @@ z(t) = [S(t) - μ(t)] / σ(t)
 | MarketReferencePriceStore / PreTradeRiskManager / RiskLimits | 用真实合约参考价检查数量、名义金额和行情时效 |
 | DataBinding / ExecutionRoute | 绑定真实行情合约和对应执行路由 |
 | UnifiedStrategyRunner / NautilusMarketFeedAdapter / UnifiedHistoricalRuntime | 串联行情、策略、执行客户端及历史回放生命周期 |
+
+## 4. Live版本
+
+从 `pro` 根目录用模块入口启动：`python -u -m demos.03_calendar_spread.run_live`。
+默认 Recording 只连接CTP行情并记录目标；Model维护独立归属成交账本；SimNow
+连接交易前置并执行受控模拟盘委托。三种模式复用上面的价差公式和同一个策略。
+生产代码不从其他demo导入组件。
+
+### 运行前资料与环境
+
+`.env`继续使用项目已有配置。Recording / Model只需要`CTP_MD_ADDRESS`、
+`CTP_BROKER_ID`（默认9999）、`CTP_ACCOUNT_ID`、`CTP_PASSWORD`和
+`CTP_PRODUCTION_MODE`；不要求TD地址、AppID和AuthCode。SimNow另需
+`CTP_TD_ADDRESS`、`CTP_APP_ID`、`CTP_AUTH_CODE`，沿用公共账户锁及模拟盘授权。
+DolphinDB地址、账户及表配置复用`DolphinDbReferenceConfig.from_env`。
+
+参考资料使用DolphinDB的角色和期货基础表，不使用分钟文件或复权因子表。
+必须提供所选品种的两个角色及其真实条款；角色来源日严格早于本次参考交易日，
+`available_ns`仍核验发布时间。默认secondary / far，不因缺腿改用main或recent。
+支持SHFE、INE、DCE、CZCE人民币期货，郑商所柜台代码由公共适配器转换。
+可选手工核验必须同时提供两腿，例如
+`--expected-instrument secondary=rb2701.SHFE --expected-instrument far=rb2705.SHFE`，
+其中示例合约须根据当前资料替换。
+
+下面日期变量须先填入实际核验值；Replay的原始MD日也须从当前前置核对。
+不要将示例合约或文档日期当作实际登录结果。
+
+```bash
+export PYTHONPATH=.
+export REFERENCE_DAY=YYYYMMDD
+export ROLE_SOURCE_DAY=YYYYMMDD
+```
+
+### Recording
+
+```bash
+python -u -m demos.03_calendar_spread.run_live \
+  --connect --mode recording --product RB \
+  --expected-trading-day "$REFERENCE_DAY" --expected-source-day "$ROLE_SOURCE_DAY" \
+  --reference-database dfs://bomber_daily \
+  --leg1-role secondary --leg2-role far \
+  --quantity 1 --lookback 120 --entry-z 2 --exit-z 0.5 \
+  --rebalance-interval 5 --max-notional 1000000 --seconds 9000
+```
+
+默认实时环境使用事件时间聚合；只有收到下一分钟成交才发送上一分钟Bar，
+无成交分钟不补价，两腿同分钟完整才推进窗口。跳过启动时的不完整分钟。
+默认需要至少121个完整帧，运行时间应覆盖有效交易时段。
+
+第二套SimNow Replay可在命令中增加：
+
+```bash
+--simnow-environment replay --replay-md-trading-day "$MD_DAY" --instrument-max-age-seconds 30
+```
+
+须先设置实际`MD_DAY`和对应MD前置。Replay按接收时间聚合，策略不判断模式；
+原始MD日、深度、接收心跳与源时间倒退仍检查。参考交易日、角色来源日及可见性
+不因回放而豁免；SimNow的TD日必须等于`REFERENCE_DAY`。
+
+### Model与恢复
+
+在Recording命令上替换模式并增加状态文件：
+
+```bash
+--mode model --strategy-position-source model --account-reconciliation off \
+--state-file demos/03_calendar_spread/results/calendar-model.json
+```
+
+新会话须使用不存在的文件。恢复使用完全相同的模式、参数、参考资料与原文件，
+追加`--resume`，不换文件名。模型参考价成交有model来源标记，不代表盘口或柜台
+成交，不模拟费用、滑点和限价队列。
+
+恢复保留归属仓位和目标revision，清空行情窗口；重新预热后的首个有效判断才
+发布新目标，即使目标归零也会提交，以处理保留仓位。恢复预热期间旧目标不续发。
+本地或柜台仍有活动订单、参数/合约/资料指纹/行情环境/交易日变化时拒绝恢复。
+
+### 受控SimNow
+
+在Recording命令上替换模式，并增加：
+
+```bash
+--mode simnow --enable-orders --confirm-simnow \
+--state-file demos/03_calendar_spread/results/calendar-simnow.json
+```
+
+默认strict核验管理双腿空仓；范围外仓位不归属本策略。恢复原文件追加`--resume`，
+并核验同日成交账本、归属、今昨仓及柜台活动订单。也可显式配置
+`--account-reconciliation observe|off --strategy-position-source fills`，物理账户锁、
+资金与活动订单核验仍生效。本入口只支持Broker9999模拟盘，不授权真实资金交易。
+
+每腿持仓上限为quantity，单笔数量允许2×quantity以支持Model反手；
+每腿订单和持仓名义金额均受max-notional限制，超限拒绝。
+SimNow还支持`--limit-offset-ticks`（默认1）、`--max-session-orders`（默认20）
+和`--query-timeout`（默认15秒）。原生反手先平后开，由新鲜Tick推进保留目标；
+SHFE/INE平今平昨和DCE/CZCE通用平仓复用公共Planner。
+多腿提交不保证原子成交；首腿拒单或回报冲突后停止后续腿并要求核对。
+
+### 会话范围和输出
+
+这是固定交易日、固定双腿会话。资料换版、角色/条款变化、MD/TD日期变化时闭闸
+停止，停机保留已成交仓位；SimNow撤销活动订单并核验保存账本。
+目前没有跨日自动換约或跨日带仓恢复；有旧仓时不能换用新合约和新文件绕过核验。
+历史回测原来的清旧仓换约逻辑继续保留，本次没有声明在线动态换约已完成。
+
+默认输出`results/calendar-spread-<mode>-<ns>/summary.json`和`events.txt`，
+可用`--report-dir`改输出根目录。报告包含双腿、帧数、z-score、目标、归属仓位、
+模型/执行仓位、可选物理账户观测、回调数、参考指纹及就绪渠道。
+Recording的execution_origin为recording、strategy_position_source为none。
+
+默认`passed`要求至少lookback+1个同步帧；没有信号或成交也可能通过分钟帧验收。
+Model/SimNow需要本次归属成交证据时增加`--require-fills`；Recording不接受此参数。
+即使有成交也须分别检查双腿实际仓位、拒单和停机结果，不以受理回报当成交。
+
+### 离线验收（Linux uv-nautilus）
+
+```bash
+python -u -m tests.run_calendar_spread_acceptance
+```
+
+入口先核验`tests/calendar_spread_live.sha256`，再运行22个Live测试方法及原有
+选约/信号断言，保存分组日志与JSON。它使用假MD/TD，既不连接外部系统也不
+报实际订单。可用`--only live`或`--only selection`重跑失败组。
+公共代码未改，可选`--only public`复核既有公共组。
+
+当前本机仅做静态审阅和文件SHA核验，未运行Python、测试或编译；远端原生导入、
+离线组、实际DolphinDB/CTP行情、Model恢复及SimNow成交验收均待运行。
+详见[交接记录](../../doc/HANDOFF/live/HANDOFF_CALENDAR_SPREAD_2026-10-12.md)。

@@ -21,6 +21,8 @@ class CtpExecutionAccounting:
         ledger: CtpPositionLedger,
         multipliers: Mapping[InstrumentId, Decimal | int | float | str],
         commission_rules: Mapping[InstrumentId, CtpCommissionRule] | None = None,
+        *,
+        generic_close_today_first_venues=(),
     ) -> None:
         self.ledger = ledger
         self.multipliers = {
@@ -28,6 +30,7 @@ class CtpExecutionAccounting:
             for instrument_id, value in multipliers.items()
         }
         self.commission_rules = dict(commission_rules or {})
+        self.generic_close_today_first_venues = frozenset(generic_close_today_first_venues)
         self.results: list[CtpFillResult] = []
         self.commissions: list[Decimal] = []
         self.settlements: list[CtpSettlementResult] = []
@@ -91,6 +94,8 @@ class CtpExecutionAccounting:
                 report.filled_quantity,
                 report.fill_price,
                 multiplier,
+                close_today_first=str(report.instrument_id).rsplit(".", 1)[-1]
+                    in self.generic_close_today_first_venues,
             ),
         )
         rule = self.commission_rules.get(report.instrument_id)

@@ -1,9 +1,31 @@
 """固定多品种主力在线参考适配；读取原子发布缓存。"""
 
+from dataclasses import replace
 from datetime import datetime
+import re
 import time
 from bomber.framework.market.basic.base import InstrumentId, InstrumentMeta
 from .live_cache import LiveReferenceCache
+
+
+CTP_PORTFOLIO_VENUES = frozenset({"SHFE", "INE", "DCE", "CZCE"})
+
+
+def ctp_futures_symbol(symbol, venue):
+    """将已由条款/生命周期核验的真实期货代码转为CTP柜台代码。
+
+    资料身份与原始指纹仍保留在service中；不猜测主力合约或交割年。
+    郑商所使用大写品种和YMM，其余三个交易所使用小写品种和YYMM。
+    """
+    match = re.fullmatch(r"([A-Za-z]+)(\d{3,4})", str(symbol).strip())
+    if venue not in CTP_PORTFOLIO_VENUES or not match:
+        raise ValueError(f"不支持的CTP真实期货代码: {symbol}.{venue}")
+    product, month = match.groups()
+    if not 1 <= int(month[-2:]) <= 12 or (venue != "CZCE" and len(month) != 4):
+        raise ValueError(f"无效的CTP期货交割月份: {symbol}.{venue}")
+    if venue == "CZCE":
+        return product.upper() + month[-3:]
+    return product.lower() + month
 
 
 class PortfolioRoleReferences:
@@ -22,10 +44,22 @@ class PortfolioRoleReferences:
 
     def validate(self):
         specs = self.specs
-        if any(s.venue not in {"SHFE", "INE"} or s.currency != "CNY" for s in specs.values()):
-            raise ValueError("组合在线通道仅支持SHFE/INE人民币期货")
+        unsupported = {p: (s.venue, s.currency) for p, s in specs.items()
+                       if s.venue not in CTP_PORTFOLIO_VENUES or s.currency != "CNY"}
+        if unsupported:
+            raise ValueError(f"组合在线通道仅支持SHFE/INE/DCE/CZCE人民币期货: {unsupported}")
         if len(set(self.instrument_ids.values())) != len(self.products):
             raise ValueError("多品种不能映射到同一个真实合约")
+
+    def assert_expected(self, expected, source_symbols=None):
+        actual = {p: str(i) for p, i in self.instrument_ids.items()}
+        if expected and actual != expected:
+            raise ValueError(f"本次主力不符: expected={expected} actual={actual}")
+        for product, symbol in (source_symbols or {}).items():
+            # 四位YYMM手工预期必须核对原始资料，不能截掉十年位后误认为同一合约。
+            if self.specs[product].symbol.upper() != symbol.upper():
+                raise ValueError(f"本次主力资料代码不符: {product} expected={symbol} "
+                                 f"actual={self.specs[product].symbol}")
 
     @property
     def publication_lock(self):
@@ -41,7 +75,7 @@ class PortfolioRoleReferences:
 
     @property
     def instrument_ids(self):
-        return {p: InstrumentId.from_str(f"{s.symbol.lower()}.{s.venue}")
+        return {p: InstrumentId.from_str(f"{ctp_futures_symbol(s.symbol, s.venue)}.{s.venue}")
                 for p, s in self.specs.items()}
 
     @property
@@ -63,6 +97,13 @@ class PortfolioRoleReferences:
         def load():
             assignment = self.service.snapshot(time.time_ns())
             specs = {p: self.service.instrument_specs[p]["main"] for p in self.products}
+            # 只在在线CTP边界适配角色代码，原始资料/因子/条款及指纹不修改。
+            # unsupported由validate统一诊断，不提前转换为其他市场的代码。
+            contracts = {p: {role: (ctp_futures_symbol(symbol, specs[p].venue).lower()
+                                    if specs[p].venue in CTP_PORTFOLIO_VENUES else symbol)
+                             for role, symbol in assignment.contracts[p].items()}
+                         for p in self.products}
+            assignment = replace(assignment, contracts=contracts)
             return assignment, specs, self.service.manifest
         self._published.refresh(load, self.validate)
 

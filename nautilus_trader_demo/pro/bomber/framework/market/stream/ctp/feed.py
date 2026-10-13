@@ -46,6 +46,7 @@ class CtpMdConfig:
     flow_path: str = "/tmp/bomber-ctp-md"
     production_mode: bool = False
     timezone: str = "Asia/Shanghai"
+    dce_use_receive_date: bool = False
 
 
 class CtpLiveDataFeed(StreamDataFeed):
@@ -67,7 +68,8 @@ class CtpLiveDataFeed(StreamDataFeed):
         self.config = config
         self._driver_factory = driver_factory
         self._driver: CtpMdDriver | None = None
-        self._converter = CtpTickConverter(config.timezone)
+        self._converter = CtpTickConverter(config.timezone,
+            dce_use_receive_date=config.dce_use_receive_date)
         self._symbol_to_instrument: dict[str, InstrumentId] = {}
         self._subscribed_symbols: set[str] = set()
         self._ready = threading.Event()

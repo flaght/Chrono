@@ -109,9 +109,13 @@ def build_ctp_portfolio_execution(driver, *, trading_day, price_increments,
                                   orders=False, limit_offset_ticks=1, positions=None,
                                   prices=None, clock_ns=None, instrument_scope=None,
                                   account_reconciliation=AccountReconciliationMode.STRICT,
-                                  generic_close_venues=()):
+                                  generic_close_venues=(), generic_close_today_first_venues=()):
     """固定多合约装配；可显式限定管理范围，账户快照仍保留全部仓位。"""
     keys = set(price_increments)
+    generic_close_venues = frozenset(generic_close_venues)
+    generic_close_today_first_venues = frozenset(generic_close_today_first_venues)
+    if not generic_close_today_first_venues <= generic_close_venues:
+        raise ValueError("通用平仓今仓优先交易所须同时启用通用平仓规划")
     if not keys or keys != set(multipliers) or keys != set(instrument_limits):
         raise ValueError("多合约跳价、乘数与风控限额须覆盖同一非空集合")
     if instrument_scope is not None and instrument_scope.instruments != frozenset(str(i) for i in keys):
@@ -140,7 +144,8 @@ def build_ctp_portfolio_execution(driver, *, trading_day, price_increments,
         wall_clock_ns=clock_ns or (lambda: time.time_ns()))
     backend.submission_check = lambda: (session_check() and client.is_reconciled and not client.portfolio_failure
                                        and not client.report_errors)
-    backend.register_report_handler(CtpExecutionAccounting(ledger, multipliers).on_report)
+    backend.register_report_handler(CtpExecutionAccounting(ledger, multipliers,
+        generic_close_today_first_venues=generic_close_today_first_venues).on_report)
     return ExecutionComponents(client, positions, prices, backend, ledger, driver)
 
 

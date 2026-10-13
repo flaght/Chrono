@@ -205,6 +205,30 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(result["au2612.SHFE"].quantities, (1, 1, 1, 1))
         self.assertEqual(result["au2612.SHFE"].costs, (1000,) * 4)
 
+    def test_dce_czce_aggregate_rows_use_today_position_not_static_yd_position(self):
+        for venue, symbol in (("DCE", "i2701"), ("CZCE", "MA701")):
+            with self.subTest(venue=venue):
+                key = symbol + "." + venue
+                rows = [self.row(InstrumentID=symbol, ExchangeID=venue, Position="5", TodayPosition="2",
+                                 YdPosition="9", PosiDirection=direction) for direction in ("2", "3")]
+                result = account.position_buckets(rows, (key,), unique_buckets=True)
+                self.assertEqual(result[key].quantities, (2, 3, 2, 3))
+
+    def test_dce_czce_missing_or_invalid_today_position_is_rejected(self):
+        for venue in ("DCE", "CZCE"):
+            key = "MA701." + venue
+            row = self.row(InstrumentID="MA701", ExchangeID=venue, Position="3")
+            with self.subTest(venue=venue), self.assertRaisesRegex(RuntimeError, "TodayPosition"):
+                account.position_buckets([row], (key,))
+            for today in ("-1", "4", "0.5", "NaN", "Infinity"):
+                with self.subTest(venue=venue, today=today), self.assertRaises(RuntimeError):
+                    account.position_buckets([{**row, "TodayPosition": today}], (key,))
+
+    def test_aggregate_cost_cannot_be_invented_for_today_yesterday_buckets(self):
+        row = self.row(InstrumentID="MA701", ExchangeID="CZCE", Position="3", TodayPosition="1")
+        with self.assertRaisesRegex(RuntimeError, "独立今昨成本"):
+            account.position_buckets([row], ("MA701.CZCE",), require_cost=True)
+
     def test_duplicate_bucket_policy(self):
         rows = [self.row(), self.row()]
         self.assertEqual(account.position_buckets(rows, ("au2612.SHFE",))["au2612.SHFE"].quantities, (2, 0, 0, 0))

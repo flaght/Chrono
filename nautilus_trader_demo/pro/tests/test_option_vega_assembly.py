@@ -114,6 +114,31 @@ class AssemblyTests(unittest.TestCase):
         self.assertIs(session.client.backend, session.execution.backend)
         self.assertEqual(session.execution.backend.snapshot, [])
 
+    def test_index_missing_logs_once_then_reports_recovered_projection(self):
+        session, _ = self.build(mode="recording")
+        event = str(ns("2026-08-13 13:58"))
+        row = {"status": "MISSING", "latest_event_ns": None}
+        feed = NS(key="000852", source_id="fixture-dfs", poll=lambda pending: (),
+            manifest={"minute_lookups": {event: row}})
+        session.runner.feature_query_feeds = (feed,)
+        with self.assertLogs("OptionMarketInputs", level="INFO") as logs:
+            session.runner.poll_features()
+            session.runner.poll_features()
+            row.update(status="PROJECTED", received_ns=self.now)
+            session.runner.poll_features()
+        self.assertEqual(sum("指数分钟缺失" in line for line in logs.output), 1)
+        self.assertEqual(sum("此前缺失" in line for line in logs.output), 1)
+
+    def test_index_query_error_logged_and_propagated(self):
+        session, _ = self.build(mode="recording")
+        def fail(pending):
+            raise RuntimeError("fixture query timeout")
+        session.runner.feature_query_feeds = (NS(key="000852", poll=fail),)
+        with self.assertLogs("OptionMarketInputs", level="ERROR") as logs:
+            with self.assertRaisesRegex(RuntimeError, "fixture query timeout"):
+                session.runner.poll_features()
+        self.assertIn("指数DFS查询失败", logs.output[0])
+
     def build(self, *, resume=False, mode="model", config=None, dfs_index=False, test_clock=False):
         service = ReferenceService()
         calendar = tuple(date(2026, 8, 13) + timedelta(days=n) for n in range(50)
@@ -349,6 +374,79 @@ class AssemblyTests(unittest.TestCase):
         self.assertFalse(s.client.backend.reports)
         with self.assertRaisesRegex(ValueError, "估值日期"):
             self.bars(s, "2026-08-14 13:58")
+
+    def test_realtime_stale_optional_candidate_is_skipped_without_polluting_frame(self):
+        s, lifecycle = self.build(mode="recording")
+        self.start(s, lifecycle)
+        s.runner.replay = False
+        self.now = ns("2026-08-13 13:58")
+        with self.assertLogs("OptionMarketInputs", level="WARNING"):
+            self.bars(s, "2026-08-13 13:52", omit=("IM2609", "000852"), flush=False)
+        self.assertIsNone(s.runner.failure)
+        self.assertNotIn("MO2609-C-6600", s.runner.observations)
+        self.assertNotIn("MO2609-C-6600", s.strategy.latest)
+        self.assertEqual(s.runner.frames.pending, {})
+        self.assertEqual(s.runner.ignored_stale_candidate_bars, 1)
+        # 新鲜同分钟行情仍能选约并把非零目标送到Recording。
+        self.bars(s, "2026-08-13 13:58")
+        self.assertEqual(s.strategy.entry_audit[-1]["outcome"], "TARGET")
+        self.assertEqual(len(s.client.requests), 1)
+        description = import_module("demos.08_option_vega.run_live").describe(s)
+        self.assertEqual(description["bar_time_audit"][-1]["action"], "IGNORED_CANDIDATE")
+        self.assertEqual(description["ignored_stale_candidate_bars"], 1)
+
+    def test_realtime_stale_target_option_and_its_future_remain_fatal(self):
+        for key, omit in (("MO2609-C-6600", ("IM2609", "000852")),
+                          ("IM2609", ("MO2609-C-6600", "000852"))):
+            with self.subTest(key=key):
+                s, lifecycle = self.build(mode="recording")
+                self.start(s, lifecycle)
+                s.runner.replay = False
+                self.now = ns("2026-08-13 13:58")
+                s.strategy.option_goals["MO2609-C-6600"] = Decimal(-1)
+                with self.assertLogs("OptionMarketInputs", level="ERROR"):
+                    with self.assertRaisesRegex(ValueError, f"key={key}.*required=True"):
+                        self.bars(s, "2026-08-13 13:52", omit=omit, flush=False)
+                self.assertIsNotNone(s.runner.failure)
+                self.assertFalse(s.runner.accept_bars)
+                self.assertEqual(s.runner.ignored_stale_candidate_bars, 0)
+                self.assertEqual(s.runner.bar_time_audit[-1]["action"], "REJECTED")
+
+    def test_realtime_stale_index_remains_fatal(self):
+        s, lifecycle = self.build(mode="recording")
+        self.start(s, lifecycle)
+        s.runner.replay = False
+        self.now = ns("2026-08-13 13:58")
+        with self.assertLogs("OptionMarketInputs", level="ERROR"):
+            with self.assertRaisesRegex(ValueError, "key=000852.*required=True"):
+                self.bars(s, "2026-08-13 13:52", omit=("MO2609-C-6600", "IM2609"), flush=False)
+        self.assertFalse(s.runner.accept_bars)
+
+    def test_realtime_stale_actual_position_remains_required_with_zero_goal(self):
+        s, lifecycle = self.build(mode="model")
+        self.start(s, lifecycle)
+        self.bars(s, "2026-08-13 13:58")
+        option = s.references.instrument_ids["MO2609-C-6600"]
+        self.assertLess(s.strategy.position(str(option)), 0)
+        s.strategy.option_goals["MO2609-C-6600"] = Decimal(0)
+        s.runner.replay = False
+        self.now = ns("2026-08-13 14:04")
+        with self.assertLogs("OptionMarketInputs", level="ERROR"):
+            with self.assertRaisesRegex(ValueError, "key=MO2609-C-6600.*required=True"):
+                self.bars(s, "2026-08-13 13:58", omit=("IM2609", "000852"), flush=False)
+        self.assertEqual(s.runner.bar_time_audit[-1]["action"], "REJECTED")
+        self.assertLess(s.strategy.position(str(option)), 0)
+
+    def test_realtime_future_optional_candidate_is_not_ignored(self):
+        s, lifecycle = self.build(mode="recording")
+        self.start(s, lifecycle)
+        s.runner.replay = False
+        self.now = ns("2026-08-13 13:58")
+        with self.assertLogs("OptionMarketInputs", level="ERROR"):
+            with self.assertRaisesRegex(ValueError, "age_seconds=-60.0"):
+                self.bars(s, "2026-08-13 13:59", omit=("IM2609", "000852"), flush=False)
+        self.assertEqual(s.runner.bar_time_audit[-1]["reason"], "FUTURE_BAR")
+        self.assertEqual(s.runner.ignored_stale_candidate_bars, 0)
 
     def test_missing_held_leg_waits_then_fails_without_erasing_position(self):
         s, controller = self.build()

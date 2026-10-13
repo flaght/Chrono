@@ -9,7 +9,10 @@ from math import isfinite
 from types import MappingProxyType
 from typing import Mapping
 
-from calendar_signal import CalendarSpreadSignal
+if __package__:
+    from .calendar_signal import CalendarSpreadSignal
+else:
+    from calendar_signal import CalendarSpreadSignal
 from bomber.framework.market.basic.base import Bar, InstrumentId
 from bomber.framework.trader.template import StrategyTemplate
 
@@ -79,14 +82,33 @@ class CalendarSpreadStrategy(StrategyTemplate):
         self.last_targets: Mapping[str, Decimal] | None = None
         self._old_pair: tuple[str, str] | None = None
         self._last_roll_zero_ns = -1
+        self._force_target = False
+        self.order_updates_received = 0
+        self.fills_received = 0
+
+    def rewarm_after_restore(self, direction: int) -> None:
+        """保留已成交仓位和目标版本，重新收集行情后才发布首个完整目标。"""
+        if self.complete_frames or direction not in {-1, 0, 1}:
+            raise ValueError("恢复预热须在处理行情前且方向为 -1/0/1")
+        self.signal.reset()
+        self.latest.clear()
+        self.direction = direction
+        self.last_targets = None
+        self._force_target = True
+
+    def on_order(self, event) -> None:
+        self.order_updates_received += 1
+
+    def on_fill(self, event) -> None:
+        self.fills_received += 1
 
     def _selection(self, timestamp: int) -> CalendarSelection | None:
         index = bisect_right(self._times, timestamp) - 1
         return None if index < 0 else self.selections[index]
 
     def _exposure(self, pair: tuple[str, str]) -> bool:
-        return any(self.account_position(str(self.instruments[symbol])) != 0
-                   or self.working_quantity(str(self.instruments[symbol])) != 0
+        return any(self.position(str(self.instruments[symbol])) != 0
+                   or self.strategy_working_quantity(str(self.instruments[symbol])) != 0
                    for symbol in pair)
 
     def _targets(self, leg1: str | None = None, leg2: str | None = None,
@@ -169,9 +191,10 @@ class CalendarSpreadStrategy(StrategyTemplate):
         if signal is not None:
             z, direction = signal.z_score, signal.direction
             self.last_z = z
-            if (direction != self.direction or
+            if (self._force_target or direction != self.direction or
                     (direction and self.complete_frames % self.config.rebalance_interval == 0)):
                 self.active_pair = pair
                 self._submit(self._targets(*pair, direction), timestamp,
                              reason="SIGNAL", z=z)
                 self.direction = direction
+                self._force_target = False

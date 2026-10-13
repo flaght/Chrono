@@ -10,9 +10,31 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+FOUR_VENUE_VERSION = "PF2026101208_REV2"
+FOUR_VENUE_RUNTIME_HASHES = {
+    "bomber/framework/dataprep/live_portfolio.py": "87bfe1d033b4b3efa4338010fbf368a9b262d71987738744da6a82071cf1e48c",
+    "bomber/framework/market/stream/ctp/feed.py": "065a4effbabbf281f13c9d64723a2ae6d073bec6d01147894c147e20b081a34b",
+    "bomber/framework/market/stream/ctp/converter.py": "157648c40bed2f5467cb9de68ad4ec2c8f971d62ebf10c77bd7f7c052ea7ee7e",
+    "bomber/framework/trader/execution/builders.py": "54733c8ab2e7bb9713a2cd2bfcd4d9fe274c53479bc7eac6a8661b9428d2b37d",
+    "bomber/framework/trader/execution/ctp/accounting.py": "6bb37ceb2bcad91b4c82f6a6cf77da0440cc8403867a3353f3417106c952f162",
+    "bomber/framework/trader/execution/ctp/ledger.py": "97368cdee2e0411ff927e4bdb614e35b705980db5691cdbf488332bde135827e",
+    "bomber/framework/trader/execution/ctp/planner.py": "3d119db17d95b85289ba905c1d7f1fa5a3d97d7d54e31fadd5cb7d2189a15f40",
+    "bomber/framework/trader/execution/ctp/limit_planner.py": "6e18f4a0de6cc83a1b34b33a91220f50421064c71a3ad2a4fa24b58a02452b1a",
+    "bomber/framework/trader/execution/ctp/native_driver.py": "620f3847b53fac28ab85e25805ab961c58ac2e672b78f4b5eebe3f6c85f6f798",
+    "bomber/framework/trader/execution/ctp/td_transport.py": "75522647bc5b82226dbc1992e2958d4391f8920b724077062210c1dc42b71eb5",
+    "bomber/framework/trader/runtime/ctp_account.py": "a404376dd009fd1f777a61f2683bf35723bf18b884da635aa316e94c2724fc6a",
+    "demos/04_cross_section/run_live.py": "a27b235492ed6def166b29c4bc58593229881394df53b89670aa95dc16e96dea",
+    "demos/04_cross_section/live_runtime.py": "d4bbad3600d3318faa87c4b708592a3a978d9ca18bc6a14fd568d4958e523bf1",
+    "demos/04_cross_section/recovery.py": "c641001e9175fcc9aba5e214dd72eb581aad89bb33dc5e93c6987345b3883ce3",
+    "tests/test_cross_section_live.py": "dad0dcaeca3da9a5e57cd4dbef059b4ea26809bab0376177d77d2219c1d5b2bc",
+    "tests/test_live_common.py": "718871a1902621f8da124abd8019f70188599a6ee83ef59b5c2041adbb5cd5e5",
+}
 FEATURE_DEPLOYMENT_GROUPS = frozenset(("feature-datahub", "feature-query-live", "option-vega", "option-vega-live", "option-calendar"))
 # 补充原生/08被测文件摘要；入口摘要由独立GAP08入口持有，不在此处自引用。
 FEATURE_RUNTIME_HASHES = {
+    "bomber/framework/market/stream/ctp/converter.py": "157648c40bed2f5467cb9de68ad4ec2c8f971d62ebf10c77bd7f7c052ea7ee7e",
+    "bomber/framework/trader/execution/builders.py": "54733c8ab2e7bb9713a2cd2bfcd4d9fe274c53479bc7eac6a8661b9428d2b37d",
+    "bomber/framework/trader/execution/ctp/accounting.py": "6bb37ceb2bcad91b4c82f6a6cf77da0440cc8403867a3353f3417106c952f162",
     "bomber/framework/calendars/DateUtilities/Calendar.pyx": "efcf365e9795bb1669527c3639b21d28d99627119f772ed8a219502c943543eb",
     "bomber/framework/calendars/__init__.py": "49c3010d35d57ac88dec9f7eb2e81648786318c98bc27f7a6800ac2ffba2504a",
     "bomber/framework/calendars/trading.py": "94a4eaaaf5306b82b71d5117183db1fff0cafb2031fc4f962b7d138a5b4816fa",
@@ -23,9 +45,9 @@ FEATURE_RUNTIME_HASHES = {
     "bomber/framework/trader/runtime/live/channels/features.py": "bc3fba69836682cd6cf5d71014c2f99cb6182f6011bb80fcfa5125f667c55288",
     "bomber/framework/trader/runtime/live/readiness.py": "125a27f8b9ad3ede9809fa0865dfac90f44572f7e979f22c1e115db19883e96b",
     "demos/08_option_vega/acceptance.py": "5e557fa201a87a24c3a2691c592143c6a333cdf652c357257981ea3450047647",
-    "demos/08_option_vega/live_runtime.py": "706bd39717925f5e8376f958be6629187d770f5c02cf74bc0cb14a2c40772a92",
+    "demos/08_option_vega/live_runtime.py": "2d01df871d734c912f47313fb10270834604e41b8d28d4cde8c1ab39875fa343",
     "demos/08_option_vega/recovery.py": "c0708c564a6a3e181359be843341364789802024ced15fcb3fd7c41454dcbfc4",
-    "demos/08_option_vega/run_live.py": "c66971265854b9d1b7ac80a63f59e2298d3ea1dc12e85f0221976d4a345b0ace",
+    "demos/08_option_vega/run_live.py": "7823d51fbf5d83bb304f0ef5f22582aa08c46af82acb8d0d79a1ebc61eb018c9",
     "demos/08_option_vega/strategy.py": "4961502b55a163d6e1cbe69d724771ddcc2beab6b5724efc7943251c411c25a6",
     "scripts/integration/options/__init__.py": "be65a34d8f3388d3252d04a55411d216618753783cbba6d4cf40f8aa24690b02",
     "scripts/integration/options/recording.py": "1d0ff5e5b14dd0223640bcfaacd94165ff3077d8e15d5594364ad8d711d39aeb",
@@ -36,11 +58,11 @@ FEATURE_RUNTIME_HASHES = {
     "tests/test_live_readiness.py": "68be26427fa88d3821f1aa520c84749756f1793a77c96aad1d0214f19f2a0540",
     "tests/test_live_recovery.py": "3d536ee48fbcc9fda1a91de95d8f65b2350e1fec00ed8eebe5295db8062101c6",
     "tests/test_option_recording_acceptance.py": "add809360c7b5c9f334e881f5df96d439dbbe5c1857ac2960ccdb3cbf484111d",
-    "tests/test_option_vega_assembly.py": "0a36d914135988794c063c92d04aecdd91f048fe442cb90f024b294c938b3b23",
+    "tests/test_option_vega_assembly.py": "78e978e0be13bf797416f9845819eeb274a971a81ae8ab4ad73487756006bd31",
     "tests/test_option_vega_live.py": "1382d882350796814fe07d5fcfba5a21a11292abbfc1cae66f39ca615c992208",
     "tests/test_trading_calendar.py": "bde86802148881d8fda9aa0020ec2e05c35fbf134fa0bc0f7fa23b9da0991ff4",
     "bomber/framework/market/stream/health.py": "9db27606e1292e9e5a35c23ea2a32de466a0622effd960868e68d6a44353b8d1",
-    "bomber/framework/market/stream/ctp/feed.py": "32fb53a788c4697e603c60f6184450815ac9e30d93d30dfe3e12a1a84320f9a1",
+    "bomber/framework/market/stream/ctp/feed.py": "065a4effbabbf281f13c9d64723a2ae6d073bec6d01147894c147e20b081a34b",
     "bomber/framework/dataprep/features/query.py": "3a94d8bc0735e64e60da485a1ea3683438c78946c8f6f2ffcffa4f9ef256523a",
     "tests/test_ctp_depth_health.py": "6ed1585e89550a26d05e79c3cf2438b8f2f497f5499ba1a0b1ad6ce83845bbc4",
     "demos/08_option_vega/replay_test.py": "725692fbf24f300a9c190459672b465924d3a8564a8af1646cf434a583e393fb",
@@ -131,6 +153,7 @@ SOURCES = (
     "bomber/framework/trader/runner.py",
     "bomber/framework/trader/execution/ctp/planner.py",
     "bomber/framework/trader/execution/ctp/limit_planner.py",
+    "bomber/framework/trader/execution/ctp/accounting.py",
     "bomber/framework/trader/execution/builders.py",
     "bomber/framework/trader/runtime/live/channels/dolphin.py",
     "tests/test_option_vega_live.py",
@@ -219,6 +242,15 @@ def main(argv=None):
     report = {"python": sys.executable, "project": str(ROOT), "status": "running", "modules": [], "sources": {}}
     print(f"离线验收 Python={sys.executable} project={ROOT} report={path}", flush=True)
     try:
+        if not args.only or "cross-section" in args.only:
+            check = inspect_feature_deployment(ROOT, FOUR_VENUE_RUNTIME_HASHES)
+            report["cross_section_deployment"] = {"version": FOUR_VENUE_VERSION, **check}
+            report["sources"].update(check["sources"])
+            for mismatch in check["mismatches"]:
+                print(f"四交易所版本不一致: {mismatch['path']} expected={mismatch['expected']} "
+                      f"actual={mismatch['actual']}", flush=True)
+            if check["mismatches"]:
+                raise RuntimeError("04四交易所交付版本不一致；先同步所列源码，再复测")
         if not args.only or FEATURE_DEPLOYMENT_GROUPS.intersection(args.only):
             from tests.run_feature_datahub import EXPECTED_SOURCE_HASHES, RETIRED_SOURCES, ACCEPTANCE_VERSION
             check = inspect_feature_deployment(ROOT, {**EXPECTED_SOURCE_HASHES, **FEATURE_RUNTIME_HASHES}, RETIRED_SOURCES)

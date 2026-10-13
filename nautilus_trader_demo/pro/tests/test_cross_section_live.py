@@ -19,9 +19,14 @@ from unittest.mock import patch
 from bomber.framework.datahub.sector_roles import SectorRoleAssignment
 from bomber.framework.market.basic.base import DataType, make_bar, make_trade_tick
 from bomber.framework.market.stream.ctp.feed import CtpDepthObservation, CtpLiveDataFeed, CtpMdConfig
+from bomber.framework.market.stream.ctp.converter import CtpTickConverter
+from bomber.framework.dataprep.live_portfolio import ctp_futures_symbol
 from bomber.framework.trader import (StrategyTemplate, ExecutionRoute, UnifiedStrategyRunner,
                                      RuntimeMode, RecordingExecutionClient, PositionManager)
 from bomber.framework.trader.execution.ctp import CtpNativeTraderDriver, CtpTdApiTransport, CtpLimitPlanner
+from bomber.framework.trader.execution.ctp.accounting import CtpExecutionAccounting
+from bomber.framework.trader.execution.ctp.ledger import CtpPositionLedger
+from bomber.framework.trader.execution.contracts import OrderSide, PositionEffect, ExecutionReportType
 from bomber.framework.trader import RiskLimits
 from bomber.framework.trader.execution.builders import build_ctp_portfolio_execution
 from bomber.framework.trader.runtime.ctp import assert_flat_account
@@ -48,7 +53,237 @@ class ExternalPositionApi(fixtures.AdoptTdApi):
         self.gross = {"au2612.SHFE": (0, 1)}
 
 
+class FourVenueTdApi(fixtures.AdoptTdApi):
+    """空仓启动；成交后返回含TodayPosition的四交易所权威持仓行。"""
+    def __init__(self):
+        super().__init__()
+        self.gross = {}
+
+
 class CrossSectionLiveTests(unittest.TestCase):
+    def four_venue_references(self):
+        products = ("RB", "SC", "I", "MA")
+        terms = {"RB": ("SHFE", 1, 10), "SC": ("INE", "0.1", 1000),
+                 "I": ("DCE", "0.5", 100), "MA": ("CZCE", 1, 10)}
+        self.service.products = products
+        self.service.instrument_specs = {p: {"main": SimpleNamespace(symbol=p + "2704",
+            product=p, venue=terms[p][0], currency="CNY", tick=Decimal(str(terms[p][1])),
+            multiplier=Decimal(terms[p][2]))} for p in products}
+        self.assignment = SectorRoleAssignment(date(2026, 9, 22), date(2026, 9, 21), BASE, BASE,
+            {p: {"main": p.lower() + "2704"} for p in products},
+            {p: {"main": Decimal(1)} for p in products})
+
+    def four_venue_session(self, **options):
+        self.four_venue_references()
+        parameters = dict(api_base=FourVenueTdApi, lookback=1, rebalance_interval=1,
+            group_fraction=Decimal("0.50"), target_notional=Decimal(4000000),
+            max_notional=Decimal(4000000), target_quantity_cap=Decimal(1), require_full_groups=True)
+        parameters.update(options)
+        return self.session(**parameters)
+
+    def product_frame(self, s, minute, prices):
+        stamp = BASE + (minute + 1) * MINUTE - 1
+        self.now = stamp + 1
+        s.upstream.latest_receive_monotonic_ns = time.monotonic_ns()
+        for p, price in prices.items():
+            s.runner.observe_tick(make_trade_tick(s.references.instrument_ids[p], price, 1,
+                ts_event=self.now, meta=s.references.instrument_meta(p), trade_id=f"mixed-{p}-{minute}"))
+        for p in s.references.products:
+            self.bar(s, p, stamp, prices[p])
+
+    def test_four_venue_cli_accepts_native_and_source_czce_symbols(self):
+        command = ["--connect", "--products", "RB,SC,I,MA", "--expected-trading-day", "20260922",
+            "--expected-source-day", "20260921", "--expected-instrument", "RB=rb2704.SHFE",
+            "--expected-instrument", "SC=sc2704.INE", "--expected-instrument", "I=i2704.DCE"]
+        for symbol in ("MA704", "ma704", "MA2704"):
+            with self.subTest(symbol=symbol):
+                args = live.parse_args([*command, "--expected-instrument", f"MA={symbol}.CZCE"])
+                self.assertEqual(args.expected_instruments["MA"], "MA704.CZCE")
+        for instrument in ("MA704.CFFEX", "MA704.GFEX", "MA713.CZCE", "i704.DCE"):
+            with self.subTest(instrument=instrument), redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                live.parse_args([*command, "--expected-instrument", f"MA={instrument}"])
+
+    def test_four_venue_reference_identity_preserves_source_and_factors(self):
+        self.four_venue_references()
+        refs = runtime.PortfolioReferences(self.service)
+        self.assertEqual({p: str(i) for p, i in refs.instrument_ids.items()},
+            {"RB": "rb2704.SHFE", "SC": "sc2704.INE", "I": "i2704.DCE", "MA": "MA704.CZCE"})
+        self.assertEqual(refs.snapshot(BASE).instrument("MA", "main"), "ma704")
+        self.assertEqual(self.assignment.instrument("MA", "main"), "ma2704")
+        self.assertEqual(refs.specs["MA"].symbol, "MA2704")
+        self.assertEqual(refs.snapshot(BASE).cumulative_factors, self.assignment.cumulative_factors)
+        self.assertEqual(ctp_futures_symbol("MA704", "CZCE"), "MA704")
+        refs.assert_expected({}, {"MA": "MA2704"})
+        with self.assertRaisesRegex(ValueError, "资料代码不符"):
+            refs.assert_expected({}, {"MA": "MA3704"})
+
+    def test_four_venue_references_reject_unsupported_venue_and_currency(self):
+        self.four_venue_references()
+        spec = self.service.instrument_specs["MA"]["main"]
+        for change in ({"venue": "CFFEX"}, {"venue": "GFEX"}, {"currency": "USD"}):
+            with self.subTest(change=change):
+                self.service.instrument_specs["MA"]["main"] = SimpleNamespace(**{**vars(spec), **change})
+                with self.assertRaisesRegex(ValueError, "人民币期货"):
+                    runtime.PortfolioReferences(self.service)
+
+    def test_four_venue_recording_waits_for_complete_frame(self):
+        s = self.four_venue_session()
+        first = {"RB": 3100, "SC": 1000, "I": 800, "MA": 2000}
+        changed = {"RB": 3255, "SC": 1030, "I": 776, "MA": 1900}
+        self.product_frame(s, 0, first)
+        self.product_frame(s, 1, changed)
+        self.assertEqual(s.strategy.synchronized_frames, 2)
+        self.assertEqual(dict(s.strategy.last_targets),
+            {"rb2704.SHFE": 1, "sc2704.INE": 1, "i2704.DCE": -1, "MA704.CZCE": -1})
+        self.assertFalse(s.transport._api.sent)
+        stamp = BASE + 3 * MINUTE - 1
+        self.now = stamp + 1
+        for p, price in changed.items():
+            s.runner.observe_tick(make_trade_tick(s.references.instrument_ids[p], price, 1,
+                ts_event=self.now, meta=s.references.instrument_meta(p), trade_id=f"pending-{p}"))
+        for p in ("RB", "SC", "I"):
+            self.bar(s, p, stamp, changed[p])
+        self.assertEqual(s.strategy.synchronized_frames, 2)
+        self.assertEqual(s.strategy.rebalances, 1)
+
+    def test_four_venue_native_orders_fills_and_reversal_offsets(self):
+        s = self.four_venue_session(orders=True)
+        first = {"RB": 3100, "SC": 1000, "I": 800, "MA": 2000}
+        changed = {"RB": 3255, "SC": 1030, "I": 776, "MA": 1900}
+        reversed_prices = {"RB": 3100, "SC": 1000, "I": 800, "MA": 2000}
+        self.product_frame(s, 0, first)
+        self.product_frame(s, 1, changed)
+        self.assertEqual(len(s.transport._api.sent), 4)
+        self.assertEqual({o["ExchangeID"] for o in s.transport._api.sent}, {"SHFE", "INE", "DCE", "CZCE"})
+        for index in range(4):
+            self.fill(s, index, duplicate=True)
+        self.assertEqual(s.strategy.fills_received, 4)
+        self.assertEqual(s.strategy.position("MA704.CZCE"), -1)
+        self.assertEqual(s.transport.query_positions()["MA704.CZCE"], -1)
+        recovery.validate_account(s, s.transport)
+        self.product_frame(s, 2, reversed_prices)
+        self.assertEqual(len(s.transport._api.sent), 8)
+        closing = s.transport._api.sent[4:8]
+        self.assertEqual({o["ExchangeID"]: o["CombOffsetFlag"] for o in closing},
+            {"SHFE": "3", "INE": "3", "DCE": "1", "CZCE": "1"})
+        self.assertEqual(next(o for o in closing if o["ExchangeID"] == "CZCE")["InstrumentID"], "MA704")
+        for index in range(4, 8):
+            self.fill(s, index)
+        # 成交回调不续开；新的真实Tick才推进同一目标的反手开仓。
+        self.assertEqual(len(s.transport._api.sent), 8)
+        self.raw_ticks(s, self.now + 500_000_000, reversed_prices)
+        self.assertEqual(len(s.transport._api.sent), 12)
+        for index in range(8, 12):
+            self.assertEqual(s.transport._api.sent[index]["CombOffsetFlag"], "0")
+            self.fill(s, index)
+        for instrument, quantity in s.strategy.last_targets.items():
+            self.assertEqual(s.strategy.position(instrument), quantity)
+        self.assertFalse(s.client.report_errors)
+        recovery.validate_account(s, s.transport)
+
+    def test_four_venue_checkpoint_and_authoritative_aggregate_recovery(self):
+        s = self.four_venue_session(orders=True)
+        self.product_frame(s, 0, {"RB": 3100, "SC": 1000, "I": 800, "MA": 2000})
+        self.product_frame(s, 1, {"RB": 3255, "SC": 1030, "I": 776, "MA": 1900})
+        for index in range(4):
+            self.fill(s, index)
+        s.manager.save()
+        revision = recovery.validate_restored_session(s, "20260922")
+        recovery.validate_account(s, s.transport)
+        self.assertEqual(s.strategy.position("MA704.CZCE"), -1)
+        self.assertEqual(s.strategy.position("i2704.DCE"), -1)
+        s.runner.stop()
+        s.manager.restore()
+        self.assertEqual(recovery.validate_restored_session(s, "20260922"), revision)
+        self.assertEqual(s.ledger.snapshot(s.references.instrument_ids["MA"]).short_today, 1)
+        # stop已解绑策略上下文；恢复后的归属应从实际公共持仓账本核对。
+        positions = s.runner.position_manager
+        self.assertEqual(positions.position(s.strategy.strategy_id, "MA704.CZCE"), -1)
+        self.assertEqual(positions.position(s.strategy.strategy_id, "i2704.DCE"), -1)
+
+    def test_four_venue_missing_depth_blocks_execution(self):
+        s = self.four_venue_session(orders=True)
+        s.upstream.depth_observations = {i: CtpDepthObservation("20260922", self.now,
+            time.monotonic_ns()) for i in s.runner.fixed_ids}
+        del s.upstream.depth_observations[s.references.instrument_ids["MA"]]
+        self.assertFalse(s.runner.session_ready())
+        self.assertEqual(set(s.runner.stale_instruments()), {"MA704.CZCE"})
+        self.assertFalse(s.transport._api.sent)
+
+    def test_requested_seven_products_preserve_group_budget_and_zero_incomplete_group(self):
+        products = ("AU", "AG", "SC", "RB", "I", "MA", "NI")
+        args = live.parse_args(["--connect", "--products", ",".join(products),
+            "--expected-trading-day", "20260922", "--expected-source-day", "20260921"])
+        self.assertEqual(args.products, products)
+        terms = {"AU": ("SHFE", "0.02", 1000), "AG": ("SHFE", 1, 15),
+            "SC": ("INE", "0.1", 1000), "RB": ("SHFE", 1, 10),
+            "I": ("DCE", "0.5", 100), "MA": ("CZCE", 1, 10), "NI": ("SHFE", 10, 1)}
+        self.service.products = products
+        self.service.instrument_specs = {p: {"main": SimpleNamespace(symbol=p + "2704",
+            product=p, venue=terms[p][0], currency="CNY", tick=Decimal(str(terms[p][1])),
+            multiplier=Decimal(terms[p][2]))} for p in products}
+        self.assignment = SectorRoleAssignment(date(2026, 9, 22), date(2026, 9, 21), BASE, BASE,
+            {p: {"main": p.lower() + "2704"} for p in products},
+            {p: {"main": Decimal(1)} for p in products})
+        s = self.session(group_fraction=Decimal("0.40"), target_notional=Decimal(2000000),
+            max_notional=Decimal(2000000), target_quantity_cap=Decimal(1), require_full_groups=True)
+        prices = {"AU": 1500, "AG": 10000, "SC": 500, "RB": 3100, "I": 800, "MA": 2000, "NI": 150000}
+        self.product_frame(s, 0, prices)
+        self.product_frame(s, 1, {**prices, "AU": 1650, "AG": 10100, "NI": 140000})
+        self.assertEqual(s.strategy.signal.group_size, 2)
+        self.assertEqual(s.strategy.last_signal.long_products, ("AU", "AG"))
+        self.assertEqual(s.client.requests[-1].metadata["incomplete_group_products"], ("AU",))
+        self.assertEqual(len(s.strategy.last_targets), 7)
+        self.assertTrue(all(quantity == 0 for quantity in s.strategy.last_targets.values()))
+        self.assertFalse(s.transport._api.sent)
+
+    def test_dce_czce_generic_close_accounting_uses_today_before_yesterday(self):
+        for venue, symbol in (("DCE", "i2704"), ("CZCE", "MA704")):
+            with self.subTest(venue=venue):
+                instrument = runtime.InstrumentId.from_str(f"{symbol}.{venue}")
+                ledger = CtpPositionLedger("20260921")
+                ledger.apply_fill(instrument, OrderSide.BUY, PositionEffect.OPEN, 2, 100, 10)
+                ledger.settle("20260922", {instrument: 100}, {instrument: 10})
+                ledger.apply_fill(instrument, OrderSide.BUY, PositionEffect.OPEN, 1, 110, 10)
+                accounting = CtpExecutionAccounting(ledger, {instrument: 10},
+                    generic_close_today_first_venues=("DCE", "CZCE"))
+                accounting.on_report(SimpleNamespace(report_type=ExecutionReportType.FILLED,
+                    instrument_id=instrument, order_side=OrderSide.SELL, position_effect=PositionEffect.CLOSE,
+                    filled_quantity=Decimal(1), fill_price=Decimal(120)))
+                self.assertEqual((ledger.snapshot(instrument).long_today, ledger.snapshot(instrument).long_yesterday), (0, 2))
+                self.assertEqual(accounting.total_realized_pnl, 100)
+
+    def test_dce_realtime_night_and_midnight_keep_event_time_and_replay_is_unchanged(self):
+        for received, clock, expected in (
+                ("2026-10-12T21:01:02+08:00", "21:01:01", "2026-10-12T21:01:01+08:00"),
+                ("2026-10-13T00:00:01+08:00", "23:59:59", "2026-10-12T23:59:59+08:00")):
+            with self.subTest(received=received):
+                now = int(datetime.fromisoformat(received).timestamp() * 1e9)
+                converter = CtpTickConverter(dce_use_receive_date=True, clock_ns=lambda: now)
+                row = {"TradingDay": "20261013", "ActionDay": "20261013", "UpdateTime": clock}
+                self.assertEqual(converter._timestamp_ns(row, "DCE"),
+                    int(datetime.fromisoformat(expected).timestamp() * 1e9))
+                # 可选策略关闭时继续保留上游ActionDay，Replay接收时间聚合不变。
+                self.assertEqual(CtpTickConverter()._timestamp_ns(row, "DCE"),
+                    int(datetime.fromisoformat(f"2026-10-13T{clock}+08:00").timestamp() * 1e9))
+
+    def test_czce_feed_subscribes_and_maps_native_case(self):
+        self.four_venue_references()
+        refs = runtime.PortfolioReferences(self.service)
+        meta = refs.instrument_meta("MA")
+        feed = CtpLiveDataFeed(CtpMdConfig("tcp://fake:1", "9999", "fake", "fake"))
+        feed.register_instrument(meta)
+        feed.subscribe(meta.instrument_id, DataType.TRADE_TICK)
+        self.assertEqual(feed._desired_symbols(), {"MA704"})
+        row = {"InstrumentID": "MA704", "TradingDay": "20260922", "ActionDay": "20260922",
+            "UpdateTime": "09:00:00", "UpdateMillisec": 0, "Volume": 10, "LastPrice": 2000}
+        feed.on_depth_market_data(row)
+        row.update(Volume=11, UpdateTime="09:00:01")
+        with patch.object(feed, "enqueue_event") as enqueue:
+            feed.on_depth_market_data(row)
+        self.assertEqual(enqueue.call_count, 1)
+        self.assertEqual(enqueue.call_args.args[0].instrument_id, meta.instrument_id)
+
     def restored_session(self):
         original = self.session(orders=True)
         self.frame(original, 0, 3100, 3000)

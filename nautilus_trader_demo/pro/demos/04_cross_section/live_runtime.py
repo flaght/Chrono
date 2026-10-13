@@ -272,9 +272,7 @@ class CrossSectionLifecycle(ResumeLifecycle, CtpSessionLifecycle):
 
 def assemble(args, references, driver, upstream, *, account_routes=()):
     references.validate()
-    actual = {p: str(i) for p, i in references.instrument_ids.items()}
-    if args.expected_instruments and actual != args.expected_instruments:
-        raise ValueError(f"本次主力不符: expected={args.expected_instruments} actual={actual}")
+    references.assert_expected(args.expected_instruments, getattr(args, "expected_source_symbols", None))
     model = args.mode == "model"
     orders = args.mode in {"simnow", "model"}
     execution_policy = execution_policy_from_args(args)
@@ -315,7 +313,9 @@ def assemble(args, references, driver, upstream, *, account_routes=()):
             multipliers={ids[p]: specs[p].multiplier for p in args.products},
             instrument_limits=limits, session_check=runner.session_ready, orders=orders,
             positions=positions, limit_offset_ticks=args.limit_offset_ticks, instrument_scope=position_scope,
-            account_reconciliation=execution_policy.account_reconciliation)
+            account_reconciliation=execution_policy.account_reconciliation,
+            generic_close_venues=("DCE", "CZCE"),
+            generic_close_today_first_venues=("DCE", "CZCE"))
     client_holder["client"] = execution.client
     if account_routes:
         if not model:

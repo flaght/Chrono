@@ -26,15 +26,31 @@ def position_buckets(rows, allowed_instruments, *, require_cost=False, unique_bu
             if (key not in allowed or str(row.get("HedgeFlag")) != "1" or
                     direction not in {"2", "3"} or date not in {"1", "2"}):
                 raise ValueError("合约、投机标志或今昨方向无效")
-            index = (0 if direction == "2" else 2) + (0 if date == "1" else 1)
-            if unique_buckets and (key, index) in seen:
-                raise ValueError("今昨仓分桶重复")
-            seen.add((key, index))
+            base = 0 if direction == "2" else 2
+            aggregate = row["ExchangeID"] in {"DCE", "CZCE"}
+            if aggregate:
+                # 非分桶交易所的PositionDate不能代表整行均为今仓。
+                # YdPosition是昨收静态值；当前昨仓只能由Position-TodayPosition取得。
+                today = Decimal(str(row["TodayPosition"]))
+                if (not today.is_finite() or today != today.to_integral_value()
+                        or not 0 <= today <= qty):
+                    raise ValueError("TodayPosition须为不超过总仓的非负整数")
+                if require_cost:
+                    raise ValueError("聚合持仓缺少独立今昨成本，不支持按总成本猜测分桶")
+                allocations = ((base, today), (base + 1, qty - today))
+            else:
+                allocations = ((base + (0 if date == "1" else 1), qty),)
             cost = Decimal(str(row["PositionCost"])) if require_cost else Decimal(0)
             if require_cost and (not cost.is_finite() or cost <= 0):
                 raise ValueError("持仓成本无效")
-            quantities.setdefault(key, [Decimal(0)] * 4)[index] += qty
-            costs.setdefault(key, [Decimal(0)] * 4)[index] += cost
+            for index, amount in allocations:
+                if not amount:
+                    continue
+                if unique_buckets and (key, index) in seen:
+                    raise ValueError("今昨仓分桶重复")
+                seen.add((key, index))
+                quantities.setdefault(key, [Decimal(0)] * 4)[index] += amount
+                costs.setdefault(key, [Decimal(0)] * 4)[index] += cost
         except (KeyError, ValueError, TypeError, InvalidOperation) as error:
             raise RuntimeError(f"权威今昨仓明细无效: {error}") from error
     return {key: PositionBuckets(tuple(value), tuple(costs[key])) for key, value in quantities.items()}

@@ -2,6 +2,7 @@
 from datetime import datetime
 from dataclasses import replace
 from decimal import Decimal
+import logging
 import threading
 import time
 from types import SimpleNamespace
@@ -28,6 +29,7 @@ from .checkpoint import OptionVegaCheckpoint
 from .vega_signal import Contract
 
 CLIENT_ID = "option-vega-live"
+logger = logging.getLogger("OptionMarketInputs")
 
 
 class OptionReferences:
@@ -81,6 +83,8 @@ class OptionSessionRunner(UnifiedStrategyRunner):
         self.feature_query_feeds = ()
         self.skipped_feature_frames = 0
         self.frame_audit = []
+        self.bar_time_audit = []
+        self.ignored_stale_candidate_bars = 0
         self.fixed_ids = frozenset(references.instrument_ids.values())
 
     def poll_features(self):
@@ -89,7 +93,33 @@ class OptionSessionRunner(UnifiedStrategyRunner):
                 pending = tuple(self.frames.pending) if self.accept_bars else ()
             # 数据库IO在控制线程、帧锁之外；回调沿公共分钟缓冲判断期限。
             for feed in self.feature_query_feeds:
-                feed.poll(pending)
+                if not hasattr(self, "_feature_log_states"):
+                    self._feature_log_states = {}
+                    logger.info("指数DFS轮询已启用: 区间查询更新缓存，再查找待完成分钟；CTP缺失Bar不自动补查DolphinDB")
+                try:
+                    feed.poll(pending)
+                except Exception:
+                    logger.exception("指数DFS查询失败: key=%s pending_minutes=%s", feed.key, pending)
+                    raise
+                for event, row in feed.manifest.get("minute_lookups", {}).items():
+                    token = (feed.source_id, event)
+                    status = row["status"]
+                    previous = self._feature_log_states.get(token)
+                    if previous == status:
+                        continue
+                    self._feature_log_states[token] = status
+                    minute = datetime.fromtimestamp(int(event) / 1e9, ZoneInfo("Asia/Shanghai")).isoformat()
+                    if status == "MISSING":
+                        logger.info("指数分钟缺失，继续轮询DolphinDB: key=%s minute=%s latest_event_ns=%s wait_seconds=%s",
+                            feed.key, minute, row.get("latest_event_ns"), self.grace_seconds)
+                    elif status == "PROJECTED":
+                        logger.info("指数分钟查询投影完成%s: key=%s minute=%s received_ns=%s；帧是否接纳仍由接收期限判断",
+                            "（此前缺失）" if previous == "MISSING" else "", feed.key, minute, row.get("received_ns"))
+                    else:
+                        logger.warning("指数分钟不可用: key=%s minute=%s status=%s detail=%s",
+                            feed.key, minute, status, row.get("detail"))
+                while len(self._feature_log_states) > 64:
+                    del self._feature_log_states[next(iter(self._feature_log_states))]
 
     def reference_is_current(self):
         return self.references.snapshot().fingerprint == self.references.fingerprint
@@ -121,8 +151,27 @@ class OptionSessionRunner(UnifiedStrategyRunner):
                 day = datetime.fromtimestamp(valuation / 1e9, ZoneInfo("Asia/Shanghai")).date()
                 if day != self.references.service.valuation_day:
                     raise ValueError(f"行情估值日期不一致: {feed_id}/{key}/{day}")
-                if not self.replay and not 0 <= now - valuation <= self.market_age_ns:
-                    raise ValueError("实时Bar过期或尚未收盘")
+                age = now - valuation
+                if not self.replay and not 0 <= age <= self.market_age_ns:
+                    required = self.strategy is None or key in self.strategy.required_market_keys()
+                    # LAST在下一次成交才封闭旧桶。未持有候选的过期桶不进入
+                    # 帧或价格缓存；必需腿及未来时间仍是会话硬错误。
+                    ignore = age > self.market_age_ns and not required
+                    audit = {"key": key, "source_id": feed_id, "source_ns": event.ts_event,
+                        "valuation_ns": valuation, "received_ns": now,
+                        "age_seconds": age / 1e9, "max_age_seconds": self.market_age_ns / 1e9,
+                        "required": required, "action": "IGNORED_CANDIDATE" if ignore else "REJECTED",
+                        "reason": "STALE_BAR" if age > self.market_age_ns else "FUTURE_BAR"}
+                    self.bar_time_audit.append(audit)
+                    del self.bar_time_audit[:-32]
+                    if ignore:
+                        self.ignored_stale_candidate_bars += 1
+                        logger.warning("候选过期Bar已忽略: %s", audit)
+                        return
+                    logger.error("必需或未来Bar时间无效: %s", audit)
+                    raise ValueError(f"实时Bar过期或尚未收盘: key={key} source={feed_id} "
+                        f"age_seconds={age / 1e9} max_age_seconds={self.market_age_ns / 1e9} "
+                        f"required={required} source_ns={event.ts_event} valuation_ns={valuation} received_ns={now}")
                 previous = self.observations.get(key)
                 if previous and valuation < previous[0]:
                     raise ValueError(f"单合约行情时间倒退: {key}")
@@ -172,7 +221,14 @@ class OptionSessionRunner(UnifiedStrategyRunner):
                         # DFS指数通道显式要求同分钟输入；期限后缺失则跳过整次决策。
                         self.skipped_feature_frames += 1
                         audit["status"] = "SKIPPED_INDEX"
+                        logger.warning("分钟等待超时，跳过决策: minute=%s missing_index=%s wait_seconds=%s；迟到数据不追溯决策",
+                            datetime.fromtimestamp(frame.valuation_ns / 1e9, ZoneInfo("Asia/Shanghai")).isoformat(),
+                            [feed.key for feed in self.feature_query_feeds if feed.key not in frame.observations], self.grace_seconds)
                         continue
+                    missing = sorted(set(self.strategy.required_market_keys()) - set(frame.observations))
+                    if missing:
+                        logger.warning("分钟帧必需输入缺失: minute=%s keys=%s；CTP缺失Bar不自动补查DolphinDB，交由策略完整性检查",
+                            datetime.fromtimestamp(frame.valuation_ns / 1e9, ZoneInfo("Asia/Shanghai")).isoformat(), missing)
                     # 每个执行价使用实际接收时刻；策略缓存只加入当前封闭帧。
                     for key, observation in frame.observations.items():
                         instrument = self.references.instrument_ids.get(key)

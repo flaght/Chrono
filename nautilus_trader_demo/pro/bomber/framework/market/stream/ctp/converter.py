@@ -29,8 +29,11 @@ class _InstrumentState:
 class CtpTickConverter:
     """CTP DepthMarketData 字典的有状态转换器。"""
 
-    def __init__(self, timezone: str = "Asia/Shanghai") -> None:
+    def __init__(self, timezone: str = "Asia/Shanghai", *, dce_use_receive_date=False,
+                 clock_ns=None) -> None:
         self.timezone = _load_timezone(timezone)
+        self.dce_use_receive_date = dce_use_receive_date
+        self.clock_ns = clock_ns or time.time_ns
         self._states: dict[InstrumentId, _InstrumentState] = {}
 
     def reset(self) -> None:
@@ -102,7 +105,12 @@ class CtpTickConverter:
         exchange = exchange.upper()
         action_day = _day_string(data.get("ActionDay"))
         trading_day = _day_string(data.get("TradingDay"))
-        if exchange in {"DCE", "XDCE"} and not action_day:
+        if exchange in {"DCE", "XDCE"} and self.dce_use_receive_date:
+            # DCE ActionDay可能返回交易日，夜盘不能直接用它拼出未来事件。
+            # 实时会话采用北京时间接收日附近最近的自然日，兼容午夜边界。
+            received = datetime.fromtimestamp(self.clock_ns() / 1e9, self.timezone)
+            day = received.strftime("%Y%m%d")
+        elif exchange in {"DCE", "XDCE"} and not action_day:
             day = datetime.now(self.timezone).strftime("%Y%m%d")
         else:
             day = action_day or trading_day
@@ -117,6 +125,9 @@ class CtpTickConverter:
             tzinfo=self.timezone,
             microsecond=millisec * 1_000,
         )
+        if exchange in {"DCE", "XDCE"} and self.dce_use_receive_date:
+            timestamp = min((timestamp + timedelta(days=offset) for offset in (-1, 0, 1)),
+                            key=lambda candidate: abs(candidate - received))
         return _datetime_to_ns(timestamp)
 
 

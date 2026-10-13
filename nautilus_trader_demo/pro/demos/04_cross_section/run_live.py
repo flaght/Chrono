@@ -1,8 +1,9 @@
-"""多品种横截面动量SimNow实时入口；默认Recording，SHFE/INE固定主力会话。"""
+"""多品种横截面动量SimNow实时入口；默认Recording，SHFE/INE/DCE/CZCE固定主力会话。"""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 import math
@@ -15,6 +16,7 @@ from bomber.framework.trader.runtime.live.channels.ctp import required, build_si
 from bomber.framework.trader.runtime.live.channels.ctp import add_environment_arguments, validate_environment_arguments
 
 from bomber.framework.dataprep.live_references import LiveFuturesReferences, live_factor_policy
+from bomber.framework.dataprep.live_portfolio import CTP_PORTFOLIO_VENUES, ctp_futures_symbol
 from bomber.framework.dataprep.reference_freshness import ReferenceFreshnessPolicy
 from bomber.framework.dataprep.sources import DataSourcePurpose, DolphinDbReferenceConfig, ReferenceSourceFactory
 from bomber.framework.market.basic.base import InstrumentId
@@ -77,16 +79,23 @@ def parse_args(argv=None):
         parser.error("products须为至少两个不重复字母品种")
     try:
         expected = {}
+        expected_source_symbols = {}
         for value in args.expected_instrument:
             product, instrument = value.split("=", 1)
             product = product.strip().upper()
             parsed = InstrumentId.from_str(instrument.strip())
-            if product in expected or str(parsed.venue) not in {"SHFE", "INE"}:
+            venue = str(parsed.venue)
+            if product in expected or venue not in CTP_PORTFOLIO_VENUES:
                 raise ValueError("重复品种或不支持的交易所")
-            expected[product] = str(parsed)
+            if str(parsed.symbol).rstrip("0123456789").upper() != product:
+                raise ValueError("预期合约代码与品种不匹配")
+            expected[product] = f"{ctp_futures_symbol(str(parsed.symbol), venue)}.{venue}"
+            if venue == "CZCE" and len(str(parsed.symbol)) - len(product) == 4:
+                expected_source_symbols[product] = str(parsed.symbol)
         if expected and set(expected) != set(args.products):
             raise ValueError("预期合约须完整覆盖品种")
         args.expected_instruments = expected
+        args.expected_source_symbols = expected_source_symbols
         for value in (args.expected_trading_day, args.expected_source_day):
             if datetime.strptime(value, "%Y%m%d").strftime("%Y%m%d") != value:
                 raise ValueError("日期须为YYYYMMDD")
@@ -154,15 +163,15 @@ def prepare_inputs(args, context, lifecycle):
             max_refresh_duration_seconds=args.reference_max_refresh_duration_seconds)))
     context.references = references
     actual = {p: str(i) for p, i in references.instrument_ids.items()}
-    if args.expected_instruments and actual != args.expected_instruments:
-        raise ValueError(f"本次主力不符: expected={args.expected_instruments} actual={actual}")
+    references.assert_expected(args.expected_instruments, args.expected_source_symbols)
     assignment = references.snapshot(time.time_ns())
     for p, spec in references.specs.items():
         print(f"横截面参考: product={p} instrument={actual[p]} TD={context.trading_day} "
               f"source_day={assignment.source_day} factor={assignment.factor(p, 'main')} "
               f"tick={spec.tick} multiplier={spec.multiplier}", flush=True)
-    upstream = CtpLiveDataFeed(build_md_config(CtpMdConfig, lifecycle,
-        flow_path="/tmp/bomber-cross-section-md"))
+    config = build_md_config(CtpMdConfig, lifecycle, flow_path="/tmp/bomber-cross-section-md")
+    upstream = CtpLiveDataFeed(replace(config,
+        dce_use_receive_date=args.simnow_environment == "realtime"))
     return SimpleNamespace(references=references, upstream=upstream)
 
 
