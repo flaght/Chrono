@@ -14,13 +14,16 @@ from lib.attr001.ftd003 import *
 from kdutils.macro2 import *
 
 
-def load_factor(stage="scope"):
-    dirs1 = os.path.join("attribution", "sirius", stage)
-    file_path = Path(dirs1)
+def load_factor(stage="scope", instruments=[]):
+    # dirs1 = os.path.join("z08_attribution", "sirius", stage)
+    # file_path = Path(dirs1)
+    file_path = Path(__file__).resolve().parent / stage
     res = []
     for feat_file in file_path.rglob('*.csv'):
-        factor_info = pd.read_csv(feat_file)
         name = feat_file.parts[-1].split('.')[0]
+        if len(instruments) > 0 and name not in instruments:
+            continue
+        factor_info = pd.read_csv(feat_file)
         factor_info['instrument'] = name  #.upper()
         res.append(factor_info)
 
@@ -51,7 +54,7 @@ def persist_evaluate_series(mongo_client,
         raw_factors = clip_series_to_window(eval_result.raw_factors,
                                             begin_time=begin_time,
                                             end_time=end_time)
-        
+
         insert_factor_series1(series_data=raw_factors,
                               factor_name=eval_result.name,
                               code=code)
@@ -122,7 +125,7 @@ def _run1(instruments,
     market_data = filter_trading_time(data=market_data,
                                       trading_sessions=trading_sessions)
     market_data = market_data.set_index(['trade_time', 'code'])
-    
+
     returns_data = create_returns(
         market_data=market_data,
         horizon=params['horizon'],
@@ -165,7 +168,7 @@ def run1(instruments, begin_time, end_time, factors_infos):
                                    begin_time=begin_time,
                                    end_time=end_time,
                                    adjusted_method='pcr')
-    
+
     trading_sessions = TRADING_TIME_MAPPING[INSTRUMENTS_CODES[instruments]]
     eval_results = _run1(instruments=instruments,
                          market_data=market_data,
@@ -181,6 +184,7 @@ def run1(instruments, begin_time, end_time, factors_infos):
 
 def run2(instruments, factor_infos):
     mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
+    pdb.set_trace()
     insert_elite_factor(factor_infos=factor_infos,
                         code=INSTRUMENTS_CODES[instruments])
     # persist_elite_factor(mongo_client=mongo_client,
@@ -192,7 +196,7 @@ def run2(instruments, factor_infos):
 def start1():
     begin_time = '2021-11-25'  #'2021-11-25'  #'2024-08-23'
     end_time = '2026-08-20'
-    factor_infos = load_factor(stage='scope')
+    factor_infos = load_factor(stage='scope', instruments=['rbb'])
 
     instruments = factor_infos['instrument'].unique().tolist()
     for instrument in instruments:
@@ -204,7 +208,7 @@ def start1():
 
 
 def start2():
-    factor_infos = load_factor(stage='elite')
+    factor_infos = load_factor(stage='elite', instruments=['rbb'])
     instruments = factor_infos['instrument'].unique().tolist()
     for instrument in instruments:
         run2(instruments=instrument,

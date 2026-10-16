@@ -113,7 +113,7 @@ def valid_programs(method,
             ctx = mp.get_context("fork")
         except ValueError:
             ctx = mp.get_context()
-        with ctx.Pool(processes=16) as pool:
+        with ctx.Pool(processes=8) as pool:
             res = pool.starmap(parallel_evaluate1, args_for_starmap)
     # res = []
     # i = 0
@@ -179,7 +179,7 @@ def run(method,
     ]
     features = list(itertools.chain.from_iterable(features))
     features = list(set(features))
-
+    pdb.set_trace()
     ## 优先创建目录，避免无判断没有跑过
     dirs = os.path.join(base_path, method, instruments, dategory, 'ic',
                         str(task_id), "nxt1_ret_{}h".format(str(period)),

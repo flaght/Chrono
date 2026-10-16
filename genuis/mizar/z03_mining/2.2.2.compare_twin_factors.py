@@ -13,7 +13,7 @@ from kdutils.macro2 import *
 from lib.iux001 import fetch_data
 from lib.iux002 import FactorComparator, calc_all1, generate_simple_id, create_id
 
-leg_mappping = {"rbb": ["hcb"], "hcb": ["rbb"], "ims": ["ics"]}
+leg_mappping = {"rbb": ["hcb"], "hcb": ["rbb"], "ims": ["ics"], "pc": ["yc"]}
 
 
 def create_evalute(column, period, left_data, right_data, left_symbol,
@@ -42,8 +42,10 @@ def create_evaluate1(column, period, left_data, right_data, left_symbol,
     try:
         records = []
         for window, start, end in windows:
-            left_data1 = left_data[(left_data['trade_time']>=start)&(left_data['trade_time']<=end)]
-            right_data1 = right_data[(right_data['trade_time']>=start)&(right_data['trade_time']<=end)]
+            left_data1 = left_data[(left_data['trade_time'] >= start)
+                                   & (left_data['trade_time'] <= end)]
+            right_data1 = right_data[(right_data['trade_time'] >= start)
+                                     & (right_data['trade_time'] <= end)]
             left_evaluate = calc_all1(expression=column,
                                       total_data1=left_data1,
                                       period=period)
@@ -60,6 +62,7 @@ def create_evaluate1(column, period, left_data, right_data, left_symbol,
 
     except Exception as exc:
         print(f'===> annual evaluation failed: {column}: {exc}')
+
 
 @add_process_env_sig
 def run_evalute(target_column, period, left_data, right_data, left_symbol,
@@ -135,7 +138,7 @@ def fetch_chosen(method, instruments, task_id, period, filename="choose.csv"):
                             str(task_id), "nxt1_ret_{}h".format(str(period)),
                             filename)
     print(filename)
-    columns = ['formula','direction','source','category']
+    columns = ['formula', 'direction', 'source', 'category']
     return pd.read_csv(filename)[columns] if os.path.exists(
         filename) else pd.DataFrame(columns=columns)
 

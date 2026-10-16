@@ -653,13 +653,18 @@ def fetch_data4(method,
                     rec['expression'] = row.formula
                 if not rec.get('name') and hasattr(row, 'factor_id'):
                     rec['name'] = row.factor_id
+                if not rec.get('direction') and hasattr(row, 'direction'):
+                    rec['direction'] = row.direction
+                if not rec.get('source') and hasattr(row, 'source'):
+                    rec['source'] = row.source
+                
             records.extend(recs)
         else:
             print(f"Warning: {summary_file} not found")
 
     df = pd.DataFrame(
         records,
-        columns=[*STANDARD_SCHEMA, 'total_ic', 'category', 'instrument'])
+        columns=[*STANDARD_SCHEMA, 'total_ic', 'category', 'instrument','direction','source'])
 
     return df
 
