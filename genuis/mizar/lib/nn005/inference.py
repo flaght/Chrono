@@ -1,7 +1,7 @@
 """HybridTransformer-Loss 批量推理。"""
 
 from typing import Dict
-
+import pdb
 import numpy as np
 import pandas as pd
 import torch as th
@@ -35,6 +35,7 @@ def predict_store(model: th.nn.Module, store: SequenceStore,
         for code in store.asset_codes:
             positions = store.code_positions[code]
             predictions = []
+            pdb.set_trace()
             for left in range(0, len(positions), int(batch_size)):
                 chunk = positions[left:left + int(batch_size)]
                 observations = th.from_numpy(

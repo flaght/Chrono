@@ -110,6 +110,7 @@ def compare_seeds(run_dirs,
         raise ValueError('至少需要指定两个seed及其训练目录')
     seeds = list(run_dirs)
     configs = {}
+    
     for seed in seeds:
         with open(Path(run_dirs[seed]) / 'config.json', encoding='utf-8') as f:
             config = json.load(f)
@@ -146,12 +147,13 @@ def compare_seeds(run_dirs,
                           reference['features'],
                           reference['lookback'],
                           ret_scale_by_code=reference['ret_scale_by_code'])
-    runtime = resolve_device(device)
+    runtime = resolve_device('cpu')#resolve_device(device)
     validation_device = resolve_device('cpu')
     checkpoints = {}
     architectures = {}
     # 先在CPU完成所有模型的完整性和兼容性检查。任何模型有问题时，
     # 不创建输出目录，修正后可以使用同一output_dir直接重试。
+    pdb.set_trace()
     for seed in seeds:
         path = Path(run_dirs[seed]) / 'models' / 'best_model.pt'
         checkpoint = load_checkpoint(str(path), validation_device)

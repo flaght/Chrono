@@ -32,12 +32,12 @@ experiment_setups:
     form: prepare
     name: cohort_pro
 
-  "nn_pc_strategy": # 6.1.9.build_hybrid_transformer_loss_strategy.py
+  "nn_pc_strategy": # 6.1.10.build_hybrid_transformer_loss_strategy.py
     method: ricso2
     task_id: "159001"
     instruments: pc
     period: 5
-    form: "train"
+    form: "forecast"
     env_id: 10001
     trade_id: 10001
     train_id: 10001
@@ -45,10 +45,15 @@ experiment_setups:
     regime_id: 10001
     trial_id: 10001 # forecast 模式 指定训练不同组
     model_id: 10001
-    split: "test"# forecast 模式 指定不同数据集
+    split: "test"
     inference_batch_size: 4096
     device: "cuda"
     #model_id: "1018806311332385" # 用于predict 模式 指定模型.这里要修改，
+    seed_run_ids:
+      42: "1023670986722430"
+      2026: "1079551085394287"
+      3407: "1011032551253795"
+
     asset_specs:
       - code: P
         instruments: pc
@@ -56,4 +61,33 @@ experiment_setups:
       - code: Y
         instruments: yc
         task_id: "158001"
+
+  "nn_pc_signal": # 6.4.1.transformer_signal_backtest
+    method: ricso2
+    task_id: "159001"
+    instruments: pc
+    period: 5
+    trial_id: "10001"
+    form: "metrics"
+
+    seed_run_ids:
+      42: "1023670986722430"
+      2026: "1079551085394287"
+      3407: "1011032551253795"
+
+    asset_specs:
+      - code: P
+        instruments: pc
+        task_id: "159001"
+      - code: Y
+        instruments: yc
+        task_id: "158001"
+
+    selected_signals:
+      linear_signal:
+        "1101": {roll_num: 0, threshold: 0.05}
+      linear_threshold_signal:
+        "1201": {roll_num: 0, threshold: 0.01, upper: 0.075}
+      threshold_signal:
+        "1301": {roll_num: 0, threshold: 0.02}
 
