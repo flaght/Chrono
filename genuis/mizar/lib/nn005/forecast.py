@@ -186,6 +186,7 @@ def compare_seeds(run_dirs,
     schemes['ensemble_equal'] = equal_weight_ensemble(predictions)
     settings = reference['train_config']
     comparison, periods = [], []
+    pdb.set_trace()
     for name, records in schemes.items():
         records.to_csv(destination / f'{name}_predictions.csv', index=False)
         metrics = evaluate_predictions(records,

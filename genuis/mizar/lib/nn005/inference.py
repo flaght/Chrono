@@ -35,7 +35,6 @@ def predict_store(model: th.nn.Module, store: SequenceStore,
         for code in store.asset_codes:
             positions = store.code_positions[code]
             predictions = []
-            pdb.set_trace()
             for left in range(0, len(positions), int(batch_size)):
                 chunk = positions[left:left + int(batch_size)]
                 observations = th.from_numpy(
