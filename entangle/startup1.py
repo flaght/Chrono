@@ -4,18 +4,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from connor1 import Conor
-#from plugin.virgtor.engine import Engine as VirgtorEngine
-from plugin.atlex.engine import Engine as AtlexEngine
-from plugin.unified.engine import Engine as UnifiedEngine
+from connor import Conor
+from toolix.plugins import load_plugin_dynamically
+# from plugin.atlex.engine import Engine as AtlexEngine
+# # from plugin.phecda.engine import Engine as PhecdaEngine
 
 
 def main():
-    #codes = ['IM']
-    codes = ['MO2509-P-4200', 'MO2509-C-4200', 'IM']
-    setproctitle.setproctitle("entangle2")
-    chaos_qubit = UnifiedEngine(symbols=codes)
-    qubits = [chaos_qubit]
+    # codes = ['IF', 'M', 'IM', 'RB', 'AU']
+    codes = ['M','MA','V','NI']
+    setproctitle.setproctitle("entangle")
+    # atlex_qubit = AtlexEngine(codes=codes)
+    #chaos_qubit = PhecdaEngine(codes=codes)
+    #qubits = [atlex_qubit,chaos_qubit]
+    qubits = load_plugin_dynamically(plugin_names=['atlex'], codes=codes)
     conor = Conor(name='ctp', codes=codes, qubits=qubits)
     conor.start(
         account_id=os.environ['CTP_ACCOUNT_ID'],

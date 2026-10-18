@@ -57,7 +57,7 @@ class SignalGenerator:
         while True:
             current_step = env.current_step
             action, _ = self.model.predict(obs, deterministic=self.deterministic)
-            
+            print(obs, action)
             obs_next, reward_scaled, done, _ = env.step(action)
             
             row_hist = env.history[-1] if env.history else {}
@@ -100,6 +100,7 @@ def predict_test_set(
         config_path=config_path,
         deterministic=deterministic,
     )
+    pdb.set_trace()
     print(f"开始预测，测试集大小: {len(test_df)}")
     signals_df = generator.predict_signals(test_df)
     print(f"预测完成，生成 {len(signals_df)} 条记录")

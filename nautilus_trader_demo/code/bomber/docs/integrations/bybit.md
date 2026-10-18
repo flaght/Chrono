@@ -1,0 +1,942 @@
+# Bybit
+
+Founded in 2018, Bybit is one of the largest cryptocurrency exchanges in terms
+of daily trading volume and open interest of crypto assets and crypto
+derivative products. This integration supports live market data ingest and order
+execution with Bybit.
+
+## Examples
+
+You can find live example scripts [here](https://github.com/nautechsystems/bomber/tree/develop/examples/live/bybit/).
+
+## Overview
+
+This guide assumes a trader is setting up for both live market data feeds, and trade execution.
+The Bybit adapter includes multiple components, which can be used together or separately depending
+on the use case.
+
+- `BybitHttpClient`: Low-level HTTP API connectivity.
+- `BybitWebSocketClient`: Low-level WebSocket API connectivity.
+- `BybitInstrumentProvider`: Instrument parsing and loading functionality.
+- `BybitDataClient`: A market data feed manager.
+- `BybitExecutionClient`: An account management and trade execution gateway.
+- `BybitLiveDataClientFactory`: Factory for Bybit data clients (used by the trading node builder).
+- `BybitLiveExecClientFactory`: Factory for Bybit execution clients (used by the trading node builder).
+
+:::note
+Most users will define a configuration for a live trading node (as below),
+and won't need to necessarily work with these lower level components directly.
+:::
+
+## Bybit documentation
+
+Bybit provides extensive documentation for users which can be found in the [Bybit help center](https://www.bybit.com/en/help-center).
+It’s recommended you also refer to the Bybit documentation in conjunction with this Bomber integration guide.
+
+## Products
+
+A product is an umbrella term for a group of related instrument types.
+
+:::note
+Product is also referred to as `category` in the Bybit v5 API.
+:::
+
+The following product types are supported on Bybit:
+
+| Product Type                | Supported | Notes                                    |
+|-----------------------------|-----------|------------------------------------------|
+| Spot cryptocurrencies       | ✓         | Native spot markets with margin support. |
+| Linear perpetual contracts  | ✓         | USDT/USDC margined perpetual swaps.      |
+| Linear futures contracts    | ✓         | Delivery‑settled linear futures.         |
+| Inverse perpetual contracts | ✓         | Coin‑margined perpetual swaps.           |
+| Inverse futures contracts   | ✓         | Coin‑margined delivery futures.          |
+| Option contracts            | ✓         | USDT‑settled European options.           |
+
+## Symbology
+
+To distinguish between different product types on Bybit, Nautilus uses specific product category suffixes for symbols:
+
+- `-SPOT`: Spot cryptocurrencies
+- `-LINEAR`: Perpetual and futures contracts
+- `-INVERSE`: Inverse perpetual and inverse futures contracts
+- `-OPTION`: Option contracts
+
+These suffixes must be appended to the Bybit raw symbol string to identify the specific product type
+for the instrument ID. For example:
+
+- The Ether/Tether spot currency pair is identified with `-SPOT`, such as `ETHUSDT-SPOT`.
+- The BTCUSDT perpetual futures contract is identified with `-LINEAR`, such as `BTCUSDT-LINEAR`.
+- The BTCUSD inverse perpetual futures contract is identified with `-INVERSE`, such as `BTCUSD-INVERSE`.
+- A BTC USDT-settled put option: `BTC-27MAR26-70000-P-USDT-OPTION`.
+- A ETH USDC-settled call option: `ETH-28FEB25-2800-C-OPTION`.
+
+Bybit's option symbols include the settlement currency for USDT-settled
+contracts (e.g. `BTC-27MAR26-70000-P-USDT`) but omit it for USDC-settled
+contracts (e.g. `ETH-28FEB25-2800-C`). The adapter appends `-OPTION` to
+whatever symbol the API returns.
+
+## Instrument loading
+
+Bybit data and execution clients use the common `instrument_provider` config.
+Configure it to load instruments before strategies subscribe to market data or submit
+orders. Subscriptions do not request missing instrument definitions.
+
+```python
+from bomber.adapters.bybit import BybitProductType
+from bomber.adapters.bybit.config import BybitDataClientConfig
+from bomber.config import InstrumentProviderConfig
+
+BybitDataClientConfig(
+    instrument_provider=InstrumentProviderConfig(load_all=True),
+    product_types=(BybitProductType.SPOT,),
+)
+```
+
+Use `load_ids` when you only need a known set of instruments:
+
+```python
+from bomber.adapters.bybit import BybitProductType
+from bomber.adapters.bybit.config import BybitDataClientConfig
+from bomber.config import InstrumentProviderConfig
+from bomber.model.identifiers import InstrumentId
+
+BybitDataClientConfig(
+    instrument_provider=InstrumentProviderConfig(
+        load_ids=frozenset([InstrumentId.from_str("BTCUSDT-SPOT.BYBIT")]),
+    ),
+    product_types=(BybitProductType.SPOT,),
+)
+```
+
+The configured `product_types` must include the product suffix in each instrument ID.
+
+## Environments
+
+Bybit provides three trading environments. Configure the appropriate
+environment with the `environment` enum on your client configuration.
+
+| Environment  | Config                                | Description                                                      |
+|--------------|---------------------------------------|------------------------------------------------------------------|
+| **Mainnet**  | `BybitEnvironment.MAINNET`            | Production trading with real funds.                              |
+| **Demo**     | `BybitEnvironment.DEMO`               | Practice trading with simulated funds on mainnet infrastructure. |
+| **Testnet**  | `BybitEnvironment.TESTNET`            | Separate test network for development and integration testing.   |
+
+### Mainnet (Production)
+
+The default environment for live trading with real funds.
+
+```python
+from bomber.adapters.bybit import BybitEnvironment
+
+config = BybitExecClientConfig(
+    api_key="YOUR_API_KEY",
+    api_secret="YOUR_API_SECRET",
+    environment=BybitEnvironment.MAINNET,
+)
+```
+
+Environment variables: `BYBIT_API_KEY`, `BYBIT_API_SECRET`
+
+### Demo trading
+
+Demo trading uses Bybit's mainnet infrastructure with simulated funds.
+Create demo API keys from the
+[Bybit demo trading page](https://www.bybit.com/en/demo-trading).
+
+```python
+from bomber.adapters.bybit import BybitEnvironment
+
+config = BybitExecClientConfig(
+    api_key="YOUR_DEMO_API_KEY",
+    api_secret="YOUR_DEMO_API_SECRET",
+    environment=BybitEnvironment.DEMO,
+)
+```
+
+Environment variables: `BYBIT_DEMO_API_KEY`, `BYBIT_DEMO_API_SECRET`
+
+:::warning
+**Demo environment limitations:**
+
+- The WebSocket Trade API is **not supported** for demo trading. Bomber automatically uses the HTTP REST API for order operations in demo mode.
+- Native TP/SL and option params (`order_iv`, `mmp`) on new orders work in demo via the HTTP create-order endpoint.
+- The custom TP/SL trigger prices `tp_trigger_price` and `sl_trigger_price` are not supported in demo (orders setting them are denied); the create-order endpoint cannot carry them.
+- Demo private streams use `wss://stream-demo.bybit.com`, but public market data uses Bybit's mainnet public stream `wss://stream.bybit.com`.
+
+:::
+
+### Testnet
+
+A separate test network for development and integration testing.
+
+```python
+from bomber.adapters.bybit import BybitEnvironment
+
+config = BybitExecClientConfig(
+    api_key="YOUR_TESTNET_API_KEY",
+    api_secret="YOUR_TESTNET_API_SECRET",
+    environment=BybitEnvironment.TESTNET,
+)
+```
+
+Environment variables: `BYBIT_TESTNET_API_KEY`, `BYBIT_TESTNET_API_SECRET`
+
+:::note
+Testnet supports all trading features including the WebSocket Trade API.
+It uses completely separate infrastructure from mainnet, so market data
+and liquidity differ significantly from production.
+:::
+
+When `environment=BybitEnvironment.TESTNET`, the adapter resolves Bybit's
+documented testnet endpoints automatically:
+
+- REST API: `https://api-testnet.bybit.com`
+- Public WebSocket: `wss://stream-testnet.bybit.com/v5/public/{spot|linear|inverse|option}`
+- Private WebSocket: `wss://stream-testnet.bybit.com/v5/private`
+- Trade WebSocket: `wss://stream-testnet.bybit.com/v5/trade`
+
+### Testnet setup
+
+To set up a Bybit testnet account and credentials:
+
+1. Open [testnet.bybit.com](https://testnet.bybit.com) in a desktop browser.
+2. Create a separate testnet account or sign in to your existing testnet account.
+3. Request test coins from **Assets -> Assets Overview -> Request Test Coins**
+   so the account has balances for testing.
+4. Open **API Management** at
+   [testnet.bybit.com/app/user/api-management](https://testnet.bybit.com/app/user/api-management).
+5. Click **Create New Key**.
+6. Select the required permissions for your use case.
+7. Complete the 2FA prompt and copy the API key and secret.
+8. Export the credentials in your shell:
+
+   ```bash
+   export BYBIT_TESTNET_API_KEY="YOUR_TESTNET_API_KEY"
+   export BYBIT_TESTNET_API_SECRET="YOUR_TESTNET_API_SECRET"
+   ```
+
+Bybit's current testnet guidance also notes:
+
+- API keys are created on the website, not in the mobile app.
+- New users may be unable to create API keys for the first 48 hours after
+  registration.
+- Testnet is separate from mainnet. Do not deposit real funds into a testnet
+  account.
+- Bybit currently documents testnet account setup through a desktop browser.
+
+## Orders capability
+
+Bybit offers a flexible combination of trigger types, enabling a broader range of Nautilus orders.
+All the order types listed below can be used as *either* entries or exits, except for trailing stops
+(which use a position-related API).
+
+### Order types
+
+| Order Type             | Spot | Linear | Inverse | Option | Notes                             |
+|------------------------|------|--------|---------|--------|-----------------------------------|
+| `MARKET`               | ✓    | ✓      | ✓       | ✓      | Supports quote quantity.          |
+| `LIMIT`                | ✓    | ✓      | ✓       | ✓      |                                   |
+| `STOP_MARKET`          | ✓    | ✓      | ✓       | -      | *Not supported for Options*.      |
+| `STOP_LIMIT`           | ✓    | ✓      | ✓       | -      | *Not supported for Options*.      |
+| `MARKET_IF_TOUCHED`    | ✓    | ✓      | ✓       | -      | *Not supported for Options*.      |
+| `LIMIT_IF_TOUCHED`     | ✓    | ✓      | ✓       | -      | *Not supported for Options*.      |
+| `TRAILING_STOP_MARKET` | -    | ✓      | ✓       | -      | *Not supported for Spot/Options*. |
+
+### Execution instructions
+
+| Instruction   | Spot | Linear | Inverse | Option | Notes                             |
+|---------------|------|--------|---------|--------|-----------------------------------|
+| `post_only`   | ✓    | ✓      | ✓       | ✓      | Only supported on `LIMIT` orders. |
+| `reduce_only` | -    | ✓      | ✓       | ✓      | *Not supported for Spot*.         |
+
+### Time in force
+
+| Time in force | Spot | Linear | Inverse | Option | Notes                        |
+|---------------|------|--------|---------|--------|------------------------------|
+| `GTC`         | ✓    | ✓      | ✓       | ✓      | Good Till Canceled.          |
+| `GTD`         | -    | -      | -       | -      | *Not supported*.             |
+| `FOK`         | ✓    | ✓      | ✓       | ✓      | Fill or Kill.                |
+| `IOC`         | ✓    | ✓      | ✓       | ✓      | Immediate or Cancel.         |
+
+### Advanced order features
+
+| Feature            | Spot | Linear | Inverse | Option | Notes                                  |
+|--------------------|------|--------|---------|--------|----------------------------------------|
+| Order Modification | ✓    | ✓      | ✓       | ✓      | Price and quantity modification.       |
+| Bracket/OCO Orders | ✓    | ✓      | ✓       | -      | UI only; API users implement manually. |
+| Iceberg Orders     | ✓    | ✓      | ✓       | -      | Max 10 per account, 1 per symbol.      |
+
+### Batch operations
+
+| Operation          | Spot | Linear | Inverse | Option | Notes                                     |
+|--------------------|------|--------|---------|--------|-------------------------------------------|
+| Batch Submit       | ✓    | ✓      | ✓       | ✓      | Submit multiple orders in single request. |
+| Batch Modify       | ✓    | ✓      | ✓       | ✓      | Modify multiple orders in single request. |
+| Batch Cancel       | ✓    | ✓      | ✓       | ✓      | Cancel multiple orders in single request. |
+
+### Position management
+
+| Feature             | Spot | Linear | Inverse | Option | Notes                                    |
+|---------------------|------|--------|---------|--------|------------------------------------------|
+| Query positions     | -    | ✓      | ✓       | ✓      | Real‑time position updates.              |
+| Position mode       | -    | ✓      | ✓       | -      | One‑Way only for Options.                |
+| Leverage control    | -    | ✓      | ✓       | -      | Not applicable for Options.              |
+| Margin mode         | -    | ✓      | ✓       | ✓      | Cross, Isolated, or Portfolio Margin.    |
+
+#### Hedge mode (BothSides)
+
+Bybit only accepts `BOTH_SIDES` on USDT linear perpetuals. For other product
+types configure `MERGED_SINGLE` or omit them from `position_mode`. Configure
+per symbol:
+
+```python
+from bomber.adapters.bybit import BybitPositionMode
+
+config = BybitExecClientConfig(
+    ...,
+    position_mode={"ETHUSDT-LINEAR": BybitPositionMode.BOTH_SIDES},
+)
+```
+
+On connect the adapter calls `/v5/position/switch-mode` for each entry, then
+derives `positionIdx` for every order: opening BUY -> `1` (long), opening
+SELL -> `2` (short), reduce-only SELL -> `1`, reduce-only BUY -> `2`.
+Bybit documents this in the V5 [switch position mode](https://bybit-exchange.github.io/docs/v5/position/position-mode)
+and [place order](https://bybit-exchange.github.io/docs/v5/order/create-order#request-parameters)
+APIs: `mode=3` enables Both Sides, and hedge-mode orders require `positionIdx`.
+
+Orders and reports with `positionIdx=0` (one-way / Merged Single mode) carry no
+venue position ID. For hedge-mode indexes `1` and `2`, the adapter maps reports
+to venue position IDs ending in `-LONG` and `-SHORT`, and carries the same ID
+onto fills when Bybit execution messages do not include `positionIdx`.
+
+To override, pass `position_idx` via `params`:
+
+```python
+params={"position_idx": 1}  # 0 one-way, 1 long, 2 short
+```
+
+### Risk events
+
+| Feature                   | Spot | Linear | Inverse | Option | Notes                                     |
+|---------------------------|------|--------|---------|--------|-------------------------------------------|
+| Liquidation handling      | -    | ✓      | ✓       | ✓      | Takeover fills flagged as exchange‑generated. |
+| ADL handling              | -    | ✓      | ✓       | ✓      | Auto‑deleveraging fills flagged and logged.   |
+| ADL rank warnings         | -    | ✓      | ✓       | ✓      | Position reports logged when `adlRankIndicator >= 4`. |
+
+Bybit emits venue-initiated fills with `execType` set to:
+
+- `AdlTrade`: Auto-deleveraging execution. An opposing profitable position was
+  selected to close the undercollateralised counterparty after the insurance
+  fund could not cover the loss.
+- `BustTrade`: Liquidation takeover. The liquidation engine seized the
+  position after margin was exhausted.
+- `Delivery`: USDC futures delivery.
+- `Settle`: Inverse futures settlement.
+
+The adapter flags each as exchange-generated and logs a warning containing the
+execution ID, symbol, side, quantity, and price. Fills flow through the normal
+`FillReport` path; because these orders carry an empty `orderLinkId`, the
+execution engine treats them as external and assigns them via
+`external_order_claims` (or the `EXTERNAL` strategy by default).
+
+Bybit also publishes an ADL ranking on position updates via the
+`adlRankIndicator` field. The range is 0 (flat / no position) to 5 (next to
+deleverage). The adapter logs a warning whenever an open position carries a
+rank of 4 or higher so you can react before the venue force-closes.
+
+Upstream references:
+
+- [V5 `execType` values](https://bybit-exchange.github.io/docs/v5/enum#exectype)
+- [V5 `createType` values](https://bybit-exchange.github.io/docs/v5/enum#createtype)
+- [Liquidation mechanism](https://www.bybit.com/en/help-center/article/Liquidation-Process-Derivatives-Trading)
+- [Auto-Deleveraging mechanism](https://www.bybit.com/en/help-center/article/Auto-Deleveraging-ADL-Derivatives-Trading)
+
+### Order querying
+
+| Feature             | Spot | Linear | Inverse | Option | Notes                                   |
+|---------------------|------|--------|---------|--------|-----------------------------------------|
+| Query open orders   | ✓    | ✓      | ✓       | ✓      | List all active orders.                 |
+| Query order history | ✓    | ✓      | ✓       | ✓      | Historical order data.                  |
+| Order status updates| ✓    | ✓      | ✓       | ✓      | Real‑time order state changes.          |
+| Trade history       | ✓    | ✓      | ✓       | ✓      | Execution and fill reports.             |
+
+### Contingent orders
+
+| Feature             | Spot | Linear | Inverse | Option | Notes                                   |
+|---------------------|------|--------|---------|--------|-----------------------------------------|
+| Order lists         | ✓    | ✓      | ✓       | ✓      | Submitted as a batch via WebSocket.     |
+| OCO orders          | ✓    | ✓      | ✓       | -      | UI only; API users implement manually.  |
+| Bracket orders      | ✓    | ✓      | ✓       | -      | UI only; API users implement manually.  |
+| Conditional orders  | ✓    | ✓      | ✓       | -      | Stop and limit‑if‑touched orders.       |
+
+### Order parameters
+
+Individual orders can be customized using the `params` dictionary when submitting orders:
+
+| Parameter          | Type                   | Description                                                             |
+|--------------------|------------------------|-------------------------------------------------------------------------|
+| `is_leverage`      | `bool`                 | Spot only. Enables margin trading (borrowing). Default: `False`.        |
+| `take_profit`      | `str` or `float`       | TP trigger price. Attaches a native TP to the order.                    |
+| `stop_loss`        | `str` or `float`       | SL trigger price. Attaches a native SL to the order.                    |
+| `tp_trigger_by`    | `str`                  | TP trigger type: `"LastPrice"`, `"IndexPrice"`, or `"MarkPrice"`.       |
+| `sl_trigger_by`    | `str`                  | SL trigger type: `"LastPrice"`, `"IndexPrice"`, or `"MarkPrice"`.       |
+| `tp_order_type`    | `str`                  | TP execution type: `"Market"` or `"Limit"`. Default: `"Market"`.        |
+| `sl_order_type`    | `str`                  | SL execution type: `"Market"` or `"Limit"`. Default: `"Market"`.        |
+| `tp_limit_price`   | `str` or `float`       | Limit price for TP when `tp_order_type` is `"Limit"`.                   |
+| `sl_limit_price`   | `str` or `float`       | Limit price for SL when `sl_order_type` is `"Limit"`.                   |
+| `tp_trigger_price` | `str` or `float`       | Custom TP trigger price (overrides `take_profit`).                      |
+| `sl_trigger_price` | `str` or `float`       | Custom SL trigger price (overrides `stop_loss`).                        |
+| `close_on_trigger` | `bool`                 | Close the position when TP/SL triggers. Default: `False`.               |
+| `position_idx`     | `int`                  | Hedge‑mode position index. See [Hedge mode](#hedge-mode-bothsides).     |
+| `bbo_side_type`    | `str`                  | Linear/inverse BBO side: `"Queue"` or `"Counterparty"`.                 |
+| `bbo_level`        | `str` or `int`         | Linear/inverse BBO book level: `"1"` through `"5"`.                     |
+
+:::note
+On demo, native TP/SL params route through the HTTP create-order endpoint, with one exception:
+the custom trigger prices `tp_trigger_price` and `sl_trigger_price` are not supported because that
+endpoint cannot carry them, and orders that set either are denied. The `is_leverage` param applies
+to Spot products only. See [Bybit's isLeverage documentation](https://bybit-exchange.github.io/docs/v5/order/create-order#request-parameters).
+:::
+
+When `bbo_side_type` and `bbo_level` are set, Nautilus sends Bybit's
+`bboSideType` and `bboLevel` fields and omits the order price from the API
+request. BBO orders are supported for linear and inverse limit, stop-limit, and
+limit-if-touched orders.
+
+#### Example: Order with native TP/SL
+
+```python
+order = strategy.order_factory.limit(
+    instrument_id=InstrumentId.from_str("BTCUSDT-LINEAR.BYBIT"),
+    order_side=OrderSide.BUY,
+    quantity=Quantity.from_str("0.01"),
+    price=Price.from_str("60000.0"),
+    params={
+        "take_profit": "65000.0",
+        "stop_loss": "58000.0",
+        "tp_trigger_by": "LastPrice",
+        "sl_trigger_by": "LastPrice",
+    },
+)
+strategy.submit_order(order)
+```
+
+#### Example: BBO order
+
+```python
+order = strategy.order_factory.limit(
+    instrument_id=InstrumentId.from_str("BTCUSDT-LINEAR.BYBIT"),
+    order_side=OrderSide.BUY,
+    quantity=Quantity.from_str("0.01"),
+    price=Price.from_str("60000.0"),
+    params={"bbo_side_type": "Queue", "bbo_level": 1},
+)
+strategy.submit_order(order)
+```
+
+#### Example: Spot margin trading
+
+```python
+# Submit a Spot order with margin enabled
+order = strategy.order_factory.market(
+    instrument_id=InstrumentId.from_str("BTCUSDT-SPOT.BYBIT"),
+    order_side=OrderSide.BUY,
+    quantity=Quantity.from_str("0.1"),
+    params={"is_leverage": True}  # Enable margin for this order
+)
+strategy.submit_order(order)
+```
+
+:::note
+Without `is_leverage=True` in the params, Spot orders use your available balance
+and do not borrow funds, even if you have auto-borrow enabled on your Bybit account.
+:::
+
+For a complete example of using order parameters including `is_leverage`, see the
+[bybit_exec_tester.py](https://github.com/nautechsystems/bomber/tree/develop/examples/live/bybit/bybit_exec_tester.py) example.
+
+## Spot margin borrowing and repayment
+
+Bomber provides automated spot margin borrow repayment functionality to prevent interest accrual after closing short positions on Bybit.
+
+### Background
+
+When trading Spot with margin enabled (`is_leverage=True`), Bybit automatically borrows coins when you execute short positions.
+However, after you close the short position (BUY order fills), the borrowed coins are **NOT automatically repaid** - they continue accruing hourly interest charges until manually repaid.
+This can result in significant interest costs if left unattended.
+
+### Automatic repayment (recommended)
+
+Bomber automatically repays spot margin borrows immediately after BUY orders fill on Spot instruments.
+This feature is **enabled by default** via the `auto_repay_spot_borrows` configuration flag.
+
+**How it works:**
+
+1. When a Spot BUY order fills, the execution client automatically attempts to repay any outstanding borrows for that coin.
+2. The repayment uses Bybit's `no-convert-repay` endpoint, which repays the full outstanding borrow amount.
+3. If the repayment fails (e.g., API error), it logs the error but does not crash the execution client.
+4. Repayments are automatically skipped during Bybit's UTC blackout window (see below).
+
+**Example:**
+
+```python
+from bomber.adapters.bybit import BybitExecClientConfig
+
+config = BybitExecClientConfig(
+    api_key="YOUR_API_KEY",
+    api_secret="YOUR_API_SECRET",
+    product_types=[BybitProductType.SPOT],
+    auto_repay_spot_borrows=True,  # Default is True
+)
+```
+
+### Manual margin operations
+
+Strategies can control margin borrowing and repayment directly via `query_account` with the
+`BybitMarginAction` enum:
+
+| Action                                | Description                      |
+|---------------------------------------|----------------------------------|
+| `BybitMarginAction.BORROW`            | Borrow funds for margin trading. |
+| `BybitMarginAction.REPAY`             | Repay borrowed funds.            |
+| `BybitMarginAction.GET_BORROW_AMOUNT` | Query current borrowed amount.   |
+
+#### Borrow
+
+```python
+self.query_account(
+    account_id=self.account_id,
+    params={"action": BybitMarginAction.BORROW, "coin": "USDT", "amount": 1000},
+)
+```
+
+#### Repay
+
+```python
+# Repay specific amount
+self.query_account(
+    account_id=self.account_id,
+    params={"action": BybitMarginAction.REPAY, "coin": "USDT", "amount": 500},
+)
+
+# Repay all (omit amount)
+self.query_account(
+    account_id=self.account_id,
+    params={"action": BybitMarginAction.REPAY, "coin": "USDT"},
+)
+```
+
+#### Query borrow amount
+
+```python
+self.query_account(
+    account_id=self.account_id,
+    params={"action": BybitMarginAction.GET_BORROW_AMOUNT, "coin": "USDT"},
+)
+```
+
+:::note
+The `account_id` can be obtained from `self.portfolio.account(BYBIT_VENUE).id` or stored
+during strategy initialization via the config.
+:::
+
+#### Receiving results
+
+Results are published as custom data on the message bus. Subscribe in your strategy to receive them:
+
+```python
+from bomber.adapters.bybit import BybitMarginAction
+from bomber.adapters.bybit import BybitMarginBorrowResult
+from bomber.adapters.bybit import BybitMarginRepayResult
+from bomber.adapters.bybit import BybitMarginStatusResult
+from bomber.model.data import DataType
+
+
+class MyStrategy(Strategy):
+    def on_start(self):
+        self.subscribe_data(DataType(BybitMarginBorrowResult))
+        self.subscribe_data(DataType(BybitMarginRepayResult))
+        self.subscribe_data(DataType(BybitMarginStatusResult))
+
+    def on_data(self, data):
+        if isinstance(data, BybitMarginBorrowResult):
+            if data.success:
+                self.log.info(f"Borrowed {data.amount} {data.coin}")
+            else:
+                self.log.error(f"Borrow failed: {data.message}")
+        elif isinstance(data, BybitMarginRepayResult):
+            if data.success:
+                self.log.info(f"Repaid {data.amount or 'all'} {data.coin}")
+            else:
+                self.log.error(f"Repay failed: {data.message}")
+        elif isinstance(data, BybitMarginStatusResult):
+            self.log.info(f"Borrow amount for {data.coin}: {data.borrow_amount}")
+```
+
+### UTC blackout window
+
+Bybit blocks `no-convert-repay` operations daily during **04:00-05:30 UTC** for interest calculation processing. Bomber automatically detects this window and skips repayment attempts, logging a warning instead.
+
+During the blackout window, any BUY order fills will trigger a warning like:
+
+```
+Skipping borrow repayment for BTC due to Bybit blackout window (04:00-05:30 UTC daily). Will need manual repayment.
+```
+
+**Important:** If your BUY orders fill during the blackout window, you'll need to manually repay the borrows after 05:30 UTC to stop interest accrual, or wait for the next BUY order fill outside the blackout window.
+
+### Configuration options
+
+| Option                    | Type   | Default | Description                                                                 |
+|---------------------------|--------|---------|-----------------------------------------------------------------------------|
+| `auto_repay_spot_borrows` | `bool` | `True`  | If `True`, automatically repay spot margin borrows after BUY orders fill. Prevents interest accrual on borrowed coins. Repayment is skipped during blackout window. |
+
+### Important notes
+
+- Auto-repayment only triggers on **Spot BUY orders**, not derivatives.
+- Repayment uses the `no-convert-repay` endpoint which repays the full outstanding borrow by default.
+- The feature gracefully handles API errors and logs failures without crashing.
+- Manual borrowing is still required before opening short positions unless auto-borrow is enabled on your Bybit account.
+
+### Spot trading limitations
+
+The following limitations apply to Spot products, as positions are not tracked on the venue side:
+
+- `reduce_only` orders are *not supported*.
+- Trailing stop orders are *not supported*.
+
+### Options trading
+
+Bybit lists European-style options on BTC and ETH, settled in USDT or USDC.
+The adapter uses the `CryptoOption` instrument type and the `-OPTION` symbol
+suffix. See the [symbology section](#symbology) for the full symbol format.
+
+#### Options data
+
+The adapter supports real-time options market data through the WebSocket ticker
+channel:
+
+| Data type                  | Description                                              |
+|----------------------------|----------------------------------------------------------|
+| Quotes (bid/ask)           | Top‑of‑book prices and sizes for each option contract.   |
+| Greeks                     | Delta, gamma, vega, theta, plus bid/ask/mark IV.         |
+| Mark price                 | Exchange mark price for each option contract.            |
+| Index price                | Underlying index price.                                  |
+| Underlying (forward) price | Per‑expiry forward price, used for ATM determination.    |
+| Open interest              | Per‑contract open interest.                              |
+| Order book deltas          | L2 MBP updates from the option orderbook stream.         |
+
+Subscribe to per-instrument Greeks or aggregate them into option chain
+snapshots with ATM-relative strike filtering. See the
+[options concept guide](../concepts/options.md) for subscription patterns and
+the [options data tutorial](../tutorials/options_data_bybit.md) for a
+step-by-step walkthrough. Bomber builds the option chain view locally
+from Bybit's per-contract option market data.
+
+Bar (kline) data is not available for options. Bybit does not provide kline
+streams for this product type.
+
+#### Options order parameters
+
+In addition to the standard order parameters, option orders accept:
+
+| Parameter  | Type             | Description                                              |
+|------------|------------------|----------------------------------------------------------|
+| `order_iv` | `str` or `float` | Place or amend the order by implied volatility instead of price. |
+| `mmp`      | `bool`           | Enable Market Maker Protection for the order.            |
+
+These parameters are passed through `params` on `SubmitOrder`. On mainnet they flow through the
+WebSocket trade channel; on demo they route through the HTTP create-order endpoint. Amending an
+existing order by `order_iv` is not supported in demo mode.
+
+#### Options trading limitations
+
+- Amending an order by implied volatility (`order_iv`) and other WS-trade-only features are not supported in demo mode.
+- Leverage is not configurable. Option buyers pay premium; sellers post margin.
+- Position mode is one-way only. Hedge mode is not supported.
+- Conditional order types (`STOP_MARKET`, `STOP_LIMIT`, `MARKET_IF_TOUCHED`,
+  `LIMIT_IF_TOUCHED`) are not supported.
+- Trading stops (TP/SL on positions) are not supported.
+- Funding rates do not apply to options.
+- Options require a Unified Trading Account (UTA).
+
+### Trailing stops
+
+Trailing stops on Bybit do not have a client order ID on the venue side (though there is a `venue_order_id`).
+This is because trailing stops are associated with a netted position for an instrument.
+Consider the following points when using trailing stops on Bybit:
+
+- `reduce_only` instruction is available
+- When the position associated with a trailing stop is closed, the trailing stop is automatically "deactivated" (closed) on the venue side.
+- You cannot query trailing stop orders that are not already open (the `venue_order_id` is unknown until then).
+- You can manually adjust the trigger price in the GUI, which will update the Nautilus order.
+
+## Funding rates
+
+The adapter receives funding rate data from the
+[Linear Ticker](https://bybit-exchange.github.io/docs/v5/websocket/public/ticker#linear-inverse-perpetual-response)
+WebSocket stream. Bybit provides the `fundingIntervalHour` field in ticker updates,
+which the adapter uses to populate the `interval` field on `FundingRateUpdate`.
+
+The adapter caches the last known `fundingIntervalHour` per symbol so that partial
+ticker updates (which may omit the field) still carry the correct interval.
+
+For historical funding rate requests, the adapter computes the interval from consecutive
+funding timestamps.
+
+## Rate limiting
+
+Every HTTP call consumes the global token bucket as well as any keyed quota(s). When usage exceeds a bucket, requests are queued automatically, so manual throttling is rarely required.
+
+| Key / Endpoint            | Limit (requests/sec) | Notes                                              |
+|---------------------------|----------------------|----------------------------------------------------|
+| `bybit:global`            | 120                  | Exchange‑wide 600 req / 5 s ceiling.               |
+| `/v5/market/kline`        | 20                   | Historical sweeps throttled slightly below global. |
+| `/v5/market/trades`       | 24                   | Matches the global quota.                          |
+| `/v5/order/create`        | 10                   | Standard order placement.                          |
+| `/v5/order/cancel`        | 10                   | Single‑order cancellation.                         |
+| `/v5/order/create-batch`  | 5                    | Batch placement endpoints.                         |
+| `/v5/order/cancel-batch`  | 5                    | Batch cancellation endpoints.                      |
+| `/v5/order/cancel-all`    | 2                    | Full book cancel to mirror Bybit guidance.         |
+
+:::warning
+Bybit responds with error code `10016` when the rate limit is exceeded and may temporarily block the IP if requests continue without back-off.
+:::
+
+:::info
+For more details on rate limiting, see the official documentation: <https://bybit-exchange.github.io/docs/v5/rate-limit>.
+:::
+
+### Data clients
+
+If no product types are specified then all product types will be loaded and available.
+
+### Execution clients
+
+The adapter automatically determines the account type based on configured product types:
+
+- **Spot only**: Uses `CASH` account type with borrowing support enabled
+- **Derivatives or mixed products**: Uses `MARGIN` account type (UTA - Unified Trading Account)
+
+This allows you to trade Spot alongside derivatives in a single Unified Trading Account, which is the standard account type for most Bybit users.
+
+:::info
+**Unified Trading Accounts (UTA) and Spot margin trading**
+
+Most Bybit users now have Unified Trading Accounts (UTA) as Bybit steers new users to this account type.
+Classic accounts are considered legacy.
+
+For Spot margin trading on UTA accounts:
+
+- Borrowing is **NOT automatically enabled** - it requires explicit API configuration
+- To use Spot margin via API, you must submit orders with `is_leverage=True` in the parameters (see [Bybit docs](https://bybit-exchange.github.io/docs/v5/order/create-order#request-parameters))
+- If auto-borrow/auto-repay is enabled on your Bybit account, the venue will automatically borrow/repay funds for those margin orders
+- Without auto-borrow enabled, you'll need to manually manage borrowing through Bybit's interface
+
+**Important**: The Nautilus Bybit adapter defaults to `is_leverage=False` for Spot orders,
+meaning they won't use margin unless you explicitly enable it.
+:::
+
+## Fee currency logic
+
+Understanding how Bybit determines the currency for trading fees is important for accurate accounting and position tracking. The fee currency rules vary between Spot and derivatives products.
+
+### Spot trading fees
+
+For Spot trading, the fee currency depends on the order side and whether the fee is a rebate (negative fee for maker orders):
+
+#### Normal fees (positive)
+
+- **BUY orders**: Fee is charged in the **base currency** (e.g., BTC for BTCUSDT)
+- **SELL orders**: Fee is charged in the **quote currency** (e.g., USDT for BTCUSDT)
+
+#### Maker rebates (negative fees)
+
+When maker fees are negative (rebates), the currency logic is **inverted**:
+
+- **BUY orders with maker rebate**: Rebate is paid in the **quote currency** (e.g., USDT for BTCUSDT)
+- **SELL orders with maker rebate**: Rebate is paid in the **base currency** (e.g., BTC for BTCUSDT)
+
+:::note
+**Taker orders never have inverted logic**, even if the maker fee rate is negative. Taker fees always follow the normal fee currency rules.
+:::
+
+#### Example: BTCUSDT Spot
+
+- **Buy 1 BTC as taker (0.1% fee)**: Pay 0.001 BTC in fees
+- **Sell 1 BTC as taker (0.1% fee)**: Pay equivalent USDT in fees
+- **Buy 1 BTC as maker (-0.01% rebate)**: Receive USDT rebate (inverted)
+- **Sell 1 BTC as maker (-0.01% rebate)**: Receive BTC rebate (inverted)
+
+### Derivatives trading fees
+
+For all derivatives products (LINEAR, INVERSE, OPTION), fees are always charged in the **settlement currency**:
+
+| Product Type | Settlement Currency                   | Fee Currency |
+|--------------|---------------------------------------|--------------|
+| LINEAR       | USDT (typically)                      | USDT         |
+| INVERSE      | Base coin (e.g., BTC for BTCUSD)      | Base coin    |
+| OPTION       | USDT                                  | USDT         |
+
+### Fee calculation
+
+When the WebSocket execution message doesn't provide the exact fee amount (`execFee`), the adapter calculates fees as follows:
+
+#### Spot products
+
+- **BUY orders**: `fee = base_quantity × fee_rate`
+- **SELL orders**: `fee = notional_value × fee_rate` (where `notional_value = quantity × price`)
+
+#### Derivatives
+
+- All derivatives: `fee = notional_value × fee_rate`
+
+### Official documentation
+
+For complete details on Bybit's fee structure and currency rules, refer to:
+
+- [Bybit WebSocket Private Execution](https://bybit-exchange.github.io/docs/v5/websocket/private/execution)
+- [Bybit Spot Fee Currency Instruction](https://bybit-exchange.github.io/docs/v5/enum#spot-fee-currency-instruction)
+
+## Configuration
+
+The product types for each client must be specified in the configurations.
+
+### Data client configuration options
+
+| Option                             | Default   | Description |
+|------------------------------------|-----------|-------------|
+| `api_key`                          | `None`    | API key; loaded from the matching environment variable when omitted. |
+| `api_secret`                       | `None`    | API secret; loaded from the matching environment variable when omitted. |
+| `product_types`                    | `None`    | Sequence of `BybitProductType` values to enable; loads all products when `None`. |
+| `instrument_provider`              | default   | Instrument loading config. Use `load_all=True` or `load_ids` before subscribing. |
+| `environment`                      | `None`    | Bybit environment enum. Use `BybitEnvironment.MAINNET`, `BybitEnvironment.DEMO`, or `BybitEnvironment.TESTNET`. |
+| `base_url_http`                    | `None`    | Override for the REST base URL. |
+| `proxy_url`                        | `None`    | Optional proxy URL for HTTP and WebSocket transports. |
+| `update_instruments_interval_mins` | `60`      | Interval (minutes) between instrument catalogue refreshes. |
+| `recv_window_ms`                   | `5,000`   | Receive window (milliseconds) for signed REST requests. |
+| `bars_timestamp_on_close`          | `True`    | Timestamp bars on the close (`True`) or open (`False`) of the interval. |
+| `max_retries`                      | `None`    | Maximum retry attempts for REST/WebSocket recovery. |
+| `retry_delay_initial_ms`           | `None`    | Initial delay (milliseconds) between retries. |
+| `retry_delay_max_ms`               | `None`    | Maximum delay (milliseconds) between retries. |
+| `transport_backend`                | `Sockudo` | WebSocket transport backend. |
+
+### Execution client configuration options
+
+| Option                                  | Default   | Description |
+|-----------------------------------------|-----------|-------------|
+| `api_key`                               | `None`    | API key; loaded from the matching environment variable when omitted. |
+| `api_secret`                            | `None`    | API secret; loaded from the matching environment variable when omitted. |
+| `product_types`                         | `None`    | Sequence of `BybitProductType` values to enable (Spot cannot be mixed with derivatives for execution). |
+| `instrument_provider`                   | default   | Instrument loading config. Use `load_all=True` or `load_ids` before submitting orders. |
+| `environment`                           | `None`    | Bybit environment enum. Use `BybitEnvironment.MAINNET`, `BybitEnvironment.DEMO`, or `BybitEnvironment.TESTNET`. |
+| `base_url_http`                         | `None`    | Override for the REST base URL. |
+| `base_url_ws_private`                   | `None`    | Override for the private WebSocket base URL. |
+| `base_url_ws_trade`                     | `None`    | Override for the trade WebSocket base URL. |
+| `proxy_url`                             | `None`    | Optional proxy URL for HTTP and WebSocket transports. |
+| `use_gtd`                               | `False`   | Remap GTD orders to GTC when `True` (Bybit lacks native GTD support). |
+| `use_ws_execution_fast`                 | `False`   | Subscribe to the low‑latency execution stream. |
+| `use_http_batch_api`                    | `False`   | Use Bybit's HTTP batch trading API (deprecated). |
+| `use_spot_position_reports`             | `False`   | Report Spot wallet balances as positions when `True`. |
+| `auto_repay_spot_borrows`               | `True`    | Automatically repay Spot margin borrows after BUY orders fully fill (Spot only). |
+| `repay_queue_interval_secs`             | `1.0`     | Interval (seconds) between processing repayment queues for spot borrows. |
+| `ignore_uncached_instrument_executions` | `False`   | Ignore execution messages for instruments not yet cached. |
+| `max_retries`                           | `None`    | Maximum retry attempts for order submission/cancel/modify calls. |
+| `retry_delay_initial_ms`                | `None`    | Initial delay (milliseconds) between retries. |
+| `retry_delay_max_ms`                    | `None`    | Maximum delay (milliseconds) between retries. |
+| `recv_window_ms`                        | `5,000`   | Receive window (milliseconds) for signed REST requests. |
+| `ws_trade_timeout_secs`                 | `5.0`     | Timeout (seconds) waiting for trade WebSocket acknowledgements. |
+| `ws_auth_timeout_secs`                  | `5.0`     | Timeout (seconds) waiting for auth WebSocket acknowledgements. |
+| `futures_leverages`                     | `None`    | Mapping of `BybitSymbol` to leverage settings. |
+| `position_mode`                         | `None`    | Mapping of `BybitSymbol` to position mode. See [Hedge mode](#hedge-mode-bothsides). |
+| `margin_mode`                           | `None`    | Margin mode setting for the account. |
+| `transport_backend`                     | `Sockudo` | WebSocket transport backend. |
+
+The most common use case is to configure a live `TradingNode` to include Bybit
+data and execution clients. To achieve this, add a `BYBIT` section to your client
+configuration(s):
+
+```python
+from bomber.adapters.bybit import BYBIT
+from bomber.adapters.bybit import BybitEnvironment
+from bomber.adapters.bybit import BybitProductType
+from bomber.live.node import TradingNode
+from bomber.live.node import TradingNodeConfig
+
+config = TradingNodeConfig(
+    ...,  # Omitted
+    data_clients={
+        BYBIT: {
+            "api_key": "YOUR_BYBIT_API_KEY",
+            "api_secret": "YOUR_BYBIT_API_SECRET",
+            "base_url_http": None,  # Override with custom endpoint
+            "environment": BybitEnvironment.MAINNET,
+            "product_types": [BybitProductType.LINEAR],
+        },
+    },
+    exec_clients={
+        BYBIT: {
+            "api_key": "YOUR_BYBIT_API_KEY",
+            "api_secret": "YOUR_BYBIT_API_SECRET",
+            "base_url_http": None,  # Override with custom endpoint
+            "environment": BybitEnvironment.MAINNET,
+            "product_types": [BybitProductType.LINEAR],
+        },
+    },
+)
+```
+
+Then, create a `TradingNode` and add the client factories:
+
+```python
+from bomber.adapters.bybit import BYBIT
+from bomber.adapters.bybit import BybitLiveDataClientFactory
+from bomber.adapters.bybit import BybitLiveExecClientFactory
+from bomber.live.node import TradingNode
+
+# Instantiate the live trading node with a configuration
+node = TradingNode(config=config)
+
+# Register the client factories with the node
+node.add_data_client_factory(BYBIT, BybitLiveDataClientFactory)
+node.add_exec_client_factory(BYBIT, BybitLiveExecClientFactory)
+
+# Finally build the node
+node.build()
+```
+
+### API credentials
+
+There are two options for supplying your credentials to the Bybit clients.
+Either pass the corresponding `api_key` and `api_secret` values to the configuration objects, or
+set the following environment variables:
+
+For Bybit live clients, you can set:
+
+- `BYBIT_API_KEY`
+- `BYBIT_API_SECRET`
+
+For Bybit demo clients, you can set:
+
+- `BYBIT_DEMO_API_KEY`
+- `BYBIT_DEMO_API_SECRET`
+
+For Bybit testnet clients, you can set:
+
+- `BYBIT_TESTNET_API_KEY`
+- `BYBIT_TESTNET_API_SECRET`
+
+:::tip
+We recommend using environment variables to manage your credentials.
+:::
+
+When starting the trading node, you'll receive immediate confirmation of whether your
+credentials are valid and have trading permissions.
+
+## Contributing
+
+:::info
+For additional features or to contribute to the Bybit adapter, please see our
+[contributing guide](https://github.com/nautechsystems/bomber/blob/develop/CONTRIBUTING.md).
+:::

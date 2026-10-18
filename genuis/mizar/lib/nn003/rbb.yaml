@@ -1,0 +1,89 @@
+params:
+  env:
+    10001:
+      # T时刻对应T+1～T+6 VWAP 的5分钟累计收益率
+      holding_period: 5
+      prediction_bound_std: 3.0
+      use_hybrid_transformer: true
+      default_lookback: 20
+      asset_sampling: balanced
+      seed: 42
+
+  trade:
+    10001:
+      ret_name: nxt1_ret_5h
+
+  train:
+    10001:
+      epochs: 20
+      samples_per_epoch: 0
+
+      # 第5、10、15、20个epoch完整验证，共4个选模候选
+      eval_every_epochs: 5
+
+      # Encoder-Decoder 显存开销高于简化版 Transformer，先从4096开始
+      inference_batch_size: 4096
+
+      # 与既有因子评估完全相同
+      ic_resampling_minutes: 5
+      ic_roll_window: 15
+      ic_min_periods: 5
+      min_valid_rolling_ic: 20
+
+      early_stop_min_evals: 3
+      early_stop_patience_evals: 2
+      early_stop_ic_min_delta: 0.0005
+      progress_seconds: 15.0
+
+  model:
+    10001:
+      learning_rate: 0.00005
+
+      # HybridTransformer 同时包含 Encoder 和 Decoder，先用1024控制显存
+      batch_size: 1024
+      weight_decay: 0.00001
+      grad_clip_norm: 1.0
+      device: auto
+      use_amp: true
+      allow_tf32: true
+
+      # 对应 kichaos.nn.HybridTransformer.Transformer_base 参数
+      d_model: 64
+      n_heads: 4
+      e_layers: 2
+      d_layers: 1
+      d_ff: 128
+      dropout: 0.1
+      activation: gelu
+
+  feature:
+    10001: >
+      MDIFF(5,EMA(60,MRANK(15,'dv002_1_2_1')))
+      EMA(60,MRANK(15,'dv002_1_2_1'))
+      MCPS(120,'dv002_2_3_1')
+      MDIFF(30,MCPS(120,'dv002_2_3_1'))
+      MPERCENT(60,SIGLOG2ABS('dv002_2_3_1'))
+      SIGLOG10ABS(MQUANTILE(240,'dv002_2_3_1'))
+      MDIFF(5,MADiff(90,MRANK(240,MADiff(90,'dv002_2_3_1'))))
+      MMinDiff(90,SIGLOG10ABS(MQUANTILE(90,'iv012_1_2_1')))
+      SIGLOG10ABS(MPERCENT(60,MMinDiff(120,'dv002_2_3_1')))
+      MQUANTILE(240,SIGLOG10ABS('dv002_2_3_1'))
+      MRes(120,'cj007_10_15_1',MPERCENT(30,'iv012_2_3_1'))
+      MPERCENT(120,MADiff(240,'dv002_2_3_1'))
+      MCPS(120,MDIFF(10,MMaxDiff(60,MCPS(120,'dv002_2_3_1'))))
+      TANH(MQUANTILE(120,SIGLOG2ABS('dv002_2_3_1')))
+      MCPS(120,MDIFF(10,'dv002_2_3_1'))
+      ASIN(MCPS(120,'dv002_2_3_1'))
+      MRANK(120,MDIFF(5,SIGLOG2ABS('dv002_2_3_1')))
+      MPERCENT(120,MQUANTILE(90,'dv002_2_3_1'))
+      SIGLOG2ABS(MRANK(60,SIGLOG10ABS('iv012_1_2_1')))
+      MRANK(240,'iv012_1_2_1')
+      MPERCENT(120,MMinDiff(90,'tv018_2_3_1'))
+      MPERCENT(120,MMinDiff(90,MMinDiff(90,'tv018_2_3_1')))
+      MQUANTILE(90,MQUANTILE(90,'iv012_1_2_1'))
+      MPERCENT(120,MPERCENT(120,MPERCENT(120,MMinDiff(90,'tv018_2_3_1'))))
+
+  regime:
+    10001:
+      min: >
+      daily: >

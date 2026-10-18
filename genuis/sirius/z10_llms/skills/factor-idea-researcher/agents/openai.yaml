@@ -1,0 +1,4 @@
+interface:
+  display_name: "因子想法研究器"
+  short_description: "将一个因子想法转化为完整的结构化说明书"
+  default_prompt: "使用 $factor-idea-researcher 的 Codex 直接模式，将我的因子想法整理为完整的中文因子说明书。"

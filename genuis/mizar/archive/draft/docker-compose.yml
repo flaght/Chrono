@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  dash-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: factor-performance-dashboard
+    ports:
+      - "8050:8050"
+    environment:
+      - DASH_HOST=0.0.0.0
+      - DASH_PORT=8050
+      - DASH_DEBUG=False
+      - WORKSPACE_PATH=/app
+    volumes:
+      # 挂载records目录，使数据可访问
+      - ./records:/app/records:ro
+      # 如果需要允许上传，可以挂载uploads目录
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8050')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+

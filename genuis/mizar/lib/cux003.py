@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+## 新增固定方向
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 import pdb
 import os, hashlib
 import pandas as pd

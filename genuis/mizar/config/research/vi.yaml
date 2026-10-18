@@ -1,0 +1,66 @@
+experiment_setups:
+  "factors_vi_basic":  # 1.1.1.create_basic_factors.py
+    method: ricso2
+    source: research
+    task_id: 118001
+    instruments: vi
+    form: recent
+
+  "factors_vi_gentic":  # 2.1.2.gentic_motor_factors.py
+    method: ricso2
+    task_id: 118001
+    instruments: rbb
+    session: 20260716
+    period: 5
+    corr_threshold: 0
+    count: 600
+
+  "factors_vi_scope":  # 2.2.1.scope_valid_factors_parallel.py
+    method: ricso2
+    task_id: 118001
+    instruments: vi
+    session: 20260110
+    period: 5
+    form: "first"
+
+  "factors_vi_deform":  # 2.2.3.choose_deform_factors.py
+    method: ricso2
+    task_id: 118001
+    instruments: vi
+    session: 20260109
+    period: 5
+    form: recent
+    filename: choose.csv
+
+  "preprocess_vi_data":  # 3.0.1.preprocess_data.py
+    method: ricso2
+    task_id: 118001
+    instruments: vi
+    period: 5
+    form: prepare
+    name: pro
+
+  "blend_vi_data": # 3.0.2.blend_factors.py
+    method: ricso2
+    task_id: "118001"
+    instruments: vi
+    period: 5
+    form: selected
+
+  "blend_vi_strategy": # 3.1.4.blend_synthesis.py
+    method: ricso2
+    task_id: "118001"
+    instruments: vi
+    period: 5
+    form: predict
+    composite_method: equal_weight
+
+  "blend_vi_eval": # 3.1.5.blend_signal_backtest.py
+    method: ricso2
+    task_id: "ricso2"
+    instruments: vi
+    period: 5
+    composite_method: "equal_weight"
+    composite_id: "7"
+    model_id: "0"
+    form: "wfb"

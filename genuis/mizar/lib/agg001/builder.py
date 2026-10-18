@@ -1,11 +1,22 @@
+<<<<<<< HEAD
+import datetime as dt
+import re,pdb
+=======
 import pdb
 import datetime as dt
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 import pandas as pd
 from dataclasses import dataclass, asdict
 
 from ultron.tradingday import advanceDateByCalendar
 
 
+<<<<<<< HEAD
+FILENAME_TRADE_DATE_PATTERN = re.compile(r"_(\d{8})\.csv$")
+
+
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 @dataclass
 class TickData:
     symbol: str
@@ -41,7 +52,11 @@ class BarBuilder:
     def __init__(self,
                  multiplier: int,
                  drop_first_partial_bar: bool = True) -> None:
+<<<<<<< HEAD
+        self.multiplier = float(multiplier)
+=======
         self.multiplier = multiplier
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         self.drop_first_partial_bar = drop_first_partial_bar
         self.current_minute = None
         self.current_bar = None
@@ -114,7 +129,18 @@ class BarBuilder:
 
         minute_dt = self.current_bar["minute"]
         close_price = self.current_bar["close"]
+<<<<<<< HEAD
+        vwap = _calculate_vwap(
+            value=value,
+            volume=volume,
+            multiplier=self.multiplier,
+            close_price=close_price,
+            low_price=self.current_bar["low"],
+            high_price=self.current_bar["high"],
+        )
+=======
         vwap = value / volume / self.multiplier if volume > 0 else close_price
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
         bar = BarData(
             vt_symbol=self.current_bar["vt_symbol"],
@@ -137,6 +163,38 @@ class BarBuilder:
         self.current_bar = None
 
 
+<<<<<<< HEAD
+def _calculate_vwap(
+    value: float,
+    volume: float,
+    multiplier: float,
+    close_price: float,
+    low_price: float,
+    high_price: float,
+) -> float:
+    if volume <= 0:
+        return close_price
+
+    raw_vwap = value / volume
+    scaled_vwap = raw_vwap / multiplier if multiplier else raw_vwap
+
+    low_bound = min(low_price, high_price)
+    high_bound = max(low_price, high_price)
+    raw_in_range = low_bound <= raw_vwap <= high_bound
+    scaled_in_range = low_bound <= scaled_vwap <= high_bound
+
+    if raw_in_range and not scaled_in_range:
+        return raw_vwap
+    if scaled_in_range and not raw_in_range:
+        return scaled_vwap
+
+    raw_distance = abs(raw_vwap - close_price)
+    scaled_distance = abs(scaled_vwap - close_price)
+    return raw_vwap if raw_distance <= scaled_distance else scaled_vwap
+
+
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 def _previous_trading_date(trading_date: dt.date) -> dt.date:
     previous_day = advanceDateByCalendar("china.sse", trading_date, "-1b")
     if isinstance(previous_day, dt.datetime):
@@ -144,11 +202,84 @@ def _previous_trading_date(trading_date: dt.date) -> dt.date:
     return previous_day
 
 
+<<<<<<< HEAD
+def _infer_anchor_trading_date(
+    csv_path: str,
+    df: pd.DataFrame,
+    day_session_start: dt.time,
+    night_session_start: dt.time,
+) -> dt.date:
+    match = FILENAME_TRADE_DATE_PATTERN.search(str(csv_path))
+    if match:
+        return dt.datetime.strptime(match.group(1), "%Y%m%d").date()
+
+    update_times = pd.to_datetime(df["UpdateTime"], format="%H:%M:%S")
+    update_clock = update_times.dt.time
+    day_mask = (update_clock >= day_session_start) & (update_clock < night_session_start)
+
+    if day_mask.any():
+        anchor_value = df.loc[day_mask, "TradingDay"].mode().iloc[0]
+    else:
+        anchor_value = df["TradingDay"].max()
+    return dt.datetime.strptime(str(int(anchor_value)), "%Y%m%d").date()
+
+
+def _prepare_tick_datetimes(
+    csv_path: str,
+    df: pd.DataFrame,
+    night_session_start: dt.time,
+    day_session_start: dt.time,
+    overnight_session_end: dt.time,
+) -> pd.Series:
+    anchor_trading_date = _infer_anchor_trading_date(
+        csv_path=csv_path,
+        df=df,
+        day_session_start=day_session_start,
+        night_session_start=night_session_start,
+    )
+    previous_anchor_date = _previous_trading_date(anchor_trading_date)
+    overnight_natural_date = previous_anchor_date + dt.timedelta(days=1)
+
+    update_times = pd.to_datetime(df["UpdateTime"], format="%H:%M:%S")
+    update_clock = update_times.dt.time
+
+    night_mask = update_clock >= night_session_start
+    overnight_mask = update_clock <= overnight_session_end
+
+    anchor_ts = pd.Timestamp(anchor_trading_date)
+    previous_anchor_ts = pd.Timestamp(previous_anchor_date)
+    overnight_ts = pd.Timestamp(overnight_natural_date)
+
+    # Normalize by trading-session rules instead of trusting raw TradingDay,
+    # because different contracts/files may already have shifted TradingDay
+    # differently. The file name date is treated as the target TradingDay T:
+    # - evening segment -> previous trading day natural date
+    # - overnight segment -> previous trading day's next calendar day
+    # - day segment -> TradingDay natural date
+    natural_dates = pd.Series(anchor_ts, index=df.index, dtype="datetime64[ns]")
+    natural_dates.loc[night_mask] = previous_anchor_ts
+    natural_dates.loc[overnight_mask] = overnight_ts
+
+    millis = df["UpdateMillisec"].fillna(0).astype(int).astype(str).str.zfill(3)
+    datetime_text = (
+        natural_dates.dt.strftime("%Y-%m-%d")
+        + " "
+        + df["UpdateTime"]
+        + "."
+        + millis
+    )
+    return pd.to_datetime(datetime_text, format="%Y-%m-%d %H:%M:%S.%f")
+
+
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 def to_tick(row: pd.Series,
             night_session_start,
             day_session_start,
             overnight_session_end,
             exchange) -> TickData:
+<<<<<<< HEAD
+=======
     trading_day = str(row.TradingDay)
     trading_date = dt.datetime.strptime(trading_day, "%Y%m%d").date()
     update_time = dt.datetime.strptime(row.UpdateTime, "%H:%M:%S").time()
@@ -169,12 +300,17 @@ def to_tick(row: pd.Series,
         f"{natural_date:%Y-%m-%d} {row.UpdateTime}.{int(row.UpdateMillisec):03d}",
         "%Y-%m-%d %H:%M:%S.%f",
     )
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     symbol = row.InstrumentID
     return TickData(
         symbol=symbol,
         vt_symbol=f"{symbol}.{exchange}",
         exchange=exchange,
+<<<<<<< HEAD
+        datetime=row.tick_datetime,
+=======
         datetime=tick_dt,
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         last_price=float(row.LastPrice),
         volume=float(row.Volume),
         turnover=float(row.Turnover),
@@ -190,6 +326,10 @@ def minute_bars(csv_path: str,
                 overnight_session_end: str = "04:00:00",
                 drop_first=True) -> pd.DataFrame:
     try:
+<<<<<<< HEAD
+        #csv_path = "/workspace/data/fut_tick/7050707549_-/2026/202606/20260630/MA611_20260630.csv"
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         df = pd.read_csv(csv_path)
     except pd.errors.EmptyDataError:
         print(f"[ERROR] 遭遇空文件，跳过读取: {csv_path}")
@@ -217,6 +357,21 @@ def minute_bars(csv_path: str,
     if isinstance(overnight_session_end, str):
         overnight_session_end = dt.datetime.strptime(
             overnight_session_end, "%H:%M:%S").time()
+<<<<<<< HEAD
+
+    df["tick_datetime"] = _prepare_tick_datetimes(
+        csv_path=csv_path,
+        df=df,
+        night_session_start=night_session_start,
+        day_session_start=day_session_start,
+        overnight_session_end=overnight_session_end,
+    )
+    df = df.sort_values(["tick_datetime", "UpdateMillisec"], kind="stable").reset_index(
+        drop=True
+    )
+
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     for row in df.itertuples():
         builder.update_tick(
             to_tick(row=row,

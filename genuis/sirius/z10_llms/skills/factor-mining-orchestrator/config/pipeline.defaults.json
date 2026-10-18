@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "research": {
+    "execution": "python",
+    "mode": "direct",
+    "timeout": 1200,
+    "max_retries": 2
+  },
+  "development": {
+    "execution": "python",
+    "factor_name": "tf001",
+    "timeout": 1200,
+    "max_retries": 2,
+    "test_data": "/workspace/worker/pj/Chrono/genuis/mizar/records/ricso2/rbb/basic/recent_data.feather"
+  },
+  "evaluation": {
+    "evaluation_type": "time_series",
+    "market_data": "/workspace/worker/pj/Chrono/genuis/mizar/records/ricso2/rbb/basic/recent_data.feather",
+    "return_data": "/workspace/worker/pj/Chrono/genuis/mizar/records/ricso2/rbb/returns/recent_returns.feather",
+    "return_column": "nxt1_ret_5h",
+    "time_series_evaluator": "/workspace/worker/pj/Chrono/genuis/sirius/evaluate/cux001.py",
+    "min_observations": 100,
+    "roll_win": 15,
+    "min_periods": 5,
+    "resampling_win": 5,
+    "fee": 0.0,
+    "scale_method": "roll_min_max",
+    "annualization_factor": 252
+  }
+}

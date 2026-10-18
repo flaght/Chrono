@@ -1,0 +1,3 @@
+"""
+External trading-system gateways.
+"""

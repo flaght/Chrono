@@ -3,7 +3,7 @@ import pandas as pd
 from pymongo import InsertOne, DeleteOne
 from kdutil.mongodb import MongoDBManager
 from chaosmind.timing.phecda0002.workflow import WorkFlow
-from toolix.macro.contract import MAIN_CONTRACT_MAPPING, CONT_MULTNUM_MAPPING
+from toolix.macro.contract import *
 
 
 class Signalor(object):
@@ -21,7 +21,7 @@ class Signalor(object):
         self._mongo_client = MongoDBManager(uri=os.environ['MG_URI'])
 
     def fetch_bar(self, begin_time, end_time):
-        rt = self._mongo_client['neutron']['market_bar'].find({
+        rt = self._mongo_client['neutron'][MARKET_BAR_TABLE].find({
             'symbol': self.symbol,
             "datetime": {
                 "$lte": end_time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -33,7 +33,7 @@ class Signalor(object):
 
     def fetch_factors(self, trade_time, pos):
         ## 读取因子
-        rt = self._mongo_client['neutron']['impluse_factors'].find(
+        rt = self._mongo_client['neutron'][RAW_FACTORS_TABLE].find(
             {
                 'symbol': {
                     "$in": [self.symbol]

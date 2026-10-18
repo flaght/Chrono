@@ -1,0 +1,4 @@
+interface:
+  display_name: "因子开发"
+  short_description: "按分类批次、语义命名和 LazyFrame 契约开发因子"
+  default_prompt: "使用 $factor-development 按照因子规范实现并验证这个因子。"

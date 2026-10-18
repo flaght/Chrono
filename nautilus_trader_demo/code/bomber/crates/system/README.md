@@ -1,0 +1,56 @@
+# nautilus-system
+
+[![build](https://github.com/nautechsystems/bomber/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/nautechsystems/bomber/actions/workflows/build.yml)
+[![Documentation](https://img.shields.io/docsrs/nautilus-system)](https://docs.rs/nautilus-system/latest/nautilus-system/)
+[![crates.io version](https://img.shields.io/crates/v/nautilus-system.svg)](https://crates.io/crates/nautilus-system)
+![license](https://img.shields.io/github/license/nautechsystems/bomber?color=blue)
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?logo=discord&logoColor=white)](https://discord.gg/Bomber)
+
+System-level components and orchestration for [Bomber](https://nautilustrader.io).
+
+The `nautilus-system` crate provides the core system architecture for orchestrating trading systems,
+including the kernel that manages all engines, configuration management,
+and system-level factories for creating components:
+
+- `NautilusKernel` - Core system orchestrator managing engines and components.
+- `NautilusKernelConfig` - Configuration for kernel initialization.
+- System builders and factories for component creation, including caller-supplied clock construction for live/sandbox systems.
+
+## Bomber
+
+[Bomber](https://nautilustrader.io) is an open-source, production-grade, Rust-native
+engine for multi-asset, multi-venue trading systems.
+
+The system spans research, deterministic simulation, and live execution within a single
+event-driven architecture, providing research-to-live semantic parity.
+
+## Feature flags
+
+This crate provides feature flags to control source code inclusion during compilation:
+
+- `streaming`: Enables `persistence` dependency for streaming configuration.
+- `python`: Enables Python bindings from [PyO3](https://pyo3.rs) (auto-enables `streaming`).
+- `defi`: Enables DeFi (Decentralized Finance) support.
+- `live`: Enables live trading mode dependencies.
+- `tracing-bridge`: Enables the `tracing` subscriber bridge for log integration.
+- `extension-module`: Builds as a Python extension module.
+
+## Documentation
+
+See [the docs](https://docs.rs/nautilus-system) for more detailed usage.
+
+## License
+
+The source code for Bomber is available on GitHub under the [GNU Lesser General Public License v3.0](https://www.gnu.org/licenses/lgpl-3.0.en.html).
+
+---
+
+Bomber™ is developed and maintained by Nautech Systems, a technology
+company specializing in the development of high-performance trading systems.
+For more information, visit <https://nautilustrader.io>.
+
+Use of this software is subject to the [Disclaimer](https://nautilustrader.io/legal/disclaimer/).
+
+<img src="https://github.com/nautechsystems/bomber/raw/develop/assets/nautilus-logo-white.png" alt="logo" width="300" height="auto"/>
+
+© 2015-2026 Nautech Systems Pty Ltd. All rights reserved.

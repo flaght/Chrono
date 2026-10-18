@@ -1,0 +1,271 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+//! Binance adapter configuration structures.
+
+use std::{any::Any, collections::HashMap};
+
+use nautilus_common::factories::ClientConfig;
+use nautilus_model::{
+    identifiers::{AccountId, TraderId},
+    types::Currency,
+};
+use nautilus_network::websocket::TransportBackend;
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+
+use crate::common::enums::{BinanceEnvironment, BinanceMarginType, BinanceProductType};
+
+/// Spot market-data transport mode.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(
+        module = "bomber.core.bomber_pyo3.binance",
+        eq,
+        from_py_object
+    )
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "bomber.adapters.binance")
+)]
+pub enum BinanceSpotMarketDataMode {
+    #[default]
+    /// Spot SBE streams (requires Ed25519 credentials).
+    Sbe,
+    /// Force Spot public JSON streams (does not require credentials).
+    Json,
+}
+
+/// Configuration for Binance data client.
+///
+/// Ed25519 API keys are required for SBE WebSocket streams.
+#[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
+#[serde(default, deny_unknown_fields)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "bomber.core.bomber_pyo3.binance", from_py_object)
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "bomber.adapters.binance")
+)]
+pub struct BinanceDataClientConfig {
+    /// Product type to subscribe to.
+    #[builder(default = BinanceProductType::Spot)]
+    pub product_type: BinanceProductType,
+    /// Environment (live, testnet, or demo).
+    #[builder(default = BinanceEnvironment::Live)]
+    pub environment: BinanceEnvironment,
+    /// Optional base URL override for HTTP API.
+    pub base_url_http: Option<String>,
+    /// Optional base URL override for WebSocket.
+    ///
+    /// Live USD-M Futures data overrides are normalized onto the matching
+    /// `/market/ws` and `/public/ws` routes.
+    pub base_url_ws: Option<String>,
+    /// API key (Ed25519).
+    pub api_key: Option<String>,
+    /// API secret (Ed25519 base64-encoded or PEM).
+    pub api_secret: Option<String>,
+    /// Spot market-data transport mode.
+    ///
+    /// - `Sbe` uses SBE streams and requires Ed25519 credentials.
+    /// - `Json` forces public JSON streams with no credentials.
+    #[builder(default)]
+    pub spot_market_data_mode: BinanceSpotMarketDataMode,
+    /// Interval in seconds for polling exchange info to detect instrument status
+    /// changes (e.g. Trading -> Halt). Set to 0 to disable. Defaults to 3600 (60 minutes).
+    #[builder(default = 3600)]
+    pub instrument_status_poll_secs: u64,
+    /// WebSocket transport backend (defaults to `Tungstenite`).
+    #[builder(default)]
+    pub transport_backend: TransportBackend,
+}
+
+impl Default for BinanceDataClientConfig {
+    fn default() -> Self {
+        Self::builder().build()
+    }
+}
+
+impl ClientConfig for BinanceDataClientConfig {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+/// Configuration for Binance execution client.
+///
+/// Ed25519 API keys are required for execution clients. Binance deprecated
+/// listenKey-based user data streams in favor of WebSocket API authentication,
+/// which only supports Ed25519.
+#[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
+#[serde(default, deny_unknown_fields)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "bomber.core.bomber_pyo3.binance", from_py_object)
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "bomber.adapters.binance")
+)]
+pub struct BinanceExecClientConfig {
+    /// Trader ID for the client.
+    #[builder(default = TraderId::from("TRADER-001"))]
+    pub trader_id: TraderId,
+    /// Account ID for the client.
+    #[builder(default = AccountId::from("BINANCE-001"))]
+    pub account_id: AccountId,
+    /// Product type to trade.
+    #[builder(default = BinanceProductType::Spot)]
+    pub product_type: BinanceProductType,
+    /// Environment (live, testnet, or demo).
+    #[builder(default = BinanceEnvironment::Live)]
+    pub environment: BinanceEnvironment,
+    /// Optional base URL override for HTTP API.
+    pub base_url_http: Option<String>,
+    /// Optional base URL override for WebSocket user data stream.
+    ///
+    /// Live USD-M Futures stream overrides are normalized onto the `/private/ws` route.
+    pub base_url_ws: Option<String>,
+    /// Optional base URL override for WebSocket trading API (Spot and USD-M Futures).
+    pub base_url_ws_trading: Option<String>,
+    /// Whether to use the WebSocket trading API for order operations (Spot and USD-M Futures).
+    #[builder(default = true)]
+    pub use_ws_trading: bool,
+    /// Whether to use Binance Futures hedging position IDs.
+    ///
+    /// When true, fill reports include a `venue_position_id` derived from
+    /// the instrument and position side (e.g. `ETHUSDT-PERP.BINANCE-LONG`).
+    /// When false, `venue_position_id` is None, allowing virtual positions
+    /// with `OmsType::Hedging`.
+    #[builder(default = true)]
+    pub use_position_ids: bool,
+    /// Default taker fee rate for commission estimation.
+    ///
+    /// Used as a fallback when the venue omits commission fields in
+    /// exchange-generated fills (liquidation, ADL, settlement).
+    /// Standard Binance Futures taker fee is 0.0004 (0.04%).
+    #[builder(default = Decimal::new(4, 4))]
+    pub default_taker_fee: Decimal,
+    /// API key (Ed25519 required, uses env var if not provided).
+    pub api_key: Option<String>,
+    /// API secret (Ed25519 base64-encoded, required, uses env var if not provided).
+    pub api_secret: Option<String>,
+    /// Initial leverage per Binance symbol (e.g. BTCUSDT -> 20), applied during connect.
+    pub futures_leverages: Option<HashMap<String, u32>>,
+    /// Margin type per Binance symbol (e.g. BTCUSDT -> Cross), applied during connect.
+    pub futures_margin_types: Option<HashMap<String, BinanceMarginType>>,
+    /// Currency that Binance Futures Credits (`BNFCR`) balances and fees resolve to (defaults to USDT).
+    #[builder(default = Currency::USDT())]
+    pub bnfcr_currency: Currency,
+    /// If true, the EXPIRED execution type emits `OrderCanceled` instead of `OrderExpired`.
+    ///
+    /// Binance uses EXPIRED for certain cancel scenarios depending on order type
+    /// and time-in-force combination.
+    #[builder(default = false)]
+    pub treat_expired_as_canceled: bool,
+    /// If true, drive fills from the lower-latency `TRADE_LITE` user data event
+    /// and dedup the matching fill portion of `ORDER_TRADE_UPDATE`. If false,
+    /// `TRADE_LITE` events are ignored and fills come from `ORDER_TRADE_UPDATE`.
+    #[builder(default = false)]
+    pub use_trade_lite: bool,
+    /// WebSocket transport backend (defaults to `Tungstenite`).
+    #[builder(default)]
+    pub transport_backend: TransportBackend,
+}
+
+impl Default for BinanceExecClientConfig {
+    fn default() -> Self {
+        Self::builder().build()
+    }
+}
+
+impl ClientConfig for BinanceExecClientConfig {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn test_data_config_toml_minimal() {
+        let config: BinanceDataClientConfig = toml::from_str(
+            r#"
+environment = "Testnet"
+product_type = "USD_M"
+instrument_status_poll_secs = 600
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.environment, BinanceEnvironment::Testnet);
+        assert_eq!(config.product_type, BinanceProductType::UsdM);
+        assert_eq!(config.spot_market_data_mode, BinanceSpotMarketDataMode::Sbe);
+        assert_eq!(config.instrument_status_poll_secs, 600);
+    }
+
+    #[rstest]
+    fn test_data_config_toml_spot_market_data_mode_override() {
+        let config: BinanceDataClientConfig = toml::from_str(
+            r#"
+spot_market_data_mode = "Json"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.spot_market_data_mode,
+            BinanceSpotMarketDataMode::Json
+        );
+    }
+
+    #[rstest]
+    fn test_data_config_toml_rejects_plural_product_types() {
+        let result = toml::from_str::<BinanceDataClientConfig>(
+            r#"
+product_types = ["SPOT", "USD_M"]
+"#,
+        );
+
+        let message = result.unwrap_err().to_string();
+        assert!(message.contains("unknown field `product_types`"));
+    }
+
+    #[rstest]
+    fn test_exec_config_toml_empty_uses_defaults() {
+        let config: BinanceExecClientConfig = toml::from_str("").unwrap();
+        let expected = BinanceExecClientConfig::default();
+
+        assert_eq!(config.environment, expected.environment);
+        assert_eq!(config.product_type, expected.product_type);
+        assert_eq!(config.use_ws_trading, expected.use_ws_trading);
+        assert_eq!(config.use_position_ids, expected.use_position_ids);
+        assert_eq!(config.default_taker_fee, expected.default_taker_fee);
+        assert_eq!(
+            config.treat_expired_as_canceled,
+            expected.treat_expired_as_canceled,
+        );
+        assert_eq!(config.use_trade_lite, expected.use_trade_lite);
+        assert_eq!(config.transport_backend, expected.transport_backend);
+    }
+}

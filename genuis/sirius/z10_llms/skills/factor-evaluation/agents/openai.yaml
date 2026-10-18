@@ -1,0 +1,4 @@
+interface:
+  display_name: "因子评估"
+  short_description: "显式选择时序或截面方法评估因子"
+  default_prompt: "使用 $factor-evaluation 按我指定的 time_series 或 cross_section 方法评估因子。"

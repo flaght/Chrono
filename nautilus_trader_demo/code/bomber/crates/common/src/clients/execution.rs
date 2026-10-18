@@ -1,0 +1,468 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+//! Execution client trait definition.
+
+use async_trait::async_trait;
+use nautilus_core::UnixNanos;
+use nautilus_model::{
+    accounts::AccountAny,
+    enums::{LiquiditySide, OmsType},
+    identifiers::{
+        AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, Venue, VenueOrderId,
+    },
+    instruments::InstrumentAny,
+    reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
+    types::{AccountBalance, MarginBalance, Money, Price, Quantity},
+};
+
+use super::log_not_implemented;
+use crate::messages::execution::{
+    BatchCancelOrders, BatchModifyOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
+    GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
+    ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
+};
+
+/// Defines the interface for an execution client managing order operations.
+///
+/// # Thread Safety
+///
+/// Client instances are not intended to be sent across threads. The `?Send` bound
+/// allows implementations to hold non-Send state for any Python interop.
+#[async_trait(?Send)]
+pub trait ExecutionClient {
+    fn is_connected(&self) -> bool;
+    fn client_id(&self) -> ClientId;
+    fn account_id(&self) -> AccountId;
+    fn venue(&self) -> Venue;
+    fn oms_type(&self) -> OmsType;
+    fn get_account(&self) -> Option<AccountAny>;
+
+    /// Returns whether this client can execute orders for the given instrument venue.
+    ///
+    /// Single-venue clients should use the default behavior. Routing brokers can
+    /// override this when their client venue identifies the broker rather than
+    /// the instrument's exchange venue.
+    fn handles_order_venue(&self, venue: Venue) -> bool {
+        self.venue() == venue
+    }
+
+    /// Generates and publishes the account state event.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if generating the account state fails.
+    fn generate_account_state(
+        &self,
+        balances: Vec<AccountBalance>,
+        margins: Vec<MarginBalance>,
+        reported: bool,
+        ts_event: UnixNanos,
+    ) -> anyhow::Result<()>;
+
+    /// Starts the execution client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the client fails to start.
+    fn start(&mut self) -> anyhow::Result<()>;
+
+    /// Stops the execution client.
+    ///
+    /// Implementations must be idempotent: the engine and node teardown paths
+    /// (e.g. backtest `end` -> `reset` -> `dispose`) may call `stop()` more
+    /// than once per run. Guard with an internal `is_stopped` check or
+    /// equivalent so repeated calls are safe.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the client fails to stop.
+    fn stop(&mut self) -> anyhow::Result<()>;
+
+    /// Resets the execution client to its initial state.
+    ///
+    /// The default implementation is a no-op. Adapters with reconnectable state
+    /// (caches, sequence counters, in-flight orders) should override this.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the client fails to reset.
+    fn reset(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Disposes of client resources and cleans up.
+    ///
+    /// The default implementation is a no-op. Adapters that hold async tasks,
+    /// background threads, or external handles should override this.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the client fails to dispose.
+    fn dispose(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Connects the client to the execution venue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if connection fails.
+    async fn connect(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Disconnects the client from the execution venue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if disconnection fails.
+    async fn disconnect(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Submits a single order command to the execution venue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if submission fails.
+    fn submit_order(&self, cmd: SubmitOrder) -> anyhow::Result<()> {
+        log_not_implemented(&cmd);
+        Ok(())
+    }
+
+    /// Submits a list of orders to the execution venue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if submission fails.
+    fn submit_order_list(&self, cmd: SubmitOrderList) -> anyhow::Result<()> {
+        log_not_implemented(&cmd);
+        Ok(())
+    }
+
+    /// Modifies an existing order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if modification fails.
+    fn modify_order(&self, cmd: ModifyOrder) -> anyhow::Result<()> {
+        log_not_implemented(&cmd);
+        Ok(())
+    }
+
+    /// Modifies a batch of orders.
+    ///
+    /// The default implementation fans out to [`Self::modify_order`] so existing execution
+    /// clients remain compatible until they add native batch support.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any child modification fails.
+    fn batch_modify_orders(&self, cmd: BatchModifyOrders) -> anyhow::Result<()> {
+        for modify in cmd.modifies {
+            self.modify_order(modify)?;
+        }
+        Ok(())
+    }
+
+    /// Cancels a specific order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if cancellation fails.
+    fn cancel_order(&self, cmd: CancelOrder) -> anyhow::Result<()> {
+        log_not_implemented(&cmd);
+        Ok(())
+    }
+
+    /// Cancels all orders.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if cancellation fails.
+    fn cancel_all_orders(&self, cmd: CancelAllOrders) -> anyhow::Result<()> {
+        log_not_implemented(&cmd);
+        Ok(())
+    }
+
+    /// Cancels a batch of orders.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if batch cancellation fails.
+    fn batch_cancel_orders(&self, cmd: BatchCancelOrders) -> anyhow::Result<()> {
+        log_not_implemented(&cmd);
+        Ok(())
+    }
+
+    /// Queries the status of an account.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query fails.
+    fn query_account(&self, cmd: QueryAccount) -> anyhow::Result<()> {
+        log_not_implemented(&cmd);
+        Ok(())
+    }
+
+    /// Queries the status of an order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query fails.
+    fn query_order(&self, cmd: QueryOrder) -> anyhow::Result<()> {
+        log_not_implemented(&cmd);
+        Ok(())
+    }
+
+    /// Generates a single order status report.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if report generation fails.
+    async fn generate_order_status_report(
+        &self,
+        cmd: &GenerateOrderStatusReport,
+    ) -> anyhow::Result<Option<OrderStatusReport>> {
+        log_not_implemented(cmd);
+        Ok(None)
+    }
+
+    /// Generates multiple order status reports.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if report generation fails.
+    async fn generate_order_status_reports(
+        &self,
+        cmd: &GenerateOrderStatusReports,
+    ) -> anyhow::Result<Vec<OrderStatusReport>> {
+        log_not_implemented(cmd);
+        Ok(Vec::new())
+    }
+
+    /// Generates fill reports based on execution results.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if fill report generation fails.
+    async fn generate_fill_reports(
+        &self,
+        cmd: GenerateFillReports,
+    ) -> anyhow::Result<Vec<FillReport>> {
+        log_not_implemented(&cmd);
+        Ok(Vec::new())
+    }
+
+    /// Generates position status reports.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if generation fails.
+    async fn generate_position_status_reports(
+        &self,
+        cmd: &GeneratePositionStatusReports,
+    ) -> anyhow::Result<Vec<PositionStatusReport>> {
+        log_not_implemented(cmd);
+        Ok(Vec::new())
+    }
+
+    /// Generates mass status for executions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if status generation fails.
+    async fn generate_mass_status(
+        &self,
+        lookback_mins: Option<u64>,
+    ) -> anyhow::Result<Option<ExecutionMassStatus>> {
+        log_not_implemented(&lookback_mins);
+        Ok(None)
+    }
+
+    /// Registers an external order for tracking by the execution client.
+    ///
+    /// This is called after reconciliation creates an external order, allowing the
+    /// execution client to track it for subsequent events (e.g., cancellations).
+    fn register_external_order(
+        &self,
+        _client_order_id: ClientOrderId,
+        _venue_order_id: VenueOrderId,
+        _instrument_id: InstrumentId,
+        _strategy_id: StrategyId,
+        _ts_init: UnixNanos,
+    ) {
+        // Default no-op implementation
+    }
+
+    /// Handles an instrument update received via the message bus.
+    ///
+    /// Exec clients that need live instrument updates (e.g. for internal maps)
+    /// can override this to process instruments for their venue.
+    fn on_instrument(&mut self, _instrument: InstrumentAny) {
+        // Default no-op
+    }
+
+    /// Calculates the commission for a reconciliation fill.
+    ///
+    /// Override this method to provide venue-specific commission logic
+    /// for inferred fills generated during reconciliation.
+    ///
+    /// Returns `None` by default, signaling callers to use their own
+    /// generic commission formula.
+    #[expect(unused_variables)]
+    fn calculate_commission(
+        &self,
+        instrument: &InstrumentAny,
+        last_qty: Quantity,
+        last_px: Price,
+        liquidity_side: LiquiditySide,
+    ) -> Option<Money> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use nautilus_core::UUID4;
+    use nautilus_model::{
+        enums::OmsType,
+        identifiers::{TraderId, Venue},
+    };
+    use rstest::rstest;
+
+    use super::*;
+
+    struct RecordingExecutionClient {
+        modified_order_ids: Rc<RefCell<Vec<ClientOrderId>>>,
+    }
+
+    impl RecordingExecutionClient {
+        fn new(modified_order_ids: Rc<RefCell<Vec<ClientOrderId>>>) -> Self {
+            Self { modified_order_ids }
+        }
+    }
+
+    #[async_trait(?Send)]
+    impl ExecutionClient for RecordingExecutionClient {
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn client_id(&self) -> ClientId {
+            ClientId::from("TEST")
+        }
+
+        fn account_id(&self) -> AccountId {
+            AccountId::from("TEST-001")
+        }
+
+        fn venue(&self) -> Venue {
+            Venue::from("SIM")
+        }
+
+        fn oms_type(&self) -> OmsType {
+            OmsType::Netting
+        }
+
+        fn get_account(&self) -> Option<AccountAny> {
+            None
+        }
+
+        fn generate_account_state(
+            &self,
+            _balances: Vec<AccountBalance>,
+            _margins: Vec<MarginBalance>,
+            _reported: bool,
+            _ts_event: UnixNanos,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn start(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn stop(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn modify_order(&self, cmd: ModifyOrder) -> anyhow::Result<()> {
+            self.modified_order_ids
+                .borrow_mut()
+                .push(cmd.client_order_id);
+
+            Ok(())
+        }
+    }
+
+    #[rstest]
+    fn batch_modify_orders_default_fans_out_to_modify_order() {
+        let modified_order_ids = Rc::new(RefCell::new(Vec::new()));
+        let client = RecordingExecutionClient::new(modified_order_ids.clone());
+        let instrument_id = InstrumentId::from("AUD/USD.SIM");
+        let order1 = ClientOrderId::from("O-DEFAULT-BATCH-001");
+        let order2 = ClientOrderId::from("O-DEFAULT-BATCH-002");
+        let command = BatchModifyOrders::new(
+            TraderId::from("TRADER-001"),
+            Some(ClientId::from("TEST")),
+            StrategyId::from("S-001"),
+            instrument_id,
+            vec![
+                ModifyOrder::new(
+                    TraderId::from("TRADER-001"),
+                    Some(ClientId::from("TEST")),
+                    StrategyId::from("S-001"),
+                    instrument_id,
+                    order1,
+                    None,
+                    Some(Quantity::from("10")),
+                    Some(Price::from("1.00010")),
+                    None,
+                    UUID4::new(),
+                    UnixNanos::default(),
+                    None,
+                    None,
+                ),
+                ModifyOrder::new(
+                    TraderId::from("TRADER-001"),
+                    Some(ClientId::from("TEST")),
+                    StrategyId::from("S-001"),
+                    instrument_id,
+                    order2,
+                    None,
+                    Some(Quantity::from("20")),
+                    Some(Price::from("1.00020")),
+                    None,
+                    UUID4::new(),
+                    UnixNanos::default(),
+                    None,
+                    None,
+                ),
+            ],
+            UUID4::new(),
+            UnixNanos::default(),
+            None,
+            None,
+        );
+
+        client.batch_modify_orders(command).unwrap();
+
+        assert_eq!(modified_order_ids.borrow().as_slice(), &[order1, order2]);
+    }
+}

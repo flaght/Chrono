@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tick降频到Bar因子开发"
+  short_description: "按纯 Polars Lazy 范式将 CTP Tick 流降频聚合为 1 分钟 Bar 基础量价字段与微观结构因子"
+  default_prompt: "使用 $tick-downsample 按照 Polars 规范和设计文档实现 Tick 降频到 1 分钟 Bar 特征。"

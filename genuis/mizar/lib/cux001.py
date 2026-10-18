@@ -5,6 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates  #
 import seaborn as sns
+from xml.dom import minidom
+from xml.etree import ElementTree as ET
 '''
 scale_method: str = 'roll_min_max':
 作用: 指定对因子进行放缩的方法。这是一个字符串，它有以下几种可选值，并且都严格遵守“无未来数据”原则：
@@ -176,7 +178,11 @@ class FactorEvaluate1(object):
         ## 1. 计算回测跨越的年数
         delta_days = (self.resample_data.index[-1] -
                       self.resample_data.index[0]).days
+<<<<<<< HEAD
+        years = delta_days / 365
+=======
         years = delta_days / 250
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         if years <= 0: years = 1e-6  # 防止除零
 
         # -------- 基础统计 --------
@@ -263,6 +269,20 @@ class FactorEvaluate1(object):
         ret_ac = self.resample_data[self.ret_name].autocorr(lag=1)
         return {'factor_autocorr': factor_ac, 'ret_autocorr': ret_ac}
 
+    def _cal_distribution(self):
+        coverage = self.resample_data[self.factor_name].notna().mean()
+        mean = self.resample_data[self.factor_name].mean()
+        std = self.resample_data[self.factor_name].std()
+        skew = self.resample_data[self.factor_name].skew()
+        kurtosis = self.resample_data[self.factor_name].kurt()
+        return {
+            'factor_coverage': coverage,
+            'factor_mean': mean,
+            'factor_std': std,
+            'factor_skew': skew,
+            'factor_kurtosis': kurtosis
+        }
+
     def _check_warnings(self):
         """检查关键指标并打印警告。"""
         print("\n--- Sanity Checks & Warnings ---")
@@ -330,10 +350,12 @@ class FactorEvaluate1(object):
             }
         pnl_stats = self.cal_pnl()
         autocorr_stats = self._cal_autocorr()  # 计算自相关性
+        distribution_stats = self._cal_distribution()  # 因子分布
 
         # 合并所有统计数据
         pnl_stats.update(ic_stats)
         pnl_stats.update(autocorr_stats)
+        pnl_stats.update(distribution_stats)
 
         self.stats = pnl_stats
         if is_check:
@@ -557,6 +579,131 @@ class FactorEvaluate1(object):
         plt.show()
         self.figure = fig
 
+    def generate_xml(self, start_time, end_time):
+
+        def add_text(parent, tag, value, **attributes):
+            element = ET.SubElement(
+                parent, tag, {
+                    key: str(item)
+                    for key, item in attributes.items() if item is not None
+                })
+            if value is None:
+                element.set('status', 'missing')
+            else:
+                element.text = str(value)
+            return element
+
+        def add_metric(parent, tag, value, description, unit='ratio'):
+            element = ET.SubElement(parent, tag, {
+                'description': description,
+                'unit': unit,
+            })
+            try:
+                numeric_value = float(value)
+            except (TypeError, ValueError):
+                numeric_value = np.nan
+            if np.isfinite(numeric_value):
+                element.text = format(numeric_value, '.12g')
+            else:
+                element.set('status', 'missing')
+            return element
+
+        root = ET.Element('factor_evaluation', {
+            'schema_version': '1.0.0',
+            'purpose': 'factor_screening',
+        })
+
+        identity = ET.SubElement(root, 'identity')
+        add_text(identity, 'name', self.name)
+        add_text(identity, 'expression', self.expression)
+        add_text(identity, 'factor_field', self.factor_name)
+        add_text(identity, 'forward_return_field', self.ret_name)
+
+        evaluation = ET.SubElement(root, 'evaluation_config')
+        add_text(evaluation, 'start_time', start_time)
+        add_text(evaluation, 'end_time', end_time)
+        add_text(evaluation, 'rolling_window', self.roll_win, unit='period')
+        add_text(evaluation,
+                 'resampling_window',
+                 self.resampling_win,
+                 unit='minute')
+
+        add_text(evaluation, 'scale_method', self.scale_method)
+        add_text(evaluation,
+                 'annualization_factor',
+                 self.annualization_factor,
+                 unit='trading_days_per_year')
+        add_text(evaluation, 'return_basis', 'gross_return_before_costs')
+
+        direction = ET.SubElement(root, 'direction_adjustment')
+        direction1 = np.sign(self.stats['ic_mean'])
+        add_text(direction,
+                 'applied',
+                 str(bool(direction1)).lower(),
+                 unit='boolean')
+        add_text(
+            direction, 'rule',
+            'invert f_scaled when pre_adjustment rolling IC mean is negative')
+
+        metrics = ET.SubElement(root, 'metrics', {
+            'basis': 'gross_return_before_costs',
+        })
+        add_metric(metrics, 'average_return', self.stats['avg_ret'], '平均收益',
+                   'decimal_return')
+        add_metric(metrics, 'total_return', self.stats['total_ret'], '累计成本前收益',
+                   'decimal_return')
+        add_metric(metrics, 'annualized_sharpe', self.stats['sharpe2'], '年化夏普',
+                   'ratio')
+        add_metric(metrics, 'maximum_drawdown', self.stats['max_dd'], '最大回撤',
+                   'decimal_return')
+        add_metric(metrics, 'calmar_ratio', self.stats['calmar'], '卡玛',
+                   'ratio')
+        add_metric(metrics, 'win_rate', self.stats['win_rate'], '胜率',
+                   'decimal_ratio')
+        add_metric(metrics, 'profit_loss_ratio', self.stats['profit_ratio'],
+                   '盈亏比', 'ratio')
+        add_metric(metrics, 'turnover', self.stats['turnover'], '平均换手率',
+                   'turnover')
+
+        characteristics = ET.SubElement(root, 'factor_characteristics', {
+            'ic_scope': 'time_series',
+        })
+        effective_ic = ET.SubElement(characteristics, 'effective_ic', {
+            'description': '方向调整后实际用于收益计算的因子IC',
+        })
+        add_metric(effective_ic, 'total_ic', self.stats['total_ic'], '全样本IC',
+                   'correlation')
+        add_metric(effective_ic, 'total_ic', self.stats['ic_mean'], '滚动IC平均值',
+                   'ic_mean')
+        add_metric(effective_ic, 'ic_std', self.stats.get('ic_std'), '滚动IC标准差',
+                   'correlation')
+        add_metric(effective_ic, 'ic_ir', self.stats.get('ic_ir'), '滚动ICIR',
+                   'correlation')
+
+        add_metric(characteristics, 'factor_autocorrelation',
+                   self.stats.get('factor_autocorr'), '原始因子一阶自相关',
+                   'correlation')
+        add_metric(characteristics, 'return_autocorrelation',
+                   self.stats.get('ret_autocorr'), '目标收益一阶自相关', 'correlation')
+
+        distribution = ET.SubElement(root, 'factor_distribution')
+        add_metric(distribution, 'coverage', self.stats.get('factor_coverage'),
+                   '有效因子值覆盖率', 'decimal_ratio')
+        add_metric(distribution, 'mean', self.stats.get('factor_mean'),
+                   '方向调整后因子均值', 'factor_value')
+        add_metric(distribution, 'std', self.stats.get('factor_std'),
+                   '方向调整后因子标准差', 'factor_value')
+        add_metric(distribution, 'skew', self.stats.get('factor_skew'),
+                   '方向调整后因子偏度', 'ratio')
+        add_metric(distribution, 'kurtosis', self.stats.get('factor_kurtosis'),
+                   '方向调整后因子超额峰度', 'ratio')
+
+        rough_xml = ET.tostring(root, encoding='utf-8')
+        xml_text = minidom.parseString(rough_xml).toprettyxml(
+            indent='  ', encoding='utf-8').decode('utf-8')
+
+        return xml_text
+
     def save_results(self, base_output_dir: str):
         """
         保存所有结果，包括性能摘要、时间序列数据和图表。
@@ -603,6 +750,18 @@ class FactorEvaluate1(object):
         image_path = os.path.join(output_dir, "evaluation_plot.png")
         self.figure.savefig(image_path, dpi=150)
 
+<<<<<<< HEAD
+        # 4. 保存xml
+        xml_path = os.path.join(output_dir, "evaluation.xml")
+        xml_text = self.generate_xml(
+            self.resample_data['nav'].index[0].isoformat(),
+            self.resample_data['nav'].index[-1].isoformat(),
+        )
+        with open(xml_path, 'w', encoding='utf-8') as file:
+            file.write(xml_text)
+
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         ##单独保存
         image_path1 = os.path.join(base_output_dir, "plot")
         os.makedirs(image_path1, exist_ok=True)
@@ -610,4 +769,12 @@ class FactorEvaluate1(object):
                                          "{0}.png".format(self.name)),
                             dpi=150)
         plt.close(self.figure)
+
+        xml_path1 = os.path.join(base_output_dir, "xml")
+        os.makedirs(xml_path1, exist_ok=True)
+        xml_name1 = os.path.join(xml_path1, "{0}.xml".format(self.name))
+        with open(xml_name1, 'w', encoding='utf-8') as file:
+            file.write(xml_text)
+
         print(f"Evaluation plot saved to: {image_path}")
+        print(f"Evaluation xml saved to: {xml_path}")

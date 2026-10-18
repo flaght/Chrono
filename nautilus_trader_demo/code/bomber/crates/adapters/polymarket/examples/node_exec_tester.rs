@@ -1,0 +1,140 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+//! Example demonstrating live execution testing with the Polymarket adapter.
+//!
+//! Uses `EventSlugFilter` to load only instruments for a specific event (avoiding
+//! loading all 71K+ instruments) and `SignatureType::PolyGnosisSafe` for Gnosis
+//! Safe proxy wallet authentication.
+//!
+//! Edit the constants below to change the target event, market token, and order size.
+//!
+//! Run with: `cargo run --example polymarket-exec-tester --package nautilus-polymarket --features examples`
+//!
+//! Required credential environment variables:
+//! - `POLYMARKET_PK` (EOA signer private key).
+//! - `POLYMARKET_API_KEY`, `POLYMARKET_API_SECRET`, `POLYMARKET_PASSPHRASE`.
+//! - `POLYMARKET_FUNDER` (Gnosis Safe proxy address).
+
+use std::sync::Arc;
+
+use log::LevelFilter;
+use nautilus_common::{enums::Environment, logging::logger::LoggerConfig};
+use nautilus_live::{config::LiveExecEngineConfig, node::LiveNode};
+use nautilus_model::{
+    identifiers::{AccountId, InstrumentId, StrategyId, TraderId},
+    types::Quantity,
+};
+use nautilus_polymarket::{
+    common::{consts::POLYMARKET_CLIENT_ID, enums::SignatureType},
+    config::{PolymarketDataClientConfig, PolymarketExecClientConfig},
+    factories::{PolymarketDataClientFactory, PolymarketExecutionClientFactory},
+    filters::EventSlugFilter,
+};
+use nautilus_testkit::testers::{ExecTester, ExecTesterConfig};
+use nautilus_trading::strategy::StrategyConfig;
+
+const TRADER_ID: &str = "TESTER-001";
+const ACCOUNT_ID: &str = "POLYMARKET-001";
+const NODE_NAME: &str = "POLYMARKET-EXEC-TESTER-001";
+const STRATEGY_ID: &str = "EXEC_TESTER-001";
+const EVENT_SLUG: &str = "gta-vi-released-before-june-2026";
+
+// GTA VI Released Before June 2026 (Yes)
+// https://polymarket.com/event/gta-vi-released-before-june-2026
+const INSTRUMENT_ID: &str = "0xcccb7e7613a087c132b69cbf3a02bece3fdcb824c1da54ae79acc8d4a562d902-8441400852834915183759801017793514978104486628517653995211751018945988243154.POLYMARKET";
+const ORDER_QTY: &str = "5"; // Polymarket min_qty = 5 shares
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
+
+    let environment = Environment::Live;
+    let trader_id = TraderId::from(TRADER_ID);
+    let account_id = AccountId::from(ACCOUNT_ID);
+    let node_name = NODE_NAME.to_string();
+    let client_id = *POLYMARKET_CLIENT_ID;
+    let instrument_id = InstrumentId::from(INSTRUMENT_ID);
+
+    // Use EventSlugFilter to load only instruments for this event
+    let event_slugs = vec![EVENT_SLUG.to_string()];
+    let data_filter = EventSlugFilter::from_slugs(event_slugs);
+
+    let data_config = PolymarketDataClientConfig {
+        filters: vec![Arc::new(data_filter)],
+        ..Default::default()
+    };
+    let data_factory = PolymarketDataClientFactory;
+
+    // PolyGnosisSafe: POLYMARKET_PK is the EOA signer, POLYMARKET_FUNDER is the Gnosis Safe proxy
+    let exec_config = PolymarketExecClientConfig {
+        trader_id,
+        account_id,
+        signature_type: SignatureType::PolyGnosisSafe,
+        ..Default::default()
+    };
+    let exec_factory = PolymarketExecutionClientFactory;
+
+    let log_config = LoggerConfig {
+        stdout_level: LevelFilter::Info,
+        ..Default::default()
+    };
+    let exec_engine_config = LiveExecEngineConfig {
+        open_check_interval_secs: Some(10.0),
+        position_check_interval_secs: Some(30.0),
+        ..Default::default()
+    };
+
+    let mut node = LiveNode::builder(trader_id, environment)?
+        .with_name(node_name)
+        .with_logging(log_config)
+        .with_exec_engine_config(exec_engine_config)
+        .add_data_client(None, Box::new(data_factory), Box::new(data_config))?
+        .add_exec_client(None, Box::new(exec_factory), Box::new(exec_config))?
+        .with_reconciliation(true)
+        .with_reconciliation_lookback_mins(120)
+        .with_timeout_reconciliation(60)
+        .with_delay_post_stop_secs(5)
+        .build()?;
+
+    let order_qty = Quantity::from(ORDER_QTY);
+
+    let tester_config = ExecTesterConfig::builder()
+        .base(StrategyConfig {
+            strategy_id: Some(StrategyId::from(STRATEGY_ID)),
+            external_order_claims: Some(vec![instrument_id]),
+            ..Default::default()
+        })
+        .instrument_id(instrument_id)
+        .client_id(client_id)
+        .order_qty(order_qty)
+        // .open_position_on_start_qty(order_qty.as_decimal())
+        // .use_quote_quantity(true)
+        .use_post_only(true)
+        .tob_offset_ticks(5) // 5 ticks = 0.005 offset (price range 0.001-0.999)
+        .enable_limit_sells(false) // Can't sell without inventory on Polymarket
+        .enable_stop_buys(false) // Polymarket doesn't support stop orders
+        .enable_stop_sells(false)
+        .reduce_only_on_stop(false) // Polymarket does not support reduce-only orders
+        .log_data(false)
+        .build()?;
+
+    let tester = ExecTester::new(tester_config);
+
+    node.add_strategy(tester)?;
+    node.run().await?;
+
+    Ok(())
+}

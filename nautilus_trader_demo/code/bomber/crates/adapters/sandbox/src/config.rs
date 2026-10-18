@@ -1,0 +1,204 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+//! Configuration for sandbox execution client.
+
+use ahash::AHashMap;
+use nautilus_execution::{
+    matching_engine::config::OrderMatchingEngineConfig, models::fee::FeeModelAny,
+};
+use nautilus_model::{
+    enums::{AccountType, BookType, OmsType},
+    identifiers::{AccountId, InstrumentId, TraderId, Venue},
+    types::{Currency, Money},
+};
+use rust_decimal::Decimal;
+use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
+    de::{self, IgnoredAny},
+};
+
+/// Configuration for `SandboxExecutionClient` instances.
+#[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
+#[serde(default, deny_unknown_fields)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "bomber.core.bomber_pyo3.sandbox", from_py_object)
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "bomber.adapters.sandbox")
+)]
+pub struct SandboxExecutionClientConfig {
+    /// The trader ID for this client.
+    #[builder(default = TraderId::from("SANDBOX-001"))]
+    pub trader_id: TraderId,
+    /// The account ID for this client.
+    #[builder(default = AccountId::from("SANDBOX-001"))]
+    pub account_id: AccountId,
+    /// The venue for this sandbox execution client.
+    #[builder(default = Venue::new("SANDBOX"))]
+    pub venue: Venue,
+    /// The starting balances for this sandbox venue.
+    #[builder(default)]
+    pub starting_balances: Vec<Money>,
+    /// The base currency for this venue (None for multi-currency).
+    pub base_currency: Option<Currency>,
+    /// The order management system type used by the exchange.
+    #[builder(default = OmsType::Netting)]
+    pub oms_type: OmsType,
+    /// The account type for the client.
+    #[builder(default = AccountType::Margin)]
+    pub account_type: AccountType,
+    /// The account default leverage (for margin accounts).
+    #[builder(default = Decimal::ONE)]
+    pub default_leverage: Decimal,
+    /// Per-instrument leverage overrides.
+    #[builder(default)]
+    pub leverages: AHashMap<InstrumentId, Decimal>,
+    /// The order book type for the matching engine.
+    #[builder(default = BookType::L1_MBP)]
+    pub book_type: BookType,
+    /// The fee model for sandbox matching engines.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_fee_model",
+        deserialize_with = "deserialize_fee_model"
+    )]
+    pub fee_model: Option<FeeModelAny>,
+    /// If True, account balances won't change (frozen).
+    #[builder(default)]
+    pub frozen_account: bool,
+    /// If bars should be processed by the matching engine (and move the market).
+    #[builder(default = true)]
+    pub bar_execution: bool,
+    /// If trades should be processed by the matching engine (and move the market).
+    #[builder(default = true)]
+    pub trade_execution: bool,
+    /// If stop orders are rejected on submission if trigger price is in the market.
+    #[builder(default = true)]
+    pub reject_stop_orders: bool,
+    /// If orders with GTD time in force will be supported by the venue.
+    #[builder(default = true)]
+    pub support_gtd_orders: bool,
+    /// If contingent orders will be supported/respected by the venue.
+    #[builder(default = true)]
+    pub support_contingent_orders: bool,
+    /// If venue position IDs will be generated on order fills.
+    #[builder(default = true)]
+    pub use_position_ids: bool,
+    /// If venue order IDs and position IDs will be random UUID4's.
+    /// Trade IDs are always deterministic and not affected by this flag.
+    #[builder(default)]
+    pub use_random_ids: bool,
+    /// If the `reduce_only` execution instruction on orders will be honored.
+    #[builder(default = true)]
+    pub use_reduce_only: bool,
+}
+
+impl SandboxExecutionClientConfig {
+    /// Creates an [`OrderMatchingEngineConfig`] from this sandbox config.
+    #[must_use]
+    pub fn to_matching_engine_config(&self) -> OrderMatchingEngineConfig {
+        OrderMatchingEngineConfig::builder()
+            .bar_execution(self.bar_execution)
+            .trade_execution(self.trade_execution)
+            .reject_stop_orders(self.reject_stop_orders)
+            .support_gtd_orders(self.support_gtd_orders)
+            .support_contingent_orders(self.support_contingent_orders)
+            .use_position_ids(self.use_position_ids)
+            .use_random_ids(self.use_random_ids)
+            .use_reduce_only(self.use_reduce_only)
+            .build()
+    }
+}
+
+impl Default for SandboxExecutionClientConfig {
+    fn default() -> Self {
+        Self::builder().build()
+    }
+}
+
+fn serialize_fee_model<S>(fee_model: &Option<FeeModelAny>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match fee_model {
+        None => serializer.serialize_none(),
+        Some(_) => Err(serde::ser::Error::custom(
+            "SandboxExecutionClientConfig.fee_model is runtime-only and cannot be serialized",
+        )),
+    }
+}
+
+fn deserialize_fee_model<'de, D>(deserializer: D) -> Result<Option<FeeModelAny>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<IgnoredAny>::deserialize(deserializer)?;
+
+    match value {
+        None => Ok(None),
+        Some(_) => Err(de::Error::custom(
+            "SandboxExecutionClientConfig.fee_model must be configured at runtime, not deserialized",
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nautilus_execution::models::fee::{FeeModelAny, ProbabilityPriceFeeModel};
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn test_exec_config_toml_empty_uses_defaults() {
+        let config: SandboxExecutionClientConfig = toml::from_str("").unwrap();
+        let expected = SandboxExecutionClientConfig::default();
+
+        assert_eq!(config.trader_id, expected.trader_id);
+        assert_eq!(config.account_id, expected.account_id);
+        assert_eq!(config.venue, expected.venue);
+        assert_eq!(config.oms_type, expected.oms_type);
+        assert_eq!(config.account_type, expected.account_type);
+        assert_eq!(config.default_leverage, expected.default_leverage);
+        assert_eq!(config.book_type, expected.book_type);
+        assert!(config.fee_model.is_none());
+        assert_eq!(config.bar_execution, expected.bar_execution);
+        assert_eq!(config.trade_execution, expected.trade_execution);
+        assert_eq!(config.use_position_ids, expected.use_position_ids);
+    }
+
+    #[rstest]
+    fn test_exec_config_toml_rejects_fee_model_field() {
+        let result = toml::from_str::<SandboxExecutionClientConfig>("fee_model = \"runtime-only\"");
+
+        assert!(result.is_err());
+    }
+
+    #[rstest]
+    fn test_exec_config_toml_rejects_serializing_runtime_fee_model() {
+        let config = SandboxExecutionClientConfig {
+            fee_model: Some(FeeModelAny::ProbabilityPrice(ProbabilityPriceFeeModel)),
+            ..SandboxExecutionClientConfig::default()
+        };
+
+        let result = toml::Value::try_from(&config);
+
+        assert!(result.is_err());
+    }
+}

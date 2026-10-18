@@ -221,8 +221,14 @@ def load_sirius_params(code: str, task_id: str):
     file_path = os.path.join("config", "strategy","sirius.yaml")
     with open(file_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
+<<<<<<< HEAD
+        
+    config = config[code]
+    
+=======
 
     config = config[code]
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     if task_id not in config:
         raise KeyError(f"配置文件中必须包含 {task_id}。")
 
