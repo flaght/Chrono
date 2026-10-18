@@ -1,0 +1,33 @@
+experiment_setups:
+  "factors_pc_basic":  # 这是配置集ID "1" 
+    method: ricso2
+    source: research
+    task_id: 159001
+    instruments: pc
+    form: recent
+    split: fixed # 固定 scale 比例
+
+  "factors_pc_scope":  # 2.2.1.scope_valid_factors_parallel.py # 
+    method: ricso2
+    task_id: 159001
+    instruments: pc
+    session: 20260906
+    period: 5
+    form: "first"
+
+  "factors_pc_compare":  # 2.2.2.compare_twin_factors.py
+    method: ricso2
+    task_id: 159001
+    instruments: pc
+    session: 20260606
+    period: 5
+    form: annual
+    filename: cohort.csv
+
+  "preprocess_pc_data":  # 3.0.1.preprocess_data.py
+    method: ricso2
+    task_id: 159001
+    instruments: pc
+    period: 5
+    form: prepare
+    name: cohort_pro
