@@ -2,7 +2,10 @@ import pdb, os
 import numpy as np
 import pandas as pd
 from typing import Any
+<<<<<<< HEAD
 import datetime
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 from pymongo import UpdateOne
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FixedLocator
@@ -15,21 +18,29 @@ from lib.ret001 import create_chg, create_yields
 
 
 ## 提取研究环境数据(通联数据)
+<<<<<<< HEAD
 def fetch_bench_data(instruments,
                      begin_time,
                      end_time,
                      adjusted_method='pcr',
                      forced_alignment=False):
+=======
+def fetch_bench_data(instruments, begin_time, end_time, adjusted_method='pcr'):
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     market_data = fetch_main_market(begin_date=begin_time,
                                     end_date=end_time,
                                     codes=[INSTRUMENTS_CODES[instruments]],
                                     method=adjusted_method,
+<<<<<<< HEAD
                                     keep_symbol=True,
                                     forced_alignment=forced_alignment)
     pdb.set_trace()
     ## 处理vwap 复权因子
     market_data['vwap'] = market_data['vwap'] * market_data['pcr_cumfactor']
 
+=======
+                                    keep_symbol=True)
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     market_data = market_data.set_index(['trade_time', 'code'])
 
     prev_close = market_data.groupby(level='code')['close'].shift(1)
@@ -44,8 +55,12 @@ def fetch_bench_data(instruments,
 def fetch_research_data(instruments,
                         begin_time,
                         end_time,
+<<<<<<< HEAD
                         adjusted_method='pcr',
                         **kwargs):
+=======
+                        adjusted_method='pcr'):
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
     # pdb.set_trace()
     market_data = fetch_local_market1(base_path=os.environ['BAR_FUT_DIRS'],
@@ -56,6 +71,15 @@ def fetch_research_data(instruments,
                                       keep_symbol=True)
 
     market_data = market_data.set_index(['trade_time', 'code'])
+<<<<<<< HEAD
+=======
+
+    prev_close = market_data.groupby(level='code')['close'].shift(1)
+
+    # np.log 在遇到 NaN 时会安全返回 NaN
+    market_data['chg'] = np.log(market_data['close'] / prev_close)
+
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     return market_data
 
 
@@ -63,8 +87,12 @@ def fetch_research_data(instruments,
 def fetch_trader_data(instruments,
                       begin_time,
                       end_time,
+<<<<<<< HEAD
                       adjusted_method='pcr',
                       **kwargs):
+=======
+                      adjusted_method='pcr'):
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
     market_data = fetch_trader_market1(begin_time=begin_time,
                                        end_time=end_time,
@@ -88,6 +116,7 @@ def fetch_trader_data(instruments,
     return market_data
 
 
+<<<<<<< HEAD
 ## 提取交易共享数据
 def fetch_quant_data(instruments,
                      begin_time,
@@ -104,6 +133,8 @@ def fetch_quant_data(instruments,
     return market_data
 
 
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 ## 提取因子绩效
 def fetch_factors_metrics(mongo_client,
                           code,
@@ -129,7 +160,11 @@ def fetch_factors_metrics(mongo_client,
 
     cursor = mongo_client[os.environ['MG_COLL']]["realm_factors_metrics"].find(
         query)
+<<<<<<< HEAD
     print(query)
+=======
+
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     results = pd.DataFrame(list(cursor))
     results = results.drop(['_id'], axis=1) if not results.empty else results
     return results
@@ -165,11 +200,16 @@ def fetch_netout_metrics(mongo_client,
 
 
 ## 更新收益率
+<<<<<<< HEAD
 def update_returns_series(mongo_client,
                           series_data,
                           table_name,
                           code,
                           category=None):
+=======
+def update_returns_series(mongo_client, series_data, table_name, category,
+                          code):
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     if series_data is None or series_data.empty:
         print(f"⚠️ 表 [{table_name}] 接收到的数据为空，跳过存储。")
         return
@@ -188,9 +228,17 @@ def update_returns_series(mongo_client,
         if pd.isna(val):
             continue
 
+<<<<<<< HEAD
         filter_query = {'trade_time': t_time, 'code': code}
         if isinstance(category, str):
             filter_query['category'] = category
+=======
+        filter_query = {
+            'trade_time': t_time,
+            'category': category,
+            'code': code
+        }
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         # 要更新或插入的具体数据
         update_data = {
             '$set': {
@@ -209,11 +257,15 @@ def update_returns_series(mongo_client,
 
 
 ## 更新预测值
+<<<<<<< HEAD
 def update_netout_series1(mongo_client,
                           series_data,
                           table_name,
                           category,
                           name='value'):
+=======
+def update_netout_series1(mongo_client, series_data, table_name, category):
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     """
     将包含多列信息的 DataFrame 极速 Upsert 到 MongoDB。
     要求 df_data 必须包含: ['trade_time', 'symbol', 'value', 'code', 'task_id']
@@ -234,7 +286,11 @@ def update_netout_series1(mongo_client,
         df['trade_time'] = df['trade_time'].astype(str)
 
     # 2. 过滤掉 value 为 NaN 的行，减少数据库垃圾数据
+<<<<<<< HEAD
     df = df.dropna(subset=[name])
+=======
+    df = df.dropna(subset=['value'])
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
     if df.empty:
         print(f"⚠️ 表 [{table_name}] 过滤 NaN 后没有有效数据需要存储。")
@@ -252,10 +308,19 @@ def update_netout_series1(mongo_client,
             'symbol': row.symbol
         }
         # 要更新或插入的具体数据
+<<<<<<< HEAD
         set1 = {name: float(getattr(row, name)), 'signal': int(row.signal)}
         if 'value' not in set1:
             set1['value'] = row.value
         update_data = {'$set': set1}
+=======
+        update_data = {
+            '$set': {
+                'value': float(row.value),
+                'signal': int(row.signal)
+            }
+        }
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
         operations.append(UpdateOne(filter_query, update_data, upsert=True))
 
@@ -268,12 +333,17 @@ def update_netout_series1(mongo_client,
 
 
 ## 更新绩效数据
+<<<<<<< HEAD
 def update_evaluate_series(mongo_client,
                            series_data,
                            table_name,
                            factor_name,
                            code,
                            category=None):
+=======
+def update_evaluate_series(mongo_client, series_data, table_name, factor_name,
+                           category, code):
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
     db = mongo_client['neutron']
     if pd.api.types.is_datetime64_any_dtype(series_data.index):
@@ -290,11 +360,17 @@ def update_evaluate_series(mongo_client,
         filter_query = {
             'trade_time': t_time,
             'name': factor_name,
+<<<<<<< HEAD
             #'category': category,
             'code': code
         }
         if isinstance(category, str):
             filter_query['category'] = category
+=======
+            'category': category,
+            'code': code
+        }
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         # 要更新或插入的具体数据
         update_data = {
             '$set': {
@@ -355,6 +431,7 @@ def update_netout_series2(mongo_client, df_data, table_name, unique_keys):
             print(f"❌ 存储到 [{table_name}] 时发生错误: {e}")
 
 
+<<<<<<< HEAD
 ## 更新实盘因子
 def update_factor_infos(mongo_client, factor_infos, table_name, code):
 
@@ -503,6 +580,8 @@ def insert_full_dataframe(mongo_client, df_data, table_name, batch_size=10000):
 
 ## 更新当前因子
 
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 ## -------------> 数据计算
 
 
@@ -551,8 +630,12 @@ def market_data_format(market_data,
                        ]):
     res = {}
     for col in cols:
+<<<<<<< HEAD
         if col in market_data.keys():
             res[col] = market_data[col].unstack()
+=======
+        res[col] = market_data[col].unstack()
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     return res
 
 
@@ -565,7 +648,11 @@ def filter_trading_time(
     prepared = data.reset_index()
     hhmm = prepared["trade_time"].dt.strftime("%H:%M")
 
+<<<<<<< HEAD
     if len(trading_sessions) == 0:
+=======
+    if not trading_sessions:
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         filtered = prepared.copy()
     else:
         session_mask = pd.Series(False, index=prepared.index)

@@ -53,6 +53,7 @@ def valid_programs(method,
                             task_id=task_id,
                             instruments=instruments,
                             datasets=datasets)
+    pdb.set_trace()
     total_data = total_data[['trade_time', 'code'] + features +
                             ['nxt1_ret_{}h'.format(period)]]
     total_data1 = total_data.set_index(['trade_time'])
@@ -117,7 +118,7 @@ def run(method,
     ]
     features = list(itertools.chain.from_iterable(features))
     features = list(set(features))
-
+    pdb.set_trace()
     ## 优先创建目录，避免无判断没有跑过
     dirs = os.path.join(base_path, method, instruments, dategory, 'ic',
                         str(task_id), "nxt1_ret_{}h".format(str(period)),

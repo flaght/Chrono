@@ -234,7 +234,7 @@ def profitability(data: pd.DataFrame, factor_name:str,
     metrics_data.index = pd.to_datetime(metrics_data.index)
     metrics_data = metrics_data.sort_index()
     
-    
+
     daily = metrics_data.resample("1D").agg(
         {
             "turnover": "mean",

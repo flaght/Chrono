@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import itertools
 from collections import namedtuple
 from ultron.tradingday import *
@@ -7,6 +8,10 @@ from lib.attr001.check001 import generate_bar_status
 from lib.cux003 import FactorEvaluate1
 from lumina.formual.impulse import Impulse
 from lumina.evolution.fusion.actuator import Actuator
+=======
+from lib.attr001.ftd001 import *
+from lib.attr001.check001 import generate_bar_status
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
 ### 获取指定数据集
 DEFAULT_PRICE = ['open', 'high', 'low', 'close', 'vwap']
@@ -15,6 +20,7 @@ DEFAULT_REL = ["volume", "value", "openint"]
 ## 成交量计算错误
 DEFAILT_COVER = ["volume", "value", "vwap"]
 
+<<<<<<< HEAD
 class FactorEvaluateTuple(
         namedtuple('FactorEvaluateTuple',
                    ('name', 'raw_factors', 'raw_returns', 'resample_data'))):
@@ -36,6 +42,8 @@ def clip_series_to_window(series_data, begin_time=None, end_time=None):
         clipped = clipped.loc[clipped.index <= (pd.Timestamp(end_time1))]
     return clipped
 
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
 def fetch_market_data(instruments,
                       begin_time,
@@ -78,6 +86,7 @@ def fetch_market_data(instruments,
         "rel_metrics": rel_metrics,
         "results": results
     }
+<<<<<<< HEAD
 
 
 def create_impulse(factors_infos, market_unstack):
@@ -115,3 +124,5 @@ def evaluate(factors_infos,
             resample_data=evaluate1.resample_data)
         res.append(results)
     return res
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
