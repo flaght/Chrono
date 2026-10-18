@@ -69,6 +69,7 @@ async def run(method, period, lookback):
                                         p_dim=p_dim,
                                         r_dim=r_dim)
     
+    pdb.set_trace()
     for k, v in snapshot_dict.items():
         coordinator.update_memory(
             sample_id=v['sample_id'],
@@ -78,6 +79,6 @@ async def run(method, period, lookback):
 
 
 if __name__ == '__main__':
-    method = 'train0'
+    method = 'train1'
     period = 3
     asyncio.run(run(method=method, period=3, lookback=3))

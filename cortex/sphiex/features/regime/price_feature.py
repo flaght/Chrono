@@ -278,7 +278,6 @@ class PriceFeature(object):
     def start(self, begin_date, end_date):
         market_data = self.load_data(begin_date=begin_date, end_date=end_date)
         wide_data = market_data.set_index(['trade_date', 'code']).unstack()
-
         trend_ma_data = self._create_trend_ma(base_data=wide_data)
         price_position_data = self._create_price_position(base_data=wide_data)
         volatility_atr_data = self._create_volatility_atr(base_data=wide_data)

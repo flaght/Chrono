@@ -8,7 +8,7 @@ mc003 一档订单流动力学类特征下采样聚合引擎 (Downsampling Aggre
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 from .mc003_001 import EXPR as mc003_001_expr
 from .mc003_002 import EXPR as mc003_002_expr

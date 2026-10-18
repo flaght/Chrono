@@ -4,7 +4,7 @@
 因子定义: 平均K线趋势强度：Heikin-Ashi 趋势方向与影线比例的复合指标
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD=15
 NAME="tc003_005"
 

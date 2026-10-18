@@ -1,5 +1,7 @@
 import asyncio, os, pdb, json
 import pandas as pd
+# 修改：文本状态，缺失文本文件不阻止数值流程。
+from lib.text001 import read_optional_text_data, validate_text_reflection, UNAVAILABLE
 import numpy as np
 from pathlib import Path
 from datetime import datetime
@@ -22,11 +24,6 @@ FEATURE_TYPE_MAP = {
     "industry_trend": "行业趋势",
     "market_sentiment": "市场情绪"
 }
-
-
-def create_file(save_path, trade_date, ticker):
-    file_path = Path(save_path) / f"{trade_date}_{ticker}.json"
-    return file_path
 
 
 def save_prediction_snapshot(trade_date, ticker, name, holding_period,
@@ -56,8 +53,7 @@ def save_prediction_snapshot(trade_date, ticker, name, holding_period,
         "reviewer_result": ""
     }
     Path(save_path).mkdir(parents=True, exist_ok=True)
-    # file_path = Path(save_path) / f"{trade_date}_{ticker}.json"
-    file_path = create_file(save_path, trade_date, ticker)
+    file_path = Path(save_path) / f"{trade_date}_{ticker}.json"
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(snapshot, f, ensure_ascii=False, indent=2)
 
@@ -101,9 +97,10 @@ def load_data(method, period):
     regime_data = pd.read_feather(
         os.path.join("records", "normal", str(method),
                      "test_regime_data.feather"))
-    textuals_data = pd.read_feather(
+    textuals_data = read_optional_text_data(
         os.path.join("records", "normal", str(method),
                      "test_textuals_data.feather"))
+
     returns_data = pd.read_feather(
         os.path.join("records", "normal", str(method),
                      "test_returns_data.feather"))
@@ -123,7 +120,7 @@ def format_textual_events_timeline(events_data,
     if events_data is None or (isinstance(
             events_data, pd.DataFrame) and events_data.empty) or (isinstance(
                 events_data, list) and len(events_data) == 0):
-        return "{0}\n".format(base_line)
+        return ""  # 修改：空窗口不生成可被误嵌入的标题。
     df = events_data.copy()
 
     df['trade_date'] = df['trade_date'].astype(str)
@@ -162,7 +159,7 @@ def format_textual_events_timeline(events_data,
 
 
 async def create_predict_agent():
-    llm_name = 'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+    llm_name = 'glm_4001'  #'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
     vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
     persona_name = 'quant_fusion_trader_10001'
     thoughts_name = 'fusion_trader_user_100001'
@@ -179,7 +176,7 @@ async def create_predict_agent():
     return agent, thoughts1, thoughts_name
 
 
-async def run(method, period, lookback, is_refresh=False):
+async def run(method, period, lookback):
 
     async def run_task(tasks):
         batch_results = await asyncio.gather(*tasks)
@@ -196,8 +193,9 @@ async def run(method, period, lookback, is_refresh=False):
     ticker = "000852"
     name = '中证1000指数 (000852.SH / IM)'
     holding_period = "T+1开盘 ~ T+{}开盘".format(period + 1)
-    semaphore = asyncio.Semaphore(4)
+    semaphore = asyncio.Semaphore(2)
     tasks = []
+    
     storage_path = os.path.join(base_path, "brain", method, str(period))
     save_path = os.path.join(base_path, "outofsam", str(method), str(period))
     os.makedirs(storage_path, exist_ok=True)
@@ -225,22 +223,18 @@ async def run(method, period, lookback, is_refresh=False):
                                         r_dim=r_dim)
 
     dates = set(predict_data['trade_date']).intersection(
-        regime_data['trade_date'], textuals_data['trade_date'])
+        regime_data['trade_date'])  # 修改：运行日期不依赖文本覆盖。
     dates = [d.strftime('%Y-%m-%d') for d in dates]
     dates.sort()
     dates = dates
     for index, date in enumerate(dates):
         if index < lookback:
             continue
+        # pdb.set_trace()
+        # date = "2026-06-23"
+        # index = 14
         end_date = date
         start_date = dates[index - lookback]
-
-        filename = create_file(save_path=save_path,
-                               trade_date=end_date,
-                               ticker=ticker)
-        if (os.path.exists(filename) and not is_refresh):
-            continue
-
         pdata = predict_data[(predict_data['trade_date'] >= start_date)
                              & (predict_data['trade_date'] <= end_date)]
         rdata = regime_data[(regime_data['trade_date'] >= start_date)
@@ -256,6 +250,7 @@ async def run(method, period, lookback, is_refresh=False):
         p_martix = pdata[p_cols].values
         r_martix = rdata[r_cols].values
         textual_events = format_textual_events_timeline(tdata)
+       
         forward_return = returns_data[returns_data['trade_date'] == end_date][
             'nxt1_ret_{0}h'.format(period)].values[0]
 
@@ -265,10 +260,8 @@ async def run(method, period, lookback, is_refresh=False):
             regime_matrix=r_martix,
             predict_matrix=p_martix,
             textual_events=textual_events,
-            active_predictive_whitelist={
-                "main_flow_ratio", "comp_breadth_pos_20", "price_ret_5d",
-                "lower_shadow_ratio"
-            })
+            active_predictive_whitelist={})
+
         predictive_str = PromptDataBuilder.build_predictive_signals(pdata)
         regime_str = PromptDataBuilder.build_regime_features(rdata)
         textual_str = PromptDataBuilder.build_textual_events(tdata)
@@ -299,13 +292,13 @@ async def run(method, period, lookback, is_refresh=False):
                                     params_dict=params,
                                     forward_return=forward_return,
                                     schema_cls=TraderPredictionResult))
-
         if len(tasks) >= 1:
             await run_task(tasks)
             tasks = []
 
     if len(tasks) > 0:
         await run_task(tasks)
+
     # batch_results = await asyncio.gather(*tasks)
     # for result in batch_results:
     #     save_prediction_snapshot(trade_date=result['output']['trade_time'],
@@ -319,6 +312,6 @@ async def run(method, period, lookback, is_refresh=False):
 
 
 if __name__ == '__main__':
-    method = 'train0'
+    method = 'train1'
     period = 3
     asyncio.run(run(method=method, period=3, lookback=3))

@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 from .mc001_008 import EXPR as mc001_008_expr
 
 # 因子核心计算表达式（供单因子独立计算及批次聚合器 aggregator 统一引用）

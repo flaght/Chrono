@@ -4,7 +4,7 @@
 因子分类: FEATURE_CATEGORY (如 future_1min, money_flow, order_flow, open_interest 等)
 输入数据: CTP Level-1 Tick 快照流
 输出规范: 标准 1 分钟微观宽表 (trade_time, code, ...)
-规范对标: docs/tick_downsample_1min_features.md
+规范对标: references/tick-contract.md
 """
 
 from __future__ import annotations

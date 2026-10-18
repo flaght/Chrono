@@ -1,7 +1,7 @@
-"""EMA正式引擎链路的分阶段验证。
+"""EMA统一正式回测主链的分阶段验证。
 
-N5只使用内存Bar，验证桥、正式Runtime、订单和成交；N6/N7再分别加入真实CTP
-Bar/Tick文件。全部使用BacktestEngine模拟撮合，不连接任何真实交易端。
+N5使用内存Bar验证Runner统一积木链；N6/N7分别加入真实CTP Bar/Tick文件。
+全部使用SimulationExecutionClient和NautilusSimExecutionBackend，不连接真实交易端。
 """
 
 from __future__ import annotations
@@ -9,93 +9,17 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-from decimal import Decimal
 from pathlib import Path
 
-from bomber.backtest.config import BacktestEngineConfig
-from bomber.model import BarType, Money, Venue
-from bomber.model.currencies import CNY
-from bomber.model.enums import AccountType, OmsType
-from bomber.model.identifiers import InstrumentId, TraderId
-
-from examples.single_ema.ema_ctp_backtest import _future, run_case
-from examples.single_ema.strategies import EmaCrossConfig, EmaCrossTargetStrategy
-from market.basic.base import InstrumentMeta, make_bar
-from strategy import BacktestRuntimePort
-from strategy.bridge import NautilusStrategyBridge, NautilusStrategyBridgeConfig
-from strategy.runtime import NautilusBacktestRuntime
+from examples.single_ema.ema_ctp_backtest import run_case
+from tests.run_unified_historical_runtime import test3_real_nautilus_pipeline
 
 
-SYNTHETIC_ID = InstrumentId.from_str("rb9999.SHFE")
+def test5_unified_backtest_runtime() -> None:
+    """N5：内存Bar通过统一Runner主链进入原生撮合引擎。"""
 
-
-def test5_bridge_and_backtest_runtime() -> None:
-    """N5：用内存Bar隔离验证统一策略已真正进入原生撮合引擎。"""
-
-    meta = InstrumentMeta(
-        instrument_id=SYNTHETIC_ID,
-        price_precision=0,
-        size_precision=0,
-        price_increment=Decimal(1),
-        multiplier=Decimal(10),
-        currency="CNY",
-        exchange="SHFE",
-    )
-    prices = [100, 101, 103, 105, 102, 99, 97, 100, 104, 106]
-    bars = [
-        make_bar(
-            instrument_id=SYNTHETIC_ID,
-            open=price - 1,
-            high=price + 1,
-            low=price - 2,
-            close=price,
-            volume=100,
-            ts_event=1_800_000_000_000_000_000 + index * 60_000_000_000,
-            meta=meta,
-            bar_type="1-MINUTE",
-        )
-        for index, price in enumerate(prices)
-    ]
-    runtime = NautilusBacktestRuntime(
-        "n5-synthetic",
-        BacktestEngineConfig(trader_id=TraderId("N5-TESTER"), run_analysis=False),
-    )
-    assert isinstance(runtime, BacktestRuntimePort)
-    runtime.add_venue(
-        venue=Venue("SHFE"),
-        oms_type=OmsType.NETTING,
-        account_type=AccountType.MARGIN,
-        base_currency=CNY,
-        starting_balances=[Money(1_000_000, CNY)],
-    )
-    runtime.add_instrument(_future(SYNTHETIC_ID, "2030-01-01"))
-    runtime.add_data(bars)
-    target_strategy = EmaCrossTargetStrategy(
-        "n5-ema",
-        EmaCrossConfig(fast_period=2, slow_period=3),
-    )
-    bridge = NautilusStrategyBridge(
-        NautilusStrategyBridgeConfig(
-            instrument_id=SYNTHETIC_ID,
-            bar_type=BarType.from_str(f"{SYNTHETIC_ID}-1-MINUTE-LAST-EXTERNAL"),
-        ),
-        target_strategy,
-    )
-    runtime.add_strategy(bridge)
-    try:
-        result = runtime.run()
-        orders = runtime.engine.trader.generate_orders_report()
-        fills = runtime.engine.trader.generate_fills_report()
-        assert bridge.target_events
-        assert not orders.empty
-        assert not fills.empty
-        assert result.total_orders == len(orders)
-        print(
-            f"N5通过：targets={len(bridge.target_events)} "
-            f"orders={len(orders)} fills={len(fills)}",
-        )
-    finally:
-        runtime.stop()
+    test3_real_nautilus_pipeline()
+    print("N5通过：统一Runner/Planner/Risk/Simulation Backend正式回测")
 
 
 def test6_ctp_bar_backtest() -> None:
@@ -113,7 +37,7 @@ def test7_ctp_tick_backtest() -> None:
 
 
 STAGES = {
-    5: test5_bridge_and_backtest_runtime,
+    5: test5_unified_backtest_runtime,
     6: test6_ctp_bar_backtest,
     7: test7_ctp_tick_backtest,
 }
@@ -145,7 +69,7 @@ def main() -> None:
     stage = int(args.stage)
     print(f"\n--- N{stage} ---")
     STAGES[stage]()
-    print("Formal strategy tests OK")
+    print(f"N{stage} formal strategy test OK")
 
 
 if __name__ == "__main__":

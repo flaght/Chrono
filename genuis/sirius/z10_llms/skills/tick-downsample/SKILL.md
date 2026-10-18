@@ -1,20 +1,20 @@
 ---
 name: tick-downsample
-description: 为 Orion 构建、开发、测试或校验从 CTP 等原始高频 Tick 快照流降频聚合为 1 分钟 Bar 基础行情与微观结构因子的算子管道。严格遵循纯 Polars Lazy 链式范式与 docs/tick_downsample_1min_features.md 规范，支持 OHLCV 基础字段及资金流、订单流 OFI、盘口深度失衡、期货持仓多空博弈、日内均价与涨跌停锚点特征。用户在要求编写 Tick 降频算子、微观底表特征提取、重采样聚合管道时使用。
+description: 为 Orion 构建、开发、测试或校验从 CTP 等原始高频 Tick 快照流降频聚合为 1 分钟 Bar 基础行情与微观结构因子的算子管道。严格遵循纯 Polars Lazy 链式范式与 [references/tick-contract.md](references/tick-contract.md) 规范，支持 OHLCV 基础字段及资金流、订单流 OFI、盘口深度失衡、期货持仓多空博弈、日内均价与涨跌停锚点特征。用户在要求编写 Tick 降频算子、微观底表特征提取、重采样聚合管道时使用。
 ---
 
 # Tick 降频与微观特征开发 (Tick Downsampling to 1-Minute Bar)
 
 本技能专门用于从 **CTP 500ms 原始快照流** 降频聚合生成 **1 分钟 Bar 基础行情与全套微观结构因子**。
 
-实现严格遵循 [docs/tick_downsample_1min_features.md](../../docs/tick_downsample_1min_features.md) 与 [references/tick-contract.md](references/tick-contract.md)，采用纯 Polars Lazy 链式表达，确保极高的计算吞吐量与内存友好性。
+实现严格遵循 [references/tick-contract.md](references/tick-contract.md)，采用纯 Polars Lazy 链式表达，确保极高的计算吞吐量与内存友好性。
 
 ---
 
 ## 必须遵循的开发流程
 
 1. **阅读输入规范与契约**：
-   - 完整阅读 [references/tick-contract.md](references/tick-contract.md) 与 [docs/tick_downsample_1min_features.md](../../docs/tick_downsample_1min_features.md)。
+   - 完整阅读 [references/tick-contract.md](references/tick-contract.md)。
    - 确认输入数据严格匹配 CTP 原生 15 个基础字段（`TradingDay, InstrumentID, UpdateTime, UpdateMillisec, LastPrice, Volume, Turnover, AveragePrice, BidPrice1, BidVolume1, AskPrice1, AskVolume1, OpenInterest, UpperLimitPrice, LowerLimitPrice`）。
 2. **复用或扩展模板**：
    - 快速单类别特征抽取：以 [assets/resampler_template.py](assets/resampler_template.py) 为起点编写专属提取器；

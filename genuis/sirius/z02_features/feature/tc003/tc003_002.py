@@ -4,7 +4,7 @@
 因子定义: 实体小于振幅阴线成交量占比：阴线实体小于总振幅的 K 线成交量占总成交量的比重
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD=15
 NAME="tc003_002"
 

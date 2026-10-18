@@ -4,7 +4,7 @@
 因子定义: 日内振幅均线突破度：日内振幅 (high-low)/open 相对其移动平均的偏离度
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_013"
 

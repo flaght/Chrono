@@ -23,7 +23,7 @@ class Launcher:
         mode: MiningMode = "free",
         config: EvolutionConfig = None,
         operator_config: Mapping[str, Sequence[str]] = None,
-        evaluation_config: TimeSeriesEvaluationConfig | None = None,
+        evaluation_config: TimeSeriesEvaluationConfig = None,
     ) -> None:
         self.feature_names = list(validate_names(feature_names, "feature_names"))
         self.return_column = return_column

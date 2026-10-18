@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 # 因子核心计算表达式
 EXPR = pl.col("_bear_stop_loss").sum().alias("mf001_015")

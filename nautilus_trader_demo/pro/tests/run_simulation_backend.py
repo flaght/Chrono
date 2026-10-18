@@ -18,8 +18,8 @@ from bomber.model.enums import AccountType, AssetClass, BookType, OmsType
 from bomber.model.identifiers import InstrumentId, TraderId
 from bomber.model.instruments import FuturesContract
 
-from market.basic.base import InstrumentMeta, make_bar
-from strategy import (
+from bomber.framework.market.basic.base import InstrumentMeta, make_bar
+from bomber.framework.trader import (
     ExecutionReport,
     ExecutionReportType,
     GenericVenueProfile,

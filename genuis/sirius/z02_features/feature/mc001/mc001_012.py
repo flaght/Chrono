@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 from .mc001_007 import EXPR as mc001_007_expr
 from .mc001_008 import EXPR as mc001_008_expr
 

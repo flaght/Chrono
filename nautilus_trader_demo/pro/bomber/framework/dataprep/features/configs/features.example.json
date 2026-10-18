@@ -1,0 +1,50 @@
+{
+  "format_version": 1,
+  "datasets": [
+    {
+      "schema": {
+        "dataset_id": "basis.five_minute",
+        "schema_version": 1,
+        "frequency": {"period_ns": 300000000000, "timezone": "Asia/Shanghai"},
+        "alignment": "ASOF",
+        "fields": [
+          {"name": "basis", "kind": "decimal"},
+          {"name": "lookback", "kind": "int", "minimum": "1"},
+          {"name": "currency", "kind": "str", "nullable": true}
+        ]
+      },
+      "source": {
+        "backend": "dolphindb-raw",
+        "database": "dfs://features_example",
+        "table": "basis_feature",
+        "key_column": "instrument",
+        "event_time": {"column": "eventTime", "encoding": "unix_ns", "timezone": "UTC"},
+        "publication_time": {"column": "publishedTime", "encoding": "unix_ns", "timezone": "UTC"},
+        "availability": "source-time",
+        "revision_column": "revision",
+        "quality_column": "quality",
+        "payload_columns": {"basis": "basis_value", "lookback": "lookback", "currency": "currency"}
+      }
+    },
+    {
+      "schema": {
+        "dataset_id": "volatility.minute",
+        "schema_version": 1,
+        "frequency": {"period_ns": 60000000000, "timezone": "Asia/Shanghai"},
+        "fields": [
+          {"name": "sigma", "kind": "float", "minimum": "0", "maximum": "1"},
+          {"name": "valid", "kind": "bool"}
+        ]
+      },
+      "source": {
+        "backend": "dolphindb-raw",
+        "database": "dfs://features_example",
+        "table": "volatility_feature",
+        "key_column": "instrument",
+        "event_time": {"column": "eventTime", "encoding": "unix_ns", "timezone": "UTC"},
+        "availability": "observed",
+        "payload_columns": {"sigma": "annual_sigma", "valid": "valid"}
+      }
+    }
+  ]
+}

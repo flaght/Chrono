@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 
-from market.basic.base import InstrumentId
-from strategy import (
+from bomber.framework.market.basic.base import InstrumentId
+from bomber.framework.trader import (
     AccountPositionSnapshot,
     ExecutionBackendKind,
     ExecutionBackendPort,
@@ -26,7 +26,7 @@ from strategy import (
     SimExecutionBackendPort,
     VenueSimulationProfilePort,
 )
-from strategy.contracts import ExecutionRequest
+from bomber.framework.trader.contracts import ExecutionRequest
 
 
 BTC_ID = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")

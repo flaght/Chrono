@@ -4,7 +4,7 @@
 因子定义: 价格极值区间压缩比：价格最高最低区间与典型波动区间的比率
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_021"
 

@@ -1,6 +1,8 @@
 ### 创建记忆池
 import pdb, itertools, os, toml, asyncio, math, json
 import pandas as pd
+# 修改：文本状态，缺失文本文件不阻止数值流程。
+from lib.text001 import read_optional_text_data, validate_text_reflection, UNAVAILABLE
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -25,7 +27,7 @@ def format_textual_events_timeline(events_data,
     if events_data is None or (isinstance(
             events_data, pd.DataFrame) and events_data.empty) or (isinstance(
                 events_data, list) and len(events_data) == 0):
-        return "{0}\n".format(base_line)
+        return ""  # 修改：空窗口不生成可被误嵌入的标题。
     df = events_data.copy()
 
     df['trade_date'] = df['trade_date'].astype(str)
@@ -81,7 +83,7 @@ def load_data(method, period):
         os.path.join("records", "normal", str(method), "predict_data.feather"))
     regime_data = pd.read_feather(
         os.path.join("records", "normal", str(method), "regime_data.feather"))
-    textuals_data = pd.read_feather(
+    textuals_data = read_optional_text_data(
         os.path.join("records", "normal", str(method),
                      "textuals_data.feather"))
     returns_data = pd.read_feather(
@@ -103,7 +105,7 @@ def load_data(method, period):
     regime_data = pd.read_feather(
         os.path.join("records", "normal", str(method),
                      "train_regime_data.feather"))
-    textuals_data = pd.read_feather(
+    textuals_data = read_optional_text_data(
         os.path.join("records", "normal", str(method),
                      "train_textuals_data.feather"))
     returns_data = pd.read_feather(
@@ -126,7 +128,7 @@ async def run(method, period, lookback):
         load_data, method=method, period=period)
 
     dates = set(predict_data['trade_date']).intersection(
-        regime_data['trade_date'], textuals_data['trade_date'])
+        regime_data['trade_date'])  # 修改：运行日期不依赖文本覆盖。
     dates = [d.strftime('%Y-%m-%d') for d in dates]
     dates.sort()
     dates = dates  #[0:lookback + 5]
@@ -191,6 +193,6 @@ async def run(method, period, lookback):
 
 
 if __name__ == '__main__':
-    method = 'train0'
+    method = 'train1'
     period = 3
     asyncio.run(run(method=method, period=3, lookback=3))

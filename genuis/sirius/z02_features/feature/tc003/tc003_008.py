@@ -4,7 +4,7 @@
 因子定义: 价格突破与量能确认：价格创 N 周期新高同时伴随成交量放大的突破信号
 """
 import polars as pl
-from feature.utils.common import rolling_rank, safe_div, validate_period
+from lib.process.common import rolling_rank, safe_div, validate_period
 DEFAULT_PERIOD=15
 NAME="tc003_008"
 

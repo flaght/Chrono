@@ -1,16 +1,13 @@
-from dotenv import load_dotenv
-
-load_dotenv()
-
-from kdutils.data import *
+import numpy as np
+import pandas as pd
 
 EPS = 1e-12
 
 # 数据是否足够 # 表示两个品种至少需要有504个共同有效交易日，才能计算它们之间的统计距离。
 MIN_OVERLAP_DAYS = 504
-# 候选与当前组整体是否足够接近 # 表示候选品种与当前组所有成员的平均距离，最多允许达到A组核心距离的1.25倍
+# 候选与当前组整体是否足够接近 # 表示候选品种与当前组所有成员的平均距离，最多允许达到A组核心距离的1.35倍
 MAX_AVG_RATIO = 1.35
-# 候选是否与某个成员严重不兼容； # 表示候选与当前组中最远成员的距离，最多允许达到A组核心距离的1.35倍。
+# 候选是否与某个成员严重不兼容； # 表示候选与当前组中最远成员的距离，最多允许达到A组核心距离的1.50倍。
 MAX_PAIR_RATIO = 1.50
 # 这种相似关系是否在历史上长期稳定 # 表示候选品种必须在至少70%的滚动历史窗口中通过扩组条件，才能成为固定组成员。
 MIN_INCLUSION_RATE = 0.70
@@ -20,6 +17,10 @@ STEP_DAYS = 252
 
 CORR_WEIGHT = 0.5
 FINGERPRINT_WEIGHT = 0.5
+
+
+class CoreDistanceError(ValueError):
+    """当前样本无法提供有效的核心距离标尺。"""
 
 
 def statistical_fingerprint(ret: pd.Series) -> np.ndarray:
@@ -77,6 +78,7 @@ def _robust_standardize_rows(values: np.ndarray) -> np.ndarray:
 
 
 def build_pairwise_distance(returns: pd.DataFrame):
+    returns = returns.replace([np.inf, -np.inf], np.nan)
     symbols = list(returns.columns)
     fingerprints = np.vstack(
         [statistical_fingerprint(returns[s]) for s in symbols])
@@ -99,6 +101,8 @@ def build_pairwise_distance(returns: pd.DataFrame):
                 continue
 
             rho = _safe_corr(pair[left].to_numpy(), pair[right].to_numpy())
+            if not np.isfinite(rho):
+                continue
             # rho=1 -> 0; rho=0 -> sqrt(2)/2; rho=-1 -> 1  # 将相关性转化为距离
             corr_distance = np.sqrt(max(0.0, 2.0 * (1.0 - rho))) / 2.0
             # 找出两个品种都有效的指纹维度
@@ -144,15 +148,18 @@ def score_candidate(selected, candidate, distance, anchor_distance):
 
 def anchor_core_distance(core, distance) -> float:
     """计算 A 级最小核内部平均距离，扩组全程固定不变。"""
+    core = list(dict.fromkeys(core))
+    if len(core) < 2:
+        raise ValueError("最小核至少需要两个不同品种")
     values = [
         float(distance.loc[a, b]) for i, a in enumerate(core)
-        for b in core[i + 1:] if np.isfinite(distance.loc[a, b])
+        for b in core[i + 1:]
     ]
-    if not values:
-        raise ValueError("最小核没有足够的共同历史，无法计算锚定距离")
+    if not np.isfinite(values).all():
+        raise CoreDistanceError("最小核存在无效距离（共同历史不足或收益无有效波动）")
     value = float(np.mean(values))
     if value < EPS:
-        raise ValueError("最小核距离过小，不适合作为相对倍数标尺")
+        raise CoreDistanceError("最小核距离过小，不适合作为相对倍数标尺")
     return value
 
 
@@ -211,7 +218,11 @@ def rolling_inclusion_rate(returns,
                            candidates,
                            window_days: int = 756,
                            step_days: int = 252):
-    """在多个时间窗口重复扩组，统计品种入组率。"""
+    """只以核心距离有效的窗口为分母；候选历史不足时在该窗口记为未入组。"""
+    if returns.empty:
+        raise ValueError("收益数据为空，无法计算滚动入组率")
+    if window_days <= 0 or step_days <= 0:
+        raise ValueError("window_days 和 step_days 必须为正数")
     all_symbols = list(dict.fromkeys([*core, *candidates]))
     rows = []
     if len(returns) < window_days:
@@ -223,12 +234,30 @@ def rolling_inclusion_rate(returns,
         starts.append(last_start)
     for start in sorted(set(starts)):
         sample = returns.iloc[start:start + window_days]
-        dist, _ = build_pairwise_distance(sample[all_symbols])
-        selected, _ = expand_minimum_core(dist, core, candidates)
+        dist, overlap = build_pairwise_distance(sample[all_symbols])
+        min_core_overlap = min(
+            (int(overlap.loc[a, b]) for i, a in enumerate(core)
+             for b in core[i + 1:]), default=0)
+        try:
+            selected, _ = expand_minimum_core(dist, core, candidates)
+        except CoreDistanceError as exc:
+            rows.append({
+                "start": sample.index.min(),
+                "end": sample.index.max(),
+                "selected": "",
+                "valid": False,
+                "reason": str(exc),
+                "min_core_overlap": min_core_overlap,
+                **{symbol: np.nan for symbol in all_symbols},
+            })
+            continue
         rows.append({
             "start": sample.index.min(),
             "end": sample.index.max(),
             "selected": ",".join(selected),
+            "valid": True,
+            "reason": "",
+            "min_core_overlap": min_core_overlap,
             **{
                 symbol: int(symbol in selected)
                 for symbol in all_symbols
@@ -236,7 +265,8 @@ def rolling_inclusion_rate(returns,
         })
 
     detail = pd.DataFrame(rows)
-    rates = detail[all_symbols].mean().sort_values(ascending=False)
+    rates = detail.loc[detail["valid"], all_symbols].mean().sort_values(
+        ascending=False)
     rates.name = "inclusion_rate"
     return rates, detail
 
@@ -249,8 +279,17 @@ def close_to_daily_returns(close: pd.DataFrame) -> pd.DataFrame:
 
 
 def start(begin_date, end_date):
-    core_codes = ['RB', 'HC']
-    candidates_codes = ['I', 'J', 'JM', 'SF', 'SM']
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    from kdutils.data import fetch_daily_market
+
+    #core_codes = ['RB','HC']
+    #candidates_codes = ['I', 'J', 'JM', 'SF', 'SM']
+    #core_codes = ['P','Y']
+    #candidates_codes = ['OI','M']
+    core_codes = ['IM','IH']
+    candidates_codes = ['IF','IC']
     symbols = list(dict.fromkeys([*core_codes, *candidates_codes]))
     market_data = fetch_daily_market(begin_date=begin_date,
                                      end_date=end_date,
@@ -286,11 +325,16 @@ def start(begin_date, end_date):
     ]
     print(history[columns].round(3).to_string(index=False))
     print("\n=== 滚动窗口入组率 ===")
+    print(f"有效窗口: {int(rolling['valid'].sum())}/{len(rolling)}（跳过窗口不计入分母）")
     print(rates.round(3).to_string())
     stable = rates[rates >= MIN_INCLUSION_RATE].index.tolist()
-    print(f"\n固定组（入组率 >= {MIN_INCLUSION_RATE:.0%}）: " + ", ".join(stable))
+    if rolling["valid"].any():
+        print(f"\n固定组（入组率 >= {MIN_INCLUSION_RATE:.0%}）: " + ", ".join(stable))
+    else:
+        print("\n没有有效滚动窗口，无法确定固定组；请检查核心共同历史或窗口长度。")
     print("\n=== 滚动窗口细节 ===")
-    print(rolling[["start", "end", "selected"]].to_string(index=False))
+    print(rolling[["start", "end", "selected", "valid", "min_core_overlap",
+                   "reason"]].to_string(index=False))
     print("\n=== 最小重叠天数 ===")
     print(overlap.to_string())
 

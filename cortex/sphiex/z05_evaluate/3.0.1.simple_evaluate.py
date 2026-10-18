@@ -27,7 +27,7 @@ async def run(method, period, lookback):
     for k, v in snapshot_dict.items():
         predict_direction = v['trader_prediction']['predict_direction']
         if predict_direction == "UP":
-            direction= 1
+            direction = 1
         elif predict_direction == "DOWN":
             direction = -1
         elif predict_direction == "FLAT":
@@ -35,18 +35,18 @@ async def run(method, period, lookback):
         confidence = v['trader_prediction']['confidence']
         forward_return = v['forward_return']
         res.append({
-            'trade_date':k,
+            'trade_date': k,
             'direction': direction,
             'confidence': confidence,
             'forward_return': forward_return
         })
-    results = pd.DataFrame(res).sort_values(by=['trade_date']).reset_index(drop=True)
-    results['returns1'] = (results['direction'] * results['forward_return'] / 3)
-    pdb.set_trace()
-    print('-->')
+    results = pd.DataFrame(res).sort_values(by=['trade_date']).reset_index(
+        drop=True)
+    results['returns1'] = (results['direction'] * results['forward_return'] /
+                           3)
 
 
 if __name__ == '__main__':
-    method = 'train0'
+    method = 'train1'
     period = 3
     asyncio.run(run(method=method, period=3, lookback=3))

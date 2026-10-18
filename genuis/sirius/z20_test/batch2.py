@@ -8,7 +8,7 @@ from typing import Any
 import polars as pl
 
 from feature import BATCH_FACTORS
-from feature.utils.common import compute_factor_batch
+from lib.process.common import compute_factor_batch
 
 
 DEFAULT_BATCHES = (

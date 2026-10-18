@@ -8,7 +8,7 @@ mc001 资金流向高频特征下采样聚合引擎 (Downsampling Aggregator Eng
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 # 直接从各单因子文件中导入其核心计算表达式（各因子模块自持计算公式）
 from .mc001_001 import EXPR as mc001_001_expr

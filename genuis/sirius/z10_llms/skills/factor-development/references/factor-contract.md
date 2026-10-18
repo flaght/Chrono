@@ -20,7 +20,7 @@
 跨因子共享的安全除法、对数收益、参数校验和批量注册表计算统一使用 `feature/utils/common.py`。具体因子模块按需绝对导入，例如：
 
 ```python
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 ```
 
 不得在因子分类目录中创建 `_common.py` 或复制同类公共函数；只有确实只服务单个公式的辅助表达式才保留在该因子文件内。

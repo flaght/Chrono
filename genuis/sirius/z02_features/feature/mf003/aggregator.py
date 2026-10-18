@@ -8,7 +8,7 @@ mf003 期货日内均价线与基准锚点类特征下采样聚合引擎 (Downsa
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 from .mf003_001 import EXPR as mf003_001_expr
 from .mf003_002 import EXPR as mf003_002_expr

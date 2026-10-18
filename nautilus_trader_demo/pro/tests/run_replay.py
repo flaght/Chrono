@@ -1,20 +1,20 @@
-"""Combined offline replay smoke test for CTP and Binance data."""
+"""CTP 与 Binance 数据的联合离线回放冒烟测试。"""
 
 from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
 
-from market.basic.base import DataType, InstrumentId, InstrumentMeta
-from market.replay.base import DataLoadError, FileReplayFeed
-from market.replay.parsers.bar import (
+from bomber.framework.market.basic.base import DataType, InstrumentId, InstrumentMeta
+from bomber.framework.market.replay.base import DataLoadError, FileReplayFeed
+from bomber.framework.market.replay.parsers.bar import (
     BarColumns,
     BinanceKlineParser,
     BinanceMarketType,
     MappedBarParser,
     binance_instrument_id,
 )
-from market.replay.parsers.tick import CtpTickParser
+from bomber.framework.market.replay.parsers.tick import CtpTickParser
 
 
 CTP_TICK_PATH = Path(

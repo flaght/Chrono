@@ -49,7 +49,7 @@ def _env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-from market.basic.base import (  # noqa: E402
+from bomber.framework.market.basic.base import (  # noqa: E402
     Bar,
     DataType,
     InstrumentId,
@@ -60,7 +60,7 @@ from market.basic.base import (  # noqa: E402
     TradeTick,
     make_bar,
 )
-from strategy import (  # noqa: E402
+from bomber.framework.trader import (  # noqa: E402
     DataBinding,
     ExecutionRequest,
     ExecutionRoute,
@@ -379,7 +379,7 @@ def test6_dolphin_live_to_recording_execution() -> None:
     FirstQuoteTargetStrategy → TargetPortfolio → ExecutionRoute → ExecutionRequest。
     RecordingExecutionClient确保本测试绝不会真实下单。
     """
-    from market.stream.dolphin import (
+    from bomber.framework.market.stream.dolphin import (
         DolphinDbConfig,
         DolphinDbLiveDataFeed,
         DolphinDbStreamSpec,
@@ -480,8 +480,8 @@ def test7_ctp_tick_replay_to_strategy() -> None:
     同一原始记录可产生QuoteTick及由累计Volume变化推导的TradeTick。测试核对Feed
     汇总计数与策略计数完全一致，并验证策略只提交一次目标。它不包含撮合和PnL。
     """
-    from market.replay.base import FileReplayFeed
-    from market.replay.parsers.tick import CtpTickParser
+    from bomber.framework.market.replay.base import FileReplayFeed
+    from bomber.framework.market.replay.parsers.tick import CtpTickParser
 
     if not CTP_TICK_PATH.is_file():
         raise FileNotFoundError(f"CTP Tick文件不存在: {CTP_TICK_PATH}")
@@ -567,7 +567,7 @@ def test10_binance_live_to_recording_execution() -> None:
     路径为：bookTicker → QuoteTick → Runner → FirstQuoteTargetStrategy →
     ExecutionRequest。执行端仍是recording-only，所以测试不会向Binance发送订单。
     """
-    from market.stream.bn import BNWSConfig, BNWSStreamDataFeed
+    from bomber.framework.market.stream.bn import BNWSConfig, BNWSStreamDataFeed
 
     timeout = float(os.getenv("BN_STRATEGY_TIMEOUT", "30"))
     feed_id = "binance-live"

@@ -8,7 +8,7 @@ mf002 期货涨跌停极限边界与流动性挤压类特征下采样聚合引�
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 from .mf002_001 import EXPR as mf002_001_expr
 from .mf002_002 import EXPR as mf002_002_expr

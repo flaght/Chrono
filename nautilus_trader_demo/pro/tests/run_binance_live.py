@@ -16,14 +16,14 @@ logging.basicConfig(
 logger = logging.getLogger("BinanceRunner")
 
 # 引入核心模型与订阅源
-from market.basic.base import (
+from bomber.framework.market.basic.base import (
     DataType,
     InstrumentId,
     InstrumentMeta,
     QuoteTick,
     TradeTick,
 )
-from market.stream.bn import BNWSConfig, BNWSStreamDataFeed
+from bomber.framework.market.stream.bn import BNWSConfig, BNWSStreamDataFeed
 
 
 # --------------------------------------------------------------------------------------

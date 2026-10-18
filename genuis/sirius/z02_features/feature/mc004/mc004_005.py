@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 # 因子核心计算表达式
 EXPR = pl.corr("_delta_v", "_depth_imb").fill_nan(0.0).fill_null(0.0).alias("mc004_005")

@@ -6,7 +6,7 @@ import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from feature.utils import formula as formula_ops
+from lib.process import formula as formula_ops
 
 DEFAULT_UNARY_OPERATORS = ("abs", "log", "atan", "tanh", "sign")
 DEFAULT_WINDOW_OPERATORS = (

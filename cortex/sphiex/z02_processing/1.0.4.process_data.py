@@ -105,13 +105,13 @@ def splite_data(data, train_range, val_range, test_range):
 
 ## 输出切割
 if __name__ == '__main__':
-    method = 'test0'
+    method = 'test1'
     period = 3
     regime_data = process_regime_data(method=method)
     predict_data = process_predict_data(method=method)
     textuals_data = process_textuals(method=method)
     returns_data = process_returns(method=method, period=period)
-    
+    pdb.set_trace()
     # aligned_data = pd.merge(returns_data,textuals_data,on='trade_date',how='left') 主要用于检查 textuals_data是否有缺收
     output_dir = os.path.join(base_path, "normal", method)
     os.makedirs(output_dir, exist_ok=True)
@@ -140,6 +140,7 @@ if __name__ == '__main__':
         val_range=val_range,
         test_range=test_range)
     pdb.set_trace()
+    print(output_dir)
     train_regime_data.to_feather(
         os.path.join(output_dir, "train_regime_data.feather"))
     train_predict_data.to_feather(

@@ -1,4 +1,5 @@
 import pandas as pd
+from lib.text001 import resolve_text_status, text_instruction
 
 class PromptDataBuilder:
     """
@@ -45,16 +46,18 @@ class PromptDataBuilder:
         return df.to_markdown(index=False)
 
     @staticmethod
-    def build_textual_events(tdata: pd.DataFrame) -> str:
+    def build_textual_events(tdata: pd.DataFrame, text_status=None) -> str:
         """3. 格式化文本事件脉络 (tdata)"""
-        if tdata.empty:
-            return "【当前回溯窗口内无重大文本事件】"
+        # 修改：文本状态，空数据默认缺失；确认无事件需显式 text_status。
+        text_status = resolve_text_status([] if tdata is None or tdata.empty else [True], text_status)
+        if tdata is None or tdata.empty:
+            return text_instruction(text_status)
             
         df = tdata.copy()
         if 'trade_date' in df.columns:
             df['trade_date'] = pd.to_datetime(df['trade_date']).dt.strftime('%Y-%m-%d')
             
-        lines = []
+        lines = [text_instruction(text_status)]
         for trade_date, group in df.groupby('trade_date', sort=True):
             lines.append(f"### 📅 交易日: {trade_date}")
             for _, row in group.iterrows():

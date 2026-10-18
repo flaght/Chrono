@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import tempfile
 import time
@@ -22,7 +23,7 @@ import threading
 from pathlib import Path
 from typing import Any, Mapping
 from dotenv import load_dotenv
-from market.native.ctp.driver import CtpMdDriver, NativeCtpMdDriver, create_native_driver
+from bomber.framework.market.native.ctp.driver import CtpMdDriver, NativeCtpMdDriver, create_native_driver
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -197,6 +198,8 @@ class MarketDataProbe(LoginProbe):
         self.subscribe_error: Mapping[str, Any] | None = None
         self.tick_received = threading.Event()
         self.first_tick: dict[str, Any] | None = None
+        self.latest_tick: dict[str, Any] | None = None
+        self.tick_count = 0
 
     def on_login_response(self, error: Mapping[str, Any] | None) -> None:
         super().on_login_response(error)
@@ -222,13 +225,18 @@ class MarketDataProbe(LoginProbe):
         self.subscribe_done.set()
 
     def on_depth_market_data(self, data: Mapping[str, Any]) -> None:
+        self.latest_tick = dict(data)
+        self.tick_count += 1
         if self.first_tick is not None:
             return
         self.first_tick = dict(data)
         logger.info(
-            "收到第一份原始行情: instrument=%s time=%s.%03d last=%s "
-            "bid=%s@%s ask=%s@%s volume=%s open_interest=%s",
+            "收到第一份原始行情: instrument=%s trading_day=%s action_day=%s "
+            "time=%s.%03d last=%s "
+            "bid=%s@%s ask=%s@%s limit=[%s,%s] volume=%s open_interest=%s",
             data.get("InstrumentID", ""),
+            data.get("TradingDay", ""),
+            data.get("ActionDay", ""),
             data.get("UpdateTime", ""),
             int(data.get("UpdateMillisec", 0) or 0),
             data.get("LastPrice"),
@@ -236,6 +244,8 @@ class MarketDataProbe(LoginProbe):
             data.get("BidVolume1"),
             data.get("AskPrice1"),
             data.get("AskVolume1"),
+            data.get("LowerLimitPrice"),
+            data.get("UpperLimitPrice"),
             data.get("Volume"),
             data.get("OpenInterest"),
         )
@@ -358,6 +368,9 @@ def test4() -> None:
     symbol = _required_env("CTP_SYMBOL")
     connect_timeout = float(os.getenv("CTP_CONNECT_TIMEOUT", "15"))
     market_timeout = float(os.getenv("CTP_MARKET_TIMEOUT", "30"))
+    sample_seconds = float(os.getenv("CTP_MARKET_SAMPLE_SECONDS", "0"))
+    if sample_seconds < 0:
+        raise ValueError("CTP_MARKET_SAMPLE_SECONDS不能为负数")
     production_mode = _env_bool("CTP_PRODUCTION_MODE", False)
     flow_path = Path(os.getenv("CTP_MD_FLOW_PATH", "/tmp/bomber-ctp-market-probe"))
 
@@ -393,6 +406,21 @@ def test4() -> None:
                 f"订阅成功，但 {market_timeout:g} 秒内未收到 {symbol} 行情；"
                 "请确认交易时段和合约代码",
             )
+        if sample_seconds:
+            time.sleep(sample_seconds)
+            latest = probe.latest_tick or {}
+            logger.info(
+                "采样末原始行情: ticks=%s trading_day=%s action_day=%s "
+                "time=%s.%03d bid=%s@%s ask=%s@%s limit=[%s,%s]",
+                probe.tick_count,
+                latest.get("TradingDay", ""),
+                latest.get("ActionDay", ""),
+                latest.get("UpdateTime", ""),
+                int(latest.get("UpdateMillisec", 0) or 0),
+                latest.get("BidPrice1"), latest.get("BidVolume1"),
+                latest.get("AskPrice1"), latest.get("AskVolume1"),
+                latest.get("LowerLimitPrice"), latest.get("UpperLimitPrice"),
+            )
         print("CTP raw market data OK")
     finally:
         if subscribed:
@@ -416,8 +444,8 @@ def test5() -> None:
 
     from decimal import Decimal
 
-    from market.basic.base import DataType, InstrumentId, InstrumentMeta, QuoteTick, TradeTick
-    from market.stream.ctp import CtpLiveDataFeed, CtpMdConfig
+    from bomber.framework.market.basic.base import DataType, InstrumentId, InstrumentMeta, QuoteTick, TradeTick
+    from bomber.framework.market.stream.ctp import CtpLiveDataFeed, CtpMdConfig
 
     symbol = _required_env("CTP_SYMBOL")
     exchange = os.getenv("CTP_EXCHANGE", "SHFE").upper()
@@ -513,7 +541,8 @@ def test5() -> None:
         logger.info("停止正式 CTP Feed")
         feed.disconnect()
 
-# 当前默认只运行最高层的正式Feed测试。排查底层问题时可临时调用test1～test4，
-# 顺序应始终从低层到高层，避免把动态库问题误判为账号或数据转换问题。
 if __name__ == "__main__":
-    test5()
+    parser = argparse.ArgumentParser(description="CTP行情链路分层探针；不连接交易前置")
+    parser.add_argument("--stage", choices=("1", "2", "3", "4", "5"), default="5")
+    args = parser.parse_args()
+    {"1": test1, "2": test2, "3": test3, "4": test4, "5": test5}[args.stage]()

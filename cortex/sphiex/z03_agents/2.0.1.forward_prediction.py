@@ -2,6 +2,8 @@ import pdb, itertools, os, toml, asyncio, math, json
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+# 修改：文本状态，缺失文本文件不阻止数值流程。
+from lib.text001 import read_optional_text_data, validate_text_reflection, UNAVAILABLE
 import numpy as np
 from dotenv import load_dotenv
 
@@ -78,7 +80,7 @@ def load_data(method):
         os.path.join("records", "normal", str(method), "train_predict_data.feather"))
     regime_data = pd.read_feather(
         os.path.join("records", "normal", str(method), "train_regime_data.feather"))
-    textuals_data = pd.read_feather(
+    textuals_data = read_optional_text_data(
         os.path.join("records", "normal", str(method),
                      "train_textuals_data.feather"))
     # returns_data = pd.read_feather(
@@ -90,7 +92,7 @@ def load_data(method):
 
 
 async def create_predict_agent():
-    llm_name = 'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+    llm_name = 'glm_4001'#'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
     vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
     persona_name = 'quant_fusion_trader_10001'
     thoughts_name = 'fusion_trader_user_100001'
@@ -127,7 +129,7 @@ async def predict(method, period, lookback=3, is_refresh=False):
     predict_agent, predict_thoughts, predict_thoughts_name = await create_predict_agent(
     )
     dates = set(predict_data['trade_date']).intersection(
-        regime_data['trade_date'], textuals_data['trade_date'])
+        regime_data['trade_date'])  # 修改：运行日期不依赖文本覆盖。
     dates = [d.strftime('%Y-%m-%d') for d in dates]
     dates.sort()
     pdb.set_trace()
@@ -197,5 +199,5 @@ async def predict(method, period, lookback=3, is_refresh=False):
 
 
 if __name__ == '__main__':
-    method = 'train0'
+    method = 'train1'
     asyncio.run(predict(method=method, period=3, lookback=3))

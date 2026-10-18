@@ -19,10 +19,10 @@ from bomber.model.data import Bar
 from bomber.model.enums import AccountType, OmsType, PositionSide
 from bomber.model.identifiers import TraderId
 
-from market.basic.base import DataType, InstrumentMeta
-from market.replay.base import FileReplayFeed
-from market.replay.parsers.bar import BinanceKlineParser, BinanceMarketType
-from strategy import (
+from bomber.framework.market.basic.base import DataType, InstrumentMeta
+from bomber.framework.market.replay.base import FileReplayFeed
+from bomber.framework.market.replay.parsers.bar import BinanceKlineParser, BinanceMarketType
+from bomber.framework.trader import (
     BinanceUsdtFuturesProfile,
     ExecutionReportType,
     NautilusSimExecutionBackend,

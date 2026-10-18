@@ -4,7 +4,7 @@
 因子定义: 收益率自相关衰减率：相邻两期收益率滚动自相关系数的变动率
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD=15
 NAME="tc003_011"
 

@@ -1,0 +1,44 @@
+{
+  "format_version": 1,
+  "datasets": [
+    {
+      "schema": {
+        "dataset_id": "index.minute",
+        "schema_version": 1,
+        "computation_version": "raw-index-minute-v1",
+        "frequency": {"period_ns": 60000000000, "timezone": "Asia/Shanghai"},
+        "alignment": "EXACT",
+        "fields": [
+          {"name": "open", "kind": "decimal", "minimum": "0", "exclusive_minimum": true},
+          {"name": "high", "kind": "decimal", "minimum": "0", "exclusive_minimum": true},
+          {"name": "low", "kind": "decimal", "minimum": "0", "exclusive_minimum": true},
+          {"name": "close", "kind": "decimal", "minimum": "0", "exclusive_minimum": true},
+          {"name": "volume", "kind": "decimal", "minimum": "0"},
+          {"name": "turnover", "kind": "decimal", "minimum": "0"},
+          {"name": "prev_close", "kind": "decimal", "nullable": true, "minimum": "0", "exclusive_minimum": true},
+          {"name": "pct_change", "kind": "decimal", "nullable": true}
+        ],
+        "relations": [
+          {"left": "high", "op": "ge", "right": "open"},
+          {"left": "high", "op": "ge", "right": "close"},
+          {"left": "high", "op": "ge", "right": "low"},
+          {"left": "low", "op": "le", "right": "open"},
+          {"left": "low", "op": "le", "right": "close"}
+        ]
+      },
+      "source": {
+        "backend": "dolphindb-raw",
+        "database": "dfs://min_bar",
+        "table": "index_1min",
+        "key_column": "Code",
+        "partition_date": "date",
+        "event_time": {"column": "minTime", "date_column": "date", "timezone": "Asia/Shanghai", "label": "end"},
+        "publication_time": {"column": "updateTime", "date_column": "date", "timezone": "Asia/Shanghai"},
+        "availability": "observed",
+        "payload_columns": {"open": "open", "high": "high", "low": "low", "close": "close", "volume": "volume",
+          "turnover": "turnover", "prev_close": "prev_close", "pct_change": "pct_change"}
+      },
+      "bar_projection": {"bar_spec": "1-MINUTE", "fields": {"open": "open", "high": "high", "low": "low", "close": "close", "volume": "volume"}}
+    }
+  ]
+}

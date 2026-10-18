@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 # 因子核心计算表达式（供单因子独立计算及批次聚合器 aggregator 统一引用）
 # 逻辑说明: 主动买入笔数与主动卖出笔数之差: tick_in - tick_out

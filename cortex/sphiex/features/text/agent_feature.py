@@ -109,7 +109,7 @@ class AgentFeature(object):
                                is_refresh=False):
         base_dirs = os.path.join(base_path, "data", "event", "map")
         os.makedirs(base_dirs, exist_ok=True)
-        llm_name = 'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+        llm_name = 'glm_4001'#'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
         vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
         persona_name = 'news_event_map_system_100001'
         thoughts_name = 'news_event_map_user_100001'
@@ -123,9 +123,11 @@ class AgentFeature(object):
                                               agent_title=agent_title,
                                               category="diver")
 
-        pdb.set_trace()
-        # news_data = news_data[(news_data['date']>='2025-08-02')&(news_data['date']<='2025-08-20')]
-        for k, v in news_data.groupby('date'):
+        #news_data = news_data[(news_data['date']>='2025-05-07')&(news_data['date']<='2025-05-11')]
+        #for k, v in news_data.groupby('date'):
+        for k, v in sorted(news_data.groupby('date'),
+                           key=lambda item: item[0],
+                           reverse=True):
             trade_date = k
             filename = os.path.join(base_dirs,
                                     "{0}.feather".format(trade_date))
@@ -175,7 +177,7 @@ class AgentFeature(object):
 
         base_dirs = os.path.join(base_path, "data", "event", "reduce")
         os.makedirs(base_dirs, exist_ok=True)
-        llm_name = 'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+        llm_name = 'glm_4001'#'deepseek_4001'#'glm_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
         vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
         persona_name = 'news_event_reduce_system_100001'
         thoughts_name = 'news_event_reduce_user_100001'
@@ -191,8 +193,11 @@ class AgentFeature(object):
                                               category="diver")
         thought = thoughts1[thoughts_name]
         tasks = []
+        pdb.set_trace()
         ### 10组执行一次
-        for k, v in event_data.groupby('date'):
+        for k, v in sorted(event_data.groupby('date'),
+                           key=lambda item: item[0],
+                           reverse=True):
             trade_date = k
             print(trade_date)
             filename = os.path.join(base_dirs,
@@ -263,7 +268,7 @@ class AgentFeature(object):
 
         base_dirs = os.path.join(base_path, "data", "event", "textuals")
         os.makedirs(base_dirs, exist_ok=True)
-        llm_name = 'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+        llm_name = 'glm_4001'#'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
         vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
         persona_name = 'news_event_system_100001'
         thoughts_name = 'news_event_user_100001'
@@ -308,7 +313,9 @@ class AgentFeature(object):
 
             cctv_iems = []
             for sg in sub_cctv:
-                publish_time = sg['date'] if pd.isna(sg['publish_time']) else sg['publish_time'].strftime('%Y-%m-%d %H:%M:%S')
+                publish_time = sg['date'] if pd.isna(
+                    sg['publish_time']) else sg['publish_time'].strftime(
+                        '%Y-%m-%d %H:%M:%S')
                 item = (
                     "<item>\n"
                     f"  <publish_time>{escape(publish_time)}</publish_time>\n"
@@ -318,7 +325,9 @@ class AgentFeature(object):
 
             monetary_iems = []
             for sg in sub_monetary:
-                publish_time = sg['date'] if pd.isna(sg['publish_time']) else sg['publish_time'].strftime('%Y-%m-%d %H:%M:%S')
+                publish_time = sg['date'] if pd.isna(
+                    sg['publish_time']) else sg['publish_time'].strftime(
+                        '%Y-%m-%d %H:%M:%S')
                 item = (
                     "<item>\n"
                     f"  <publish_time>{escape(publish_time)}</publish_time>\n"
@@ -373,7 +382,7 @@ class AgentFeature(object):
                 tasks = []
         if len(tasks) > 0:
             await run_task(tasks)
-            
+
         batch_results = await asyncio.gather(*tasks)
         for result in batch_results:
             trade_date = result['output']['trade_time']

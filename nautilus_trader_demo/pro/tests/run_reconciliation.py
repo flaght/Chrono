@@ -8,8 +8,8 @@ from __future__ import annotations
 import argparse
 from decimal import Decimal
 
-from market.basic.base import InstrumentId
-from strategy import (
+from bomber.framework.market.basic.base import InstrumentId
+from bomber.framework.trader import (
     BackendExecutionClient,
     ExecutionRequest,
     NautilusLiveExecutionBackend,

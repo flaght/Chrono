@@ -4,7 +4,7 @@
 因子定义: 价格中心距与成交额相关性：价格偏离均值中心距与成交额的协同性
 """
 import polars as pl
-from feature.utils.common import log_return, safe_div, validate_period
+from lib.process.common import log_return, safe_div, validate_period
 DEFAULT_PERIOD = 15
 NAME = "tc004_007"
 

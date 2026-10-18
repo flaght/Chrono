@@ -25,8 +25,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-from market.basic.base import InstrumentId  # noqa: E402
-from strategy import (  # noqa: E402
+from bomber.framework.market.basic.base import InstrumentId  # noqa: E402
+from bomber.framework.trader import (  # noqa: E402
     AccountTargetKey,
     DataBinding,
     ExecutionRequest,
@@ -42,7 +42,7 @@ from strategy import (  # noqa: E402
     TargetUpdateMode,
     UnifiedStrategyRunner,
 )
-from market.basic.base import DataType, MarketDataFeed, SubscriptionRequest  # noqa: E402
+from bomber.framework.market.basic.base import DataType, MarketDataFeed, SubscriptionRequest  # noqa: E402
 
 
 RB = InstrumentId.from_str("rb2610.SHFE")

@@ -14,10 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-<<<<<<< HEAD
-=======
 #lib/
->>>>>>> a9ff085fddb0749be5aa2d61c9926ad8d16d4408
 lib64/
 parts/
 sdist/
@@ -187,3 +184,9 @@ _bak*
 *.cpp
 runs/
 *.c
+.vscode
+.build-deps/
+.DS_Store
+__*/
+results/
+demos/**/*.json

@@ -11,9 +11,9 @@ import threading
 import time
 from dataclasses import dataclass
 
-from market.basic.base import InstrumentId, SubscriptionRequest, make_quote_tick
-from market.stream.base import StreamDataFeed
-from market.stream.health import (
+from bomber.framework.market.basic.base import InstrumentId, SubscriptionRequest, make_quote_tick
+from bomber.framework.market.stream.base import StreamDataFeed
+from bomber.framework.market.stream.health import (
     MarketHealthReason,
     MarketHealthState,
     StreamHealthConfig,

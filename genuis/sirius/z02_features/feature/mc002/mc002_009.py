@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 import polars as pl
-from feature.utils.preprocess import preprocess_ticks
+from lib.process.preprocess import preprocess_ticks
 
 # 因子核心计算表达式
 EXPR = ((3.141592653589793 / 2.0) * (pl.count() / (pl.count() - 2).clip(lower_bound=1)) * pl.col("_bipower_prod").sum()).alias("mc002_009")
