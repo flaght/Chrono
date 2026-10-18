@@ -1,0 +1,40 @@
+# -*- encoding:utf-8 -*-
+"""
+kx016 - 特质波动率因子的重构 (调用端) - 近似实现
+
+研报来源: 因子选股系列之十二：特质波动率因子的重构.pdf
+实现状态: generated_approximate
+近似说明: 基于日频个股波动率和流动性特征近似特质风险
+"""
+
+from lumina.impulse.base import ImpulseBase
+from lumina.impulse.base import default_keys1
+from .core.kx016 import kx016 as calc_kx016
+
+
+class ImpulseKx016(ImpulseBase):
+
+    def __init__(self, **kwargs):
+        # 自定义参数组合：(weriod, window, ewm)
+        default_keys = default_keys1 if not kwargs else kwargs.get('keys')
+        self.kx016_keys = frozenset(default_keys)
+
+    @property
+    def name(self):
+        return "kx016"
+
+    def calc_impulse(self, kl_pd):
+        """计算特质波动率因子的所有参数组合"""
+        impulse_dict = {}
+        for dk in self.kx016_keys:
+            factor = calc_kx016(
+                close=kl_pd['close'],
+                volume=kl_pd['volume'],
+                window=dk[0],
+                weriod=dk[1],
+                ewm=True if dk[2] == 1 else False
+            )
+            name = "{0}_{1}_{2}_{3}".format(self.name, dk[0], dk[1], dk[2])
+            factor = self._format(factor, name=name)
+            impulse_dict[name] = factor
+        return impulse_dict

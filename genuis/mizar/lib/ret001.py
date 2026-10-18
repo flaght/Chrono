@@ -1,5 +1,8 @@
 import numpy as np
+<<<<<<< HEAD
 import pdb
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
 def create_chg(market_data, name='vwap'):
     pricep = market_data.set_index(['trade_time', 'code'])[name].unstack()

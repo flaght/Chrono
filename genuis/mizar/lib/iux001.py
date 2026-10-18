@@ -17,6 +17,7 @@ aggregation_rules = {
 def fetch_data(method,
                instruments,
                task_id,
+               features=[],
                datasets=['train', 'val', 'test']):
     factors_data, returns_data = fetch_market(instruments=instruments,
                                               method=method,
