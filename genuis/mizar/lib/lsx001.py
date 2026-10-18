@@ -86,7 +86,11 @@ def build_factors(method,
                   name,
                   datasets=['train', 'val', 'test']):
     pdb.set_trace()
+<<<<<<< HEAD
     if name == 'draft':
+=======
+    if name in ['draft']:
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         expressions = fetch_draft_factors(method=method,
                                           instruments=instruments,
                                           task_id=task_id,

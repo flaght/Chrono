@@ -1,13 +1,19 @@
 import pdb, os, datetime
+<<<<<<< HEAD
 import numpy as np
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 import pandas as pd
 from pymongo import InsertOne, DeleteOne
 
 from jdw import DBAPI
 from alphacopilot.api.data import RetrievalAPI, ddb_tools, DDBAPI
+<<<<<<< HEAD
 from alphacopilot.dataapi.basic.ddb.utilities import to_format, convert_date
 #from alphacopilot.dataapi.retireval.ddb_customized import NORMALIZERS
 from kdutils.macro2 import *
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 from kdutils.mongodb import MongoDBManager
 
 kd_engine = DBAPI.FetchEngine.create_engine('kd')
@@ -32,6 +38,7 @@ def fut_min_ddb(begin_date, end_date, symbol, code, columns):
     df['code'] = code
     df = df.drop(['minTime', 'date'], axis=1)
     return df
+
 
 
 def fetch_local_market(base_path, method, instruments, name):
@@ -244,6 +251,7 @@ def fetch_basic1(begin_date, end_date, symbols):
     })
 
 
+<<<<<<< HEAD
 def fetch_basic2(begin_date,
                  end_date,
                  codes=None,
@@ -370,6 +378,8 @@ def fetch_daily_market(begin_date,
     return market_data
 
 
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 def fetch_local_market1(base_path,
                         begin_date,
                         end_date,
@@ -379,12 +389,16 @@ def fetch_local_market1(base_path,
     ### 查找主力合约
     adj_name = "{0}_cumfactor".format(method) if isinstance(
         method, str) else "pcr_cumfactor"
+<<<<<<< HEAD
     # algin_factors = RetrievalAPI.get_algin_factors(
     #     begin_date=begin_date,
     #     end_date=end_date,
     #     codes=codes,
     #     columns=['trade_date', 'code', 'symbol', adj_name])
     algin_factors = fetch_algin_factors(
+=======
+    algin_factors = RetrievalAPI.get_algin_factors(
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         begin_date=begin_date,
         end_date=end_date,
         codes=codes,
@@ -399,21 +413,27 @@ def fetch_local_market1(base_path,
             base_path, row.trade_date.strftime("%Y%m%d"),
             "{0}_{1}.feather".format(row.symbol,
                                      row.trade_date.strftime("%Y%m%d")))
+<<<<<<< HEAD
         if not os.path.exists(filename):
             print(" file does not exist: {0}".format(filename))
             continue
         print(filename)
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         md = pd.read_feather(filename)
         md['code'] = row.code
         if isinstance(method, str):
             md['factor'] = row.pcr_cumfactor
             md[adj_columns] = md[adj_columns].multiply(md['factor'], axis=0)
+<<<<<<< HEAD
 
         md = filter_trading_time(
             data=md,
             trading_sessions=TRADING_TIME_MAPPING[row.code],
             is_reset_index=False,
             time_name='datetime')
+=======
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         min_data.append(md)
     min_data = pd.concat(min_data).sort_values(
         by=['datetime', 'code', 'symbol'])
@@ -428,6 +448,7 @@ def fetch_local_market1(base_path,
     }).drop(drop_colmns, axis=1)
     min_data['trade_time'] = pd.to_datetime(min_data['trade_time'])
     ## 过滤非正常交易时间段
+<<<<<<< HEAD
     # times_to_exclude = [
     #     datetime.time(8, 59, 0),
     #     datetime.time(20, 59, 0),
@@ -453,14 +474,27 @@ def fetch_local_market1(base_path,
     min_data_cleaned = min_data[(min_data['volume'] != 0)
                                 & (min_data['value'] != 0)].copy()
     return min_data_cleaned.reset_index(drop=True)
+=======
+    times_to_exclude = [
+        datetime.time(8, 59, 0),
+        datetime.time(20, 59, 0),
+        datetime.time(15, 16, 0)
+    ]
+    min_data = min_data[~min_data['trade_time'].dt.time.isin(times_to_exclude)]
+    return min_data
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
 
 def fetch_main_market(begin_date,
                       end_date,
                       codes,
                       method='pcr',
+<<<<<<< HEAD
                       keep_symbol=False,
                       forced_alignment=False):
+=======
+                      keep_symbol=False):
+>>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
     basic_info = fetch_basic(begin_date, end_date, codes)
     data = RetrievalAPI.get_main_price(begin_date=begin_date,
                                        end_date=end_date,

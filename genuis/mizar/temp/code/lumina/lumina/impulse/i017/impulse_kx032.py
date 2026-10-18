@@ -1,0 +1,36 @@
+# -*- encoding:utf-8 -*-
+"""
+kx032 - 盈余公告前异常波动因子 (信息泄露风险)
+"""
+
+from lumina.impulse.base import ImpulseBase
+from lumina.impulse.base import default_keys1
+from .core.kx032 import kx032 as calc_kx032
+
+
+class ImpulseKx032(ImpulseBase):
+
+    def __init__(self, **kwargs):
+        # 自定义参数组合：(weriod, window, ewm)
+        default_keys = default_keys1 if not kwargs else kwargs.get('keys')
+        self.kx032_keys = frozenset(default_keys)
+
+    @property
+    def name(self):
+        return "kx032"
+
+    def calc_impulse(self, kl_pd):
+        """计算盈余公告前异常波动因子的所有参数组合"""
+        impulse_dict = {}
+        for dk in self.kx032_keys:
+            factor = calc_kx032(
+                close=kl_pd['close'],
+                volume=kl_pd['volume'],
+                window=dk[0],
+                weriod=dk[1],
+                ewm=True if dk[2] == 1 else False
+            )
+            name = "{0}_{1}_{2}_{3}".format(self.name, dk[0], dk[1], dk[2])
+            factor = self._format(factor, name=name)
+            impulse_dict[name] = factor
+        return impulse_dict
