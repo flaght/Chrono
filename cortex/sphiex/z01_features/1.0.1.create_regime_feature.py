@@ -96,5 +96,5 @@ def create_data(method, code='000852'):
 
 
 if __name__ == '__main__':
-    method = 'test1'
+    method = 'supple1'
     create_data(method=method)

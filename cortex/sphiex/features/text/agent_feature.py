@@ -106,10 +106,12 @@ class AgentFeature(object):
                                max_events=10,
                                batch_size=40,
                                max_content_chars=800,
-                               is_refresh=False):
-        base_dirs = os.path.join(base_path, "data", "event", "map")
+                               is_refresh=False,
+                               base_dirs=None):
+        base_dirs = os.path.join(base_path, "data", "event",
+                                 "map") if base_dirs is None else base_dirs
         os.makedirs(base_dirs, exist_ok=True)
-        llm_name = 'glm_4001'#'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+        llm_name = 'deepseek_4001'#'glm_4001'  #'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
         vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
         persona_name = 'news_event_map_system_100001'
         thoughts_name = 'news_event_map_user_100001'
@@ -177,7 +179,7 @@ class AgentFeature(object):
 
         base_dirs = os.path.join(base_path, "data", "event", "reduce")
         os.makedirs(base_dirs, exist_ok=True)
-        llm_name = 'glm_4001'#'deepseek_4001'#'glm_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+        llm_name = 'deepseek_4001'  #'deepseek_4001'#'glm_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
         vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
         persona_name = 'news_event_reduce_system_100001'
         thoughts_name = 'news_event_reduce_user_100001'
@@ -193,7 +195,6 @@ class AgentFeature(object):
                                               category="diver")
         thought = thoughts1[thoughts_name]
         tasks = []
-        pdb.set_trace()
         ### 10组执行一次
         for k, v in sorted(event_data.groupby('date'),
                            key=lambda item: item[0],
@@ -268,7 +269,7 @@ class AgentFeature(object):
 
         base_dirs = os.path.join(base_path, "data", "event", "textuals")
         os.makedirs(base_dirs, exist_ok=True)
-        llm_name = 'glm_4001'#'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
+        llm_name = 'deepseek_4001'#'glm_4001'  #'deepseek_4001'  ## 指定大模型 包括地址 参数 都存储在对应字典
         vector_name = 'embedding_10002'  ##  指定嵌入模型  包括地址 参数 都存储在对应字典
         persona_name = 'news_event_system_100001'
         thoughts_name = 'news_event_user_100001'
@@ -389,6 +390,7 @@ class AgentFeature(object):
             textuals_data = pd.DataFrame(result['output']['textuals'])
             filename = os.path.join(base_dirs,
                                     "{0}.feather".format(trade_date))
+            print(filename)
             textuals_data.to_feather(filename)
             # textuals_data.to_feather(
             #     "records/data/event/textuals/{0}.feather".format(trade_date))

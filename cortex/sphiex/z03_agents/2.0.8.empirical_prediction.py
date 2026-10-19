@@ -176,7 +176,7 @@ async def create_predict_agent():
     return agent, thoughts1, thoughts_name
 
 
-async def run(method, period, lookback):
+async def run(method, mode, period, lookback):
 
     async def run_task(tasks):
         batch_results = await asyncio.gather(*tasks)
@@ -196,12 +196,12 @@ async def run(method, period, lookback):
     semaphore = asyncio.Semaphore(2)
     tasks = []
     
-    storage_path = os.path.join(base_path, "brain", method, str(period))
+    storage_path = os.path.join(base_path, "brain", mode, str(period))
     save_path = os.path.join(base_path, "outofsam", str(method), str(period))
     os.makedirs(storage_path, exist_ok=True)
     predict_data, regime_data, textuals_data, returns_data = await asyncio.to_thread(
         load_data, method=method, period=period)
-
+    
     predict_agent, predict_thoughts, predict_thoughts_name = await create_predict_agent(
     )
 
@@ -213,7 +213,7 @@ async def run(method, period, lookback):
     ]
     p_dim = len(p_cols) * (lookback + 1)
     r_dim = len(r_cols) * (lookback + 1)
-
+    
     coordinator = MARLMemoryCoordinator(name="ashare_{0}".format(ticker),
                                         storage_path=storage_path,
                                         vector_provider='fassis',
@@ -230,7 +230,6 @@ async def run(method, period, lookback):
     for index, date in enumerate(dates):
         if index < lookback:
             continue
-        # pdb.set_trace()
         # date = "2026-06-23"
         # index = 14
         end_date = date
@@ -250,10 +249,9 @@ async def run(method, period, lookback):
         p_martix = pdata[p_cols].values
         r_martix = rdata[r_cols].values
         textual_events = format_textual_events_timeline(tdata)
-       
+        
         forward_return = returns_data[returns_data['trade_date'] == end_date][
             'nxt1_ret_{0}h'.format(period)].values[0]
-
         ## 经验检索
         memories_str = coordinator.retrieve_experience(
             code=ticker,
@@ -312,6 +310,11 @@ async def run(method, period, lookback):
 
 
 if __name__ == '__main__':
-    method = 'train1'
+    method = 'supple1'
     period = 3
-    asyncio.run(run(method=method, period=3, lookback=3))
+    asyncio.run(run(
+        method=method,
+        mode='train1',
+        period=3,
+        lookback=3,
+    ))

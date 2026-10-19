@@ -46,6 +46,7 @@ def load_data(begin_date, end_date, code, max_window):
     start_date = advanceDateByCalendar('china.sse', begin_date, '-4b')
     end_date1 = advanceDateByCalendar('china.sse', end_date,
                                       '{0}b'.format(max_window))
+    pdb.set_trace()
     market_data = fetch_spot_daily(begin_date=start_date.strftime('%Y-%m-%d'),
                                    end_date=end_date1.strftime('%Y-%m-%d'),
                                    code=code)
@@ -103,5 +104,5 @@ def create_returns(method):
 
 
 if __name__ == '__main__':
-    method = 'test1'
+    method = 'supple1'
     create_returns(method=method)

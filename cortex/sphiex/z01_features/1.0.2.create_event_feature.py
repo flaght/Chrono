@@ -19,7 +19,6 @@ async def create_map_event(method):
     news_data = news_data[news_data['date'].between(begin_date,
                                                     end_date,
                                                     inclusive='both')].copy()
-    pdb.set_trace()
     agent_feature = AgentFeature(max_count=2)
     await agent_feature.create_map_event(news_data=news_data)
 
@@ -100,9 +99,9 @@ def create_data(method):
     total_data.to_feather(os.path.join(base_dir, "total_news.feather"))
 
 if __name__ == '__main__':
-    method = 'test1'
+    method = 'supple1'
     #create_data(method=method)
-    #asyncio.run(create_map_event(method=method))
-    #asyncio.run(create_reduce_event(method=method))
-    #asyncio.run(create_event_feature(method=method))
+    asyncio.run(create_map_event(method=method))
+    asyncio.run(create_reduce_event(method=method))
+    asyncio.run(create_event_feature(method=method))
     # agg_data()

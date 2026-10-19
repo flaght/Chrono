@@ -152,7 +152,6 @@ class FetchData(object):
         self.cusomize_api = DDBAPI.cusomize_api()
 
     def fetch_news(self, begin_date, end_date):
-        pdb.set_trace()
         EXCLUDE_PATTERNS = [
             r"目标价从.*(?:上调|下调)至",
             r"评级从.*(?:上调|下调)",
@@ -177,7 +176,7 @@ class FetchData(object):
             columns=['date', 'datetime', 'title', 'content', 'channels'],
             clause_list=[clause_list2, clause_list3],
             format_data=1,
-            db_path='ts_daily')
+            db_path='feed_daily')
         results.rename({'datetime': 'publish_time'}, inplace=True)
         results['content'] = results['title'] + ' ' + results['content']
         results['date'] = pd.to_datetime(
@@ -190,7 +189,7 @@ class FetchData(object):
             results["title"].fillna("").str.strip() + " " +
             results["content"].fillna("").str.strip()).str.strip()
         results = results[results["text"].str.len() >= 15]
-
+        
         results["relevance_score"] = results.apply(
             calculate_relevance_score,
             axis=1,
@@ -217,7 +216,7 @@ class FetchData(object):
             columns=['date', 'title', 'content'],
             clause_list=[clause_list2, clause_list3],
             format_data=1,
-            db_path='ts_daily')
+            db_path='feed_daily')
         results['publish_time'] = results['date']
         results['date'] = pd.to_datetime(
             results['date']).dt.strftime('%Y-%m-%d')
@@ -238,12 +237,12 @@ class FetchData(object):
             columns=['date', 'pubtime', 'title', 'content'],
             clause_list=[clause_list2, clause_list3],
             format_data=1,
-            db_path='ts_daily')
+            db_path='feed_daily')
         results['date'] = pd.to_datetime(
             results['date']).dt.strftime('%Y-%m-%d')
         results[(results['date'] >= begin_date)
                 & (results['date'] <= end_date)]
-        results.rename(columns={'pubtime':'publish_time'},inplace=True)
+        results.rename(columns={'pubtime': 'publish_time'}, inplace=True)
         results['content'] = results['title'] + ' ' + results['content']
         results['source'] = 'gov'
         results = results.drop(['title'], axis=1)
@@ -256,15 +255,16 @@ class FetchData(object):
             'date', '>=', ddb_tools.convert_date(begin_date.replace('-', '.')))
         results = self.cusomize_api.custom(
             table='monetary_policy',
-            columns=['date', 'pubtime', 'title', 'content'],
+            columns=['date', 'pub_date', 'title', 'content'],
             clause_list=[clause_list2, clause_list3],
             format_data=1,
-            db_path='ts_daily')
+            db_path='feed_daily')
         results['date'] = pd.to_datetime(
             results['date']).dt.strftime('%Y-%m-%d')
         results[(results['date'] >= begin_date)
                 & (results['date'] <= end_date)]
         results['content'] = results['title'] + ' ' + results['content']
         results['source'] = 'monetary'
+        results.rename(columns={'pub_date': 'publish_time'}, inplace=True)
         results = results.drop(['title'], axis=1)
         return results

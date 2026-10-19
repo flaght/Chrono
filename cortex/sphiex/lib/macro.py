@@ -34,8 +34,8 @@ PREDICT_FEATURES = [
     # Smart Money
     "main_flow_ratio",
     "main_flow_acceleration",
+    
     "oi_change_3d",
-
     # Sentiment Shock
     "price_ret_5d",
     "price_acc_5d",

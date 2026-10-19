@@ -8,7 +8,7 @@ load_dotenv()
 from kdutils.macro import base_path
 from kdutils.ttimes import get_dates, get_ranges
 from lib.svx001 import scale_factors
-from macro import REGIME_FEATURES, PREDICT_FEATURES, TEXT_FEATURES
+from lib.macro import REGIME_FEATURES, PREDICT_FEATURES, TEXT_FEATURES
 
 
 def process_regime_data(method):
@@ -105,7 +105,7 @@ def splite_data(data, train_range, val_range, test_range):
 
 ## 输出切割
 if __name__ == '__main__':
-    method = 'test1'
+    method = 'supple1'
     period = 3
     regime_data = process_regime_data(method=method)
     predict_data = process_predict_data(method=method)

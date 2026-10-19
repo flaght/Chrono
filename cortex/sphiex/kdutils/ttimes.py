@@ -7,6 +7,8 @@ def get_dates(method):
         return '2025-06-01', '2026-01-01'
     elif method == 'train1':
         return '2025-01-01', '2026-01-01'
+    elif method == 'supple1':
+        return '2026-08-10', '2026-09-28'
 
 
 def get_ranges(method):
@@ -29,3 +31,9 @@ def get_ranges(method):
         val_range = ('2026-07-01', '2026-08-13')
         test_range = ('2026-06-01', '2026-08-13')
         return train_range, val_range, test_range
+    elif method == 'supple1':
+        train_range = ('2026-07-01', '2026-08-13')
+        val_range = ('2026-07-01', '2026-08-13')
+        test_range = ('2026-08-10', '2026-09-28')
+        return train_range, val_range, test_range
+        
