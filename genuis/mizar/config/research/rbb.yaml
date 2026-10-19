@@ -107,7 +107,7 @@ experiment_setups:
     model_id: "1018806311332385" #"7" #1018806311332385
     form: "metrics"
 
-  "nn_rbb_strategy": # 6.1.9.build_hybrid_transformer_loss_strategy.py
+  "nn_rbb_strategy1": # 6.1.9.build_hybrid_transformer_loss_strategy.py
     method: ricso2
     task_id: "113001"
     instruments: rbb
@@ -120,6 +120,36 @@ experiment_setups:
     device: "cuda"
     model_id: "1018806311332385" # 用于predict 模式 指定模型
 
+  "nn_rbb_strategy": # 6.1.10.build_hybrid_transformer_loss_strategy.py
+    method: ricso2
+    task_id: "113001"
+    instruments: rbb
+    period: 5
+    form: "forecast"
+    env_id: 10001
+    trade_id: 10001
+    train_id: 10001
+    feature_id: 10001
+    regime_id: 10001
+    trial_id: 10002 # forecast 模式 指定训练不同组
+    model_id: 10001
+    split: "test"
+    inference_batch_size: 4096
+    device: "cuda"
+    #model_id: "1018806311332385" # 用于predict 模式 指定模型.这里要修改，
+    seed_run_ids:
+      42: "1013995178499222"
+      2026: "1087298621243300"
+      3407: "1077034256017865"
+
+    asset_specs:
+      - code: RB
+        instruments: rbb
+        task_id: "113001"
+      - code: HC
+        instruments: hcb
+        task_id: "134002"
+
   "nn_rbb_signal": # 6.4.1.transformer_signal_backtest
     method: ricso2
     task_id: "113001"
@@ -127,6 +157,22 @@ experiment_setups:
     period: 5
     trial_id: "10002"
     form: "metrics"
+    seed_run_ids:
+      42: "1013995178499222"
+      2026: "1087298621243300"
+      3407: "1077034256017865"
+    asset_specs:
+      - code: RB
+        instruments: rbb
+        task_id: "113001"
+      - code: HC
+        instruments: hcb
+        task_id: "134001"
+    selected_signals:
+      linear_signal:
+        "1103": {roll_num: 0, threshold: 0.15}
+      threshold_signal:
+        "1301": {roll_num: 0, threshold: 0.02}
 
 
   "rl_rbb_eval": # 6.2.2.rl_signal_backtest.py

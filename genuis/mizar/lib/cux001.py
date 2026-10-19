@@ -132,12 +132,6 @@ class FactorEvaluate1(object):
         """
         计算因子与预期收益的滚动相关性
         """
-        ## 应该使用标准化后的
-        # self.resample_data['ic'] = self.resample_data[self.ret_name].rolling(
-        #     window=self.roll_win,
-        #     min_periods=5).corr(self.resample_data[self.factor_name])
-        # total_ic = self.resample_data[self.ret_name].corr(
-        #     self.resample_data[self.factor_name])
         self.resample_data['ic'] = self.resample_data[self.ret_name].rolling(
             window=self.roll_win,
             min_periods=5).corr(self.resample_data['f_scaled'])
@@ -178,11 +172,7 @@ class FactorEvaluate1(object):
         ## 1. 计算回测跨越的年数
         delta_days = (self.resample_data.index[-1] -
                       self.resample_data.index[0]).days
-<<<<<<< HEAD
         years = delta_days / 365
-=======
-        years = delta_days / 250
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         if years <= 0: years = 1e-6  # 防止除零
 
         # -------- 基础统计 --------
@@ -750,7 +740,6 @@ class FactorEvaluate1(object):
         image_path = os.path.join(output_dir, "evaluation_plot.png")
         self.figure.savefig(image_path, dpi=150)
 
-<<<<<<< HEAD
         # 4. 保存xml
         xml_path = os.path.join(output_dir, "evaluation.xml")
         xml_text = self.generate_xml(
@@ -760,8 +749,6 @@ class FactorEvaluate1(object):
         with open(xml_path, 'w', encoding='utf-8') as file:
             file.write(xml_text)
 
-=======
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         ##单独保存
         image_path1 = os.path.join(base_output_dir, "plot")
         os.makedirs(image_path1, exist_ok=True)
