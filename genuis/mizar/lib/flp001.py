@@ -402,10 +402,7 @@ def load_data(method, task_id, instruments, period, session, category):
     results = pd.DataFrame(res)
     return results
 
-<<<<<<< HEAD
 
-=======
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 def load_data2(method, task_id, instruments, period, filename="draft.csv"):
     res = []
     file_path = os.path.join(base_path, method, instruments, 'rulex', task_id,
