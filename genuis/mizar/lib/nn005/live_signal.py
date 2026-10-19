@@ -1,5 +1,7 @@
 """将逐 bar 的融合 predicted_z 转为已固化的目标信号；不产生订单。"""
 
+from __future__ import annotations
+
 import math
 from typing import Mapping
 
@@ -8,6 +10,7 @@ from typing import Mapping
 # 三组参数一致。只接收 roll_num=0 的无状态信号，不在实盘中重新寻优。
 SIGNAL_PRESETS = {
     "1101": ("linear_signal", {"roll_num": 0, "threshold": 0.05}),
+    "1103": ("linear_signal", {"roll_num": 0, "threshold": 0.15}),
     "1201": ("linear_threshold_signal", {
         "roll_num": 0, "threshold": 0.01, "upper": 0.075,
     }),
@@ -27,7 +30,7 @@ class LiveSignalConverter:
         if self.params["roll_num"] != 0:
             raise ValueError("逐 bar 转换只支持 roll_num=0")
 
-    def value(self, predicted_z: float) -> float:
+    def value(self, predicted_z: float) -> float | int:
         """严格复现对应 Lumina 函数的有限输入分支。"""
         z = float(predicted_z)
         if not math.isfinite(z):
@@ -44,7 +47,7 @@ class LiveSignalConverter:
             return int(z >= threshold) - int(z <= -threshold)
         raise RuntimeError(f"未实现信号函数: {self.signal_method}")
 
-    def convert(self, prediction: Mapping) -> dict:
+    def convert(self, prediction: Mapping | None) -> dict | None:
         """返回带 signal 的新记录，不修改预测器原始输出。"""
         if prediction is None:
             return None

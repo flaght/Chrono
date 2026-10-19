@@ -1,5 +1,6 @@
 """逐 bar 回放、抽样及与离线预测 CSV 的一致性校验；不用于实盘路径。"""
 
+from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
@@ -8,6 +9,57 @@ import numpy as np
 
 from .live import LiveEnsemblePredictor, load_model, seed_model_dirs
 from .live_signal import SIGNAL_PRESETS
+
+
+def compare_prepared_features(live, reference, features, code: str,
+                              atol: float = 1e-5, rtol: float = 1e-5,
+                              require_full_coverage: bool = True):
+    """按 trade_time/code 核对原始 bar 重建特征与研究特征文件。"""
+    import pandas as pd
+
+    keys = ["trade_time", "code"]
+    columns = keys + list(features)
+    for name, frame in (("live", live), ("reference", reference)):
+        missing = set(columns) - set(frame.columns)
+        if missing:
+            raise ValueError(f"{name} 缺少特征字段: {sorted(missing)}")
+        if frame.empty:
+            raise ValueError(f"{name} 特征数据为空")
+    left = live[columns].copy()
+    right = reference[columns].copy()
+    for frame in (left, right):
+        frame["trade_time"] = pd.to_datetime(frame["trade_time"], errors="raise")
+        frame["code"] = frame["code"].astype(str).str.upper()
+        frame.drop(frame.loc[frame["code"] != code.upper()].index,
+                   inplace=True)
+        if frame[keys].isna().any().any() or frame.duplicated(keys).any():
+            raise ValueError("特征数据的 trade_time/code 缺失或重复")
+    merged = left.merge(right, on=keys, how="outer", suffixes=("_live", "_ref"),
+                        validate="one_to_one", indicator=True)
+    extra = int((merged["_merge"] == "left_only").sum())
+    absent = int((merged["_merge"] == "right_only").sum())
+    if extra or (require_full_coverage and absent):
+        raise ValueError(f"特征时间键不一致: 逐 bar 独有 {extra} 行、"
+                         f"研究数据独有 {absent} 行")
+    merged = merged.loc[merged["_merge"] == "both"]
+    if merged.empty:
+        raise ValueError("没有可比较的特征时间键")
+    reports = []
+    for feature in features:
+        x = merged[f"{feature}_live"].to_numpy(dtype=float)
+        y = merged[f"{feature}_ref"].to_numpy(dtype=float)
+        delta = np.abs(x - y)
+        valid = np.isfinite(x) & np.isfinite(y)
+        ok = valid & np.isclose(x, y, atol=atol, rtol=rtol)
+        reports.append({
+            "code": code.upper(), "feature": feature,
+            "compared_rows": len(merged),
+            "mismatch_rows": int((~ok).sum()),
+            "max_abs_error": float(np.max(delta)) if valid.all() else np.inf,
+            "mean_abs_error": float(np.mean(delta)) if valid.all() else np.inf,
+            "passed": bool(ok.all()),
+        })
+    return pd.DataFrame.from_records(reports)
 
 
 def _sample_intervals(total: int, max_bars: int, mode: str,
@@ -249,6 +301,61 @@ def load_research_signals(prediction_csv: str, code: str, signal_id: str,
     reference["signal_method"] = method
     reference["signal_id"] = signal_id
     reference["eval_5m_mark"] = reference["trade_time"].dt.minute % 5 == 0
+    return reference
+
+
+def load_saved_research_signals(signal_csv: str, code: str, signal_id: str,
+                                expected_run_ids=None):
+    """读取 holdout 实际信号，不从预测值重新计算参考信号。"""
+    import pandas as pd
+
+    path = Path(signal_csv)
+    if path.name != "signals.csv" or not path.is_file():
+        raise FileNotFoundError(f"需要 holdout 保存的 signals.csv: {path}")
+    signal_id = str(signal_id)
+    if signal_id not in SIGNAL_PRESETS:
+        raise ValueError(f"未知信号编号 {signal_id}；可选 {sorted(SIGNAL_PRESETS)}")
+    code = str(code).strip().upper()
+    if not code:
+        raise ValueError("code 不能为空")
+    method = SIGNAL_PRESETS[signal_id][0]
+    if expected_run_ids is not None:
+        expected_ids = {int(seed): str(run_id) for seed, run_id
+                        in expected_run_ids.items()}
+        ensemble_name = "_".join(expected_ids[seed]
+                                 for seed in sorted(expected_ids))
+        holdout_dir = next((parent for parent in path.parents
+                            if parent.name == "holdout"), None)
+        if holdout_dir is None:
+            raise ValueError(f"信号文件不在 holdout 目录下，无法核对模型身份: {path}")
+        parts = path.relative_to(holdout_dir).parts
+        expected_parts = (ensemble_name, "ensemble", method, signal_id,
+                          f"{code}_{method}_{signal_id}_test", "signals.csv")
+        if parts != expected_parts:
+            raise ValueError("holdout 信号路径与发布模型/品种/信号不一致: "
+                             f"{parts} != {expected_parts}")
+
+    columns = ["trade_time", "code", "predicted_z", "signal",
+               "signal_method", "signal_id"]
+    try:
+        reference = pd.read_csv(path, usecols=columns,
+                                dtype={"signal_id": str})
+    except ValueError as exc:
+        raise ValueError(f"holdout 信号文件缺少必要字段: {path}: {exc}") from exc
+    if reference.empty or reference[columns].isna().any().any():
+        raise ValueError(f"holdout 信号为空或存在缺失字段: {path}")
+    reference["trade_time"] = pd.to_datetime(reference["trade_time"],
+                                              errors="raise")
+    reference["code"] = reference["code"].astype(str).str.upper()
+    if (set(reference["code"]) != {code}
+            or set(reference["signal_id"]) != {signal_id}
+            or set(reference["signal_method"]) != {method}
+            or reference.duplicated(["trade_time", "code"]).any()):
+        raise ValueError(f"holdout 信号的品种、编号、方法或时间键不一致: {path}")
+    for column in ("predicted_z", "signal"):
+        reference[column] = pd.to_numeric(reference[column], errors="raise")
+        if not np.isfinite(reference[column].to_numpy(dtype=float)).all():
+            raise ValueError(f"holdout 信号存在非有限 {column}: {path}")
     return reference
 
 

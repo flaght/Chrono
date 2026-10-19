@@ -1,4 +1,6 @@
 """单品种逐 bar 的多 seed HybridTransformer 预测；不依赖 pandas 或标签。"""
+from __future__ import annotations
+
 
 import json
 from collections import deque
@@ -185,7 +187,9 @@ class LiveEnsemblePredictor:
         if count < self.min_history:
             return None
         x = th.from_numpy(self._window()).to(self.device)
-        with th.inference_mode():
+        # torch 1.7 尚无 inference_mode；no_grad 在推理时同样关闭梯度记录。
+        inference_context = getattr(th, "inference_mode", th.no_grad)
+        with inference_context():
             per_seed = {seed: float(model(x).item())
                         for seed, model in self.models.items()}
         if not all(np.isfinite(value) for value in per_seed.values()):
