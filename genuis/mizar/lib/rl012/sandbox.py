@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 import pdb, empyrical
-=======
-import pdb
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 import pandas as pd
 import numpy as np
 from typing import Tuple, Optional
@@ -36,10 +32,6 @@ class PositionBacktester(object):
                  base_position: int = 10,
                  night_session_start: str = '2100',
                  session_anchor_start: str = '2059'):
-<<<<<<< HEAD
-=======
-
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         self.market_data = market_data.copy()
         self.slippage = slippage
         self.initial_capital = initial_capital
@@ -63,7 +55,6 @@ class PositionBacktester(object):
         self.market_data['session_date'] = self.market_data['date']
         night_mask = minute_values >= night_start_minutes
 
-<<<<<<< HEAD
         # if night_mask.any():
         #     unique_night_dates = self.market_data.loc[
         #         night_mask, 'date'].drop_duplicates()
@@ -82,24 +73,6 @@ class PositionBacktester(object):
         # )
         self.market_data['session_sort_key'] = self.market_data[
             'trade_time'].dt.strftime('%Y%m%d%H%M').astype(int) - 200000000000
-=======
-        if night_mask.any():
-            unique_night_dates = self.market_data.loc[
-                night_mask, 'date'].drop_duplicates()
-            next_day_map = {
-                date_value: _next_trading_day(date_value)
-                for date_value in unique_night_dates
-            }
-            self.market_data.loc[night_mask,
-                                 'session_date'] = self.market_data.loc[
-                                     night_mask, 'date'].map(next_day_map)
-
-        self.market_data['session_sort_key'] = np.where(
-            minute_values >= anchor_start_minutes,
-            minute_values,
-            minute_values + 24 * 60,
-        )
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
 
         self.market_data = self.market_data.sort_values(
             ['session_date', 'code',
@@ -114,10 +87,7 @@ class PositionBacktester(object):
             self.time_index[(date, code)] = times
 
         self.price_lookup = {}
-<<<<<<< HEAD
 
-=======
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
         for row in self.market_data.itertuples():
             key = (row.session_date, row.code, row.min_time)
             self.price_lookup[key] = row.vwap
@@ -204,19 +174,11 @@ class PositionBacktester(object):
         # 累计 PnL
         cumulative_pnl = 0.0
 
-<<<<<<< HEAD
         for date in self.trading_dates:
             times = self.time_index[(date, code)]
             if len(times) < 120:
                 continue
 
-=======
-        for date in self.trading_dates[:20]:
-            times = self.time_index[(date, code)]
-            if len(times) < 120:
-                continue
-            
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
             first_time = times[0]
             last_time = times[-1]
 
@@ -259,15 +221,11 @@ class PositionBacktester(object):
                     min_time = signal.min_time
                     direction = signal.direction
                     numbers = signal.numbers
-<<<<<<< HEAD
                     # if min_time == '2255' and date.strftime(
                     #         '%Y-%m-%d'
                     # ) == '2024-04-18' and signal.signal_type == 'open':
                     #     pdb.set_trace()
                     #     print()
-=======
-
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586
                     theoretical_price = self.next_price(date, code, min_time)
                     if theoretical_price is None:
                         # 无法成交（当日最后一个信号）
@@ -353,7 +311,6 @@ class PositionBacktester(object):
         self.daily_stats = pd.DataFrame(all_daily_stats)
         return self.trade_records, self.daily_stats
 
-<<<<<<< HEAD
 
 def metrics(daily_stats=None, initial_capital=50000) -> dict:
     if daily_stats is None or len(daily_stats) == 0:
@@ -436,39 +393,3 @@ def empyrical_metrics(daily_stats=None, initial_capital=50000, period='daily'):
         'long_trades': daily_stats['long_trades'].mean(),
         'short_trades': daily_stats['short_trades'].mean()
     }, cum_return2
-=======
-    def metrics(self) -> dict:
-        if self.daily_stats is None or len(self.daily_stats) == 0:
-            return {}
-
-        df = self.daily_stats
-
-        total_days = len(df)
-        win_days = (df['daily_pnl'] > 0).sum()
-        lose_days = (df['daily_pnl'] < 0).sum()
-        win_rate = win_days / total_days * 100
-
-        total_pnl = df['cumulative_pnl'].iloc[-1]
-        final_nav = df['nav'].iloc[-1]
-
-        # 计算最大回撤
-        df['cum_nav'] = df['nav'].cummax()
-        df['drawdown'] = (df['cum_nav'] - df['nav']) / df['cum_nav'] * 100
-        max_drawdown = df['drawdown'].max()
-
-        # 计算夏普比率（假设无风险利率为 0）
-        daily_returns = df['daily_pnl'] / self.initial_capital
-        sharpe_ratio = np.sqrt(252) * daily_returns.mean() / daily_returns.std(
-        ) if daily_returns.std() > 0 else 0
-
-        return {
-            'total_days': total_days,
-            'win_days': win_days,
-            'lose_days': lose_days,
-            'win_rate': win_rate,
-            'total_pnl': total_pnl,
-            'final_nav': final_nav,
-            'max_drawdown': max_drawdown,
-            'sharpe_ratio': sharpe_ratio
-        }
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586

@@ -275,6 +275,33 @@ def query_signal_results(source, segment="obse"):
     ).sort_index()
 
 
+def _save_holdout_signals(signal_data, output_dir, signal_method,
+                          signal_id):
+    """保存测试集回测实际使用的逐 bar 信号，供实盘回放逐行核对。"""
+    columns = ["trade_time", "code", "transformed", "signal",
+               "future_ret_h"]
+    missing = set(columns) - set(signal_data.columns)
+    if missing:
+        raise ValueError(f"holdout 信号缺少字段: {sorted(missing)}")
+    records = signal_data[columns].rename(
+        columns={"transformed": "predicted_z"}).copy()
+    records["signal_method"] = str(signal_method)
+    records["signal_id"] = str(signal_id)
+    if records[["trade_time", "code"]].isna().any().any() or (
+            records.duplicated(["trade_time", "code"]).any()):
+        raise ValueError("holdout 信号的 trade_time/code 缺失或重复")
+    path = Path(output_dir) / "signals.csv"
+    csv_text = records.to_csv(index=False)
+    if path.exists():
+        if path.read_text(encoding="utf-8") != csv_text:
+            raise FileExistsError(f"已有不同的 holdout 信号文件，不覆盖: {path}")
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(csv_text, encoding="utf-8")
+    print(f"Holdout signals saved to: {path} rows={len(records)}")
+    return path
+
+
 def metrics_signal(method, instruments, task_id, period, trial_id,
                    asset_specs, seed_run_ids, selected_signals, fee=0.0):
 
@@ -324,8 +351,11 @@ def metrics_signal(method, instruments, task_id, period, trial_id,
                                             resampling_win=5)
                 evaluate1.run()
                 evaluate1.plot_results()
-                evaluate1.save_results(os.path.join(output_dirs, key1,
-                                                    str(key2)))
+                result_dir = os.path.join(output_dirs, key1, str(key2))
+                evaluate1.save_results(result_dir)
+                _save_holdout_signals(signal_data,
+                                      os.path.join(result_dir, name1),
+                                      key1, key2)
 
 
 ## 校验70%用于选参数， 30% 用于冻结参数
