@@ -9,7 +9,6 @@ from lib.cux001 import FactorEvaluate1
 
 
 def fetch_draft_factors(method, instruments, task_id, period, name):
-    pdb.set_trace()
     filename = os.path.join(base_path, method, instruments, "rulex",
                             str(task_id), "nxt1_ret_{0}h".format(period),
                             "draft.csv")
@@ -86,7 +85,7 @@ def build_factors(method,
                   name,
                   datasets=['train', 'val', 'test']):
     pdb.set_trace()
-    if name in ['draft']:
+    if name == 'draft':
         expressions = fetch_draft_factors(method=method,
                                           instruments=instruments,
                                           task_id=task_id,

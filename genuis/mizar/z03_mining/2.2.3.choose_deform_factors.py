@@ -21,12 +21,9 @@ def create_evalute(column, period, factor_data, instruments, outputs):
     left_evaluate = calc_all1(expression=column,
                               total_data1=factor_data,
                               period=period)
-<<<<<<< HEAD:genuis/mizar/z03_mining/2.2.3.choose_deform_factors.py
     filename = os.path.join(outputs, left_evaluate.name, "evaluation_plot.png")
     if os.path.exists(filename):
         print("{0} exists".format(filename))
-=======
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586:genuis/mizar/2.2.3.choose_deform_factors.py
     left_evaluate.run()
     left_evaluate.plot_results()
     left_evaluate.save_results(base_output_dir=outputs)
@@ -71,8 +68,7 @@ def fetch_data1(method, instruments, datasets, features, task_id, period):
     total_data = fetch_data(method=method,
                             instruments=instruments,
                             task_id=task_id,
-                            datasets=datasets,
-                            features=features)
+                            datasets=datasets)
     total_data = total_data[['trade_time', 'code'] + features +
                             ['nxt1_ret_{}h'.format(period)]]
     return total_data
@@ -83,10 +79,7 @@ def fetch_chosen(method, instruments, task_id, period, filename="choose.csv"):
     filename = os.path.join(base_path, method, instruments, "rulex",
                             str(task_id), "nxt1_ret_{}h".format(str(period)),
                             filename)
-<<<<<<< HEAD:genuis/mizar/z03_mining/2.2.3.choose_deform_factors.py
     print(filename)
-=======
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586:genuis/mizar/2.2.3.choose_deform_factors.py
     return pd.read_csv(filename) if os.path.exists(
         filename) else pd.DataFrame()
 
@@ -176,19 +169,12 @@ def run3(method,
     if not os.path.exists(outputs):
         os.makedirs(outputs)
 
-<<<<<<< HEAD:genuis/mizar/z03_mining/2.2.3.choose_deform_factors.py
     ## 会把选中的特征全部读取处理进行绘图
-=======
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586:genuis/mizar/2.2.3.choose_deform_factors.py
     chosen_data = fetch_chosen(method=method,
                                instruments=instruments,
                                task_id=task_id,
                                period=period,
                                filename=filename)
-<<<<<<< HEAD:genuis/mizar/z03_mining/2.2.3.choose_deform_factors.py
-=======
-    pdb.set_trace()
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586:genuis/mizar/2.2.3.choose_deform_factors.py
     features = [
         eval(program.formula)._dependency
         for program in chosen_data.itertuples()
@@ -201,11 +187,7 @@ def run3(method,
                               features=features,
                               task_id=task_id,
                               period=period)
-<<<<<<< HEAD:genuis/mizar/z03_mining/2.2.3.choose_deform_factors.py
     k_split = 4
-=======
-    k_split = 2
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586:genuis/mizar/2.2.3.choose_deform_factors.py
     expression_list = chosen_data['formula'].tolist()
     expression_list = [
         expression for expression in expression_list
@@ -222,7 +204,6 @@ def run3(method,
 
 if __name__ == '__main__':
     variant = Tactix().start()
-<<<<<<< HEAD:genuis/mizar/z03_mining/2.2.3.choose_deform_factors.py
     if variant.form == 'all':
         run2(method=variant.method,
              instruments=variant.instruments,
@@ -235,14 +216,3 @@ if __name__ == '__main__':
              period=variant.period,
              task_id=variant.task_id,
              filename=variant.filename)
-=======
-    # run2(method=variant.method,
-    #      instruments=variant.instruments,
-    #      period=variant.period,
-    #      task_id=variant.task_id,
-    #      session=variant.session)
-    run3(method=variant.method,
-         instruments=variant.instruments,
-         period=variant.period,
-         task_id=variant.task_id)
->>>>>>> 9e66504024d19c9e259fb2788c88f76f99d81586:genuis/mizar/2.2.3.choose_deform_factors.py

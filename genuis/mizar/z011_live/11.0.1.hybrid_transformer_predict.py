@@ -61,6 +61,9 @@ def main() -> None:
     parser.add_argument("--code", required=True)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--min-history", type=int, default=1)
+    parser.add_argument("--feature-history-bars", type=int,
+                        help="每次计算特征仅保留最近 N 根原始 bar；默认使用全部历史。"
+                             "截断可能改变长窗口/EMA 因子，必须对照研究特征验证")
     parser.add_argument("--burn-in-bars", type=int, default=0,
                         help="目标区间开头 N 根原始 bar 只用于预热；不输出或比较预测")
     parser.add_argument("--max-bars", type=int,
@@ -91,6 +94,8 @@ def main() -> None:
         parser.error("--max-bars 必须大于0")
     if args.burn_in_bars < 0:
         parser.error("--burn-in-bars 不能为负数")
+    if args.feature_history_bars is not None and args.feature_history_bars < 1:
+        parser.error("--feature-history-bars 必须大于0")
     if args.progress_bars <= 0:
         parser.error("--progress-bars 必须大于0")
     if args.signal_output and args.signal_id == "none":
@@ -115,7 +120,6 @@ def main() -> None:
                            requested=args.device, code=code,
                            min_history=args.min_history)
     research_signals = None
-    pdb.set_trace()
     if args.reference_signals:
         research_signals = load_saved_research_signals(
             args.reference_signals, code, args.signal_id,
@@ -126,7 +130,12 @@ def main() -> None:
             expected_run_ids=predictor.run_ids)
     directions = load_feature_directions(args.directions_file,
                                          predictor.features)
-    live = LiveRawBarPredictor(predictor, directions, min_raw_bars=1)
+    live = LiveRawBarPredictor(
+        predictor, directions, min_raw_bars=1,
+        max_raw_history_bars=args.feature_history_bars)
+    if args.feature_history_bars is not None:
+        print(f"[FEATURE_HISTORY] 仅保留最近 {args.feature_history_bars} 根原始 bar；"
+              "此模式可能与完整历史特征不一致，请检查 FEATURE_COMPARISON")
     target = _read_bars(args.bars_path, code)
     if args.max_bars is not None:
         target = target.head(args.max_bars).copy()
@@ -150,11 +159,10 @@ def main() -> None:
               f"through={target.trade_time.iloc[args.burn_in_bars - 1]} "
               f"first_compared={target.trade_time.iloc[args.burn_in_bars]}")
     full_coverage = args.max_bars is None and args.burn_in_bars == 0
-    if len(combined) > 3000:
+    if len(combined) > 3000 and args.feature_history_bars is None:
         print("[WARN] 严格逐 bar 特征计算会反复处理已到达的历史；"
               "全量回放可能很慢，建议先用 --max-bars 做小样本验收")
     live.reset()
-    pdb.set_trace()
     signal_converter = (None if args.signal_id == "none" else
                         LiveSignalConverter(args.signal_id))
     records = []
@@ -163,7 +171,7 @@ def main() -> None:
     started = time.perf_counter()
     for index, row in enumerate(combined.itertuples(index=False, name=None)):
         bar = dict(zip(BAR_COLUMNS, row))
-        if index < 300:#compare_start:
+        if index < compare_start:
             live.push_bar(bar)
         else:
             pdb.set_trace()
@@ -173,9 +181,8 @@ def main() -> None:
                 # 实盘顺序：当前 bar 预测后立即转信号，再接收下一根 bar。
                 if signal_converter is not None:
                     signal = signal_converter.convert(result)
-                    #signal["eval_5m_mark"] = (
-                    #    pd.Timestamp(signal["trade_time"]).minute % 5 == 0)
-                    pdb.set_trace()
+                    signal["eval_5m_mark"] = (
+                        pd.Timestamp(signal["trade_time"]).minute % 5 == 0)
                     signal_records.append(signal)
                 records.append(result)
                 if args.reference_features:

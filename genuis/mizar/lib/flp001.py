@@ -386,6 +386,81 @@ def parse_comparison_summary(file_path):
             record[key] = parse_value(value)
     return records
 
+def parse_multi_comparison_summary(file_path):
+    """解析两个及以上品种的对比表，每个品种一条记录，百分数保留百分数值。"""
+    key_mapping = {
+        'Avg Return (bps)': 'avg_ret',
+        'Total Return': 'total_ret',
+        'Sharpe Ratio': 'sharpe',
+        'Ann Sharpe Ratio': 'ann_sharpe',
+        'Max Drawdown': 'max_dd',
+        'Calmar Ratio': 'calmar',
+        'Win Rate': 'win_rate',
+        'Profit/Loss Ratio': 'pl_ratio',
+        'IC Mean': 'ic_mean',
+        'Total IC': 'total_ic',
+        'ICIR': 'icir',
+        'Mean Turnover': 'turnover',
+        'Factor Autocorr': 'factor_ac',
+        'Return Autocorr': 'ret_ac',
+        'Roll Window': 'roll_win',
+        'Resampling Window': 'resampling_win',
+        'Holding Profit': 'holding_profit',
+        'Expression': 'expression',
+        'Name': 'name',
+    }
+
+    def parse_value(value):
+        try:
+            return float(value.rstrip('%'))
+        except ValueError:
+            return value or None
+
+    path = Path(file_path)
+    shared = STANDARD_SCHEMA.copy()
+    shared['total_ic'] = None
+    shared['category'] = ('d' if any(
+        re.match(r'^d\d+', part) for part in path.parts) else 'p')
+    if path.parent.name.isdigit():
+        shared['name'] = float(path.parent.name)
+    instruments = []
+    metrics = {}
+    with path.open(encoding='utf-8') as stream:
+        for line in stream:
+            line = line.strip()
+            if not line or line.startswith('---'):
+                continue
+            # 先处理元数据，避免表达式中的 | 被误识别为表格分隔符。
+            if ':' in line:
+                label, value = (part.strip() for part in line.split(':', 1))
+                key = key_mapping.get(label)
+                if key:
+                    shared[key] = (value if key in ('expression',
+                                                    'holding_profit') else
+                                   parse_value(value))
+            elif '|' in line:
+                parts = [part.strip() for part in line.split('|')]
+                if parts[0] == 'Metric':
+                    instruments = parts[1:]
+                elif parts[0] in key_mapping:
+                    metrics[key_mapping[parts[0]]] = parts[1:]
+
+    if len(instruments) < 2 or not all(instruments):
+        raise ValueError(f'{file_path}: Metric 表头至少需要两个品种')
+    if len(set(instruments)) != len(instruments):
+        raise ValueError(f'{file_path}: Metric 表头的品种不能重复')
+    records = [
+        dict(shared, instrument=instrument) for instrument in instruments
+    ]
+    for key, values in metrics.items():
+        if len(values) != len(instruments):
+            raise ValueError(
+                f'{file_path}: 指标 {key} 需要 {len(instruments)} 个品种的值')
+        for record, value in zip(records, values):
+            record[key] = parse_value(value)
+    return records
+
+
 
 def load_data(method, task_id, instruments, period, session, category):
     session_name = "d{0}".format(session) if category == 2 else "{0}".format(
@@ -543,7 +618,7 @@ def load_data4(method,
 
 
 ## 整个目录检索文件
-def fetch_data(method, task_id, instruments, period, session, category):
+def fetch_data(method, task_id, instruments, period, session, category, is_multi=False):
     """按 load_data 的目录规则加载双品种绩效，每个文件对应两行。
 
     instrument 标识品种，共享 name、expression 和窗口信息；
@@ -555,7 +630,10 @@ def fetch_data(method, task_id, instruments, period, session, category):
     print(file_path)
     records = []
     for summary_file in sorted(file_path.rglob('*.txt')):
-        records.extend(parse_comparison_summary(summary_file))
+        if not is_multi:
+            records.extend(parse_comparison_summary(summary_file))
+        else:
+            records.extend(parse_multi_comparison_summary(summary_file))
     return pd.DataFrame(
         records,
         columns=[*STANDARD_SCHEMA, 'total_ic', 'category', 'instrument'])
