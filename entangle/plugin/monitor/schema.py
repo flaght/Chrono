@@ -75,7 +75,12 @@ def china_now():
 
 
 def _text(value):
-    return "" if value is None else str(value).strip()
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="ignore")
+    # CTP 定长字符数组可能带首尾空白或 \0 填充。
+    return str(value).replace("\x00", "").strip()
 
 
 def _number(raw, name, default=0.0):
@@ -100,6 +105,8 @@ def _fill(row, raw, columns):
     for column in columns:
         if column not in row:
             row[column] = raw.get(column, "")
+        if isinstance(row[column], (str, bytes)):
+            row[column] = _text(row[column])
     return row
 
 
