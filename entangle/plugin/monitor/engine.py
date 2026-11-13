@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """统一资金、持仓、委托、成交和持仓明细的监控插件。"""
-
+import pdb
 import threading
 import time
 from collections import defaultdict
@@ -474,13 +474,14 @@ class Engine(object):
         委托数据由查询回报和 EVENT_ORDER 共同维护；这里只负责把
         当前统一快照落库，不会建立新的 CTP 连接。
         """
+        pdb.set_trace()
         now = self._china_now()
-        if (
-            not force
-            and self.market_time_checker
-            and not self.market_time_checker(now)
-        ):
-            return False
+        # if (
+        #     not force
+        #     and self.market_time_checker
+        #     and not self.market_time_checker(now)
+        # ):
+        #     return False
 
         dataframe = self.get_orders_dataframe()
         if dataframe.empty:
