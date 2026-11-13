@@ -278,7 +278,7 @@ class Monitor(object):
             accounts = acc_list
 
         registered = []
-        for acc in accounts[0:1]:
+        for acc in accounts:
             product_id = str(acc.get("product_id") or acc.get("ProductID") or "")
             account_id = str(acc.get("account_id") or acc.get("AccountID") or "")
             password = str(acc.get("password") or acc.get("Password") or "")
