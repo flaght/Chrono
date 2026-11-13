@@ -40,10 +40,7 @@ def main():
             time.sleep(10)
             monitor.print_dashboard()
             monitor.monitor_plugin.print_dashboard()
-            monitor.monitor_plugin.save_account_fund_snapshots(
-                db_name='nurex_daily',
-                table_name='AccountFundSnapshots',
-            )
+            monitor.monitor_plugin.save_monitor_snapshots()
     except KeyboardInterrupt:
         print("\n收到退出信号，正在停止监控...")
         monitor.close()

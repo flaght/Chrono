@@ -35,9 +35,13 @@ class DolphinDBAdapter(object):
             target_type = type_dict[col]
             if target_type == 'DATE' or target_type == 'TIMESTAMP' or target_type == 'DATETIME':
                 if type == object:  # str
-                    tmp = pd.to_datetime(tmp)
+                    tmp = pd.to_datetime(tmp, errors='coerce')
                 elif type == 'int64':  #20230101
-                    tmp = pd.to_datetime(tmp.astype(str))
+                    tmp = pd.to_datetime(tmp.astype(str), errors='coerce')
+            elif target_type == 'TIME':
+                # TableAppender 按目标表结构将 datetime64[ns]
+                # 自动适配为 DolphinDB TIME；空字符串转为 NaT。
+                tmp = pd.to_datetime(tmp, errors='coerce')
             elif target_type == 'DOUBLE':
                 tmp = tmp.astype(np.float64)
             elif target_type == 'LONG':

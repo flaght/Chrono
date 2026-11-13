@@ -66,6 +66,7 @@ class Engine(object):
         self._next_due = {}
         self._last_trade_refresh = defaultdict(float)
         self._last_fund_snapshot_time = None
+        self._last_order_snapshot_state = None
 
         self.scheduler = QueryScheduler(
             main_engine=main_engine,
@@ -464,6 +465,80 @@ class Engine(object):
         except Exception as exc:
             print("[monitor DolphinDB入库异常] {0}".format(exc))
             return False
+
+    def save_order_snapshots(
+            self, db_name="nurex_daily", table_name="DerivativeOrder",
+            force=False):
+        """将当日委托快照写入 DolphinDB。
+
+        委托数据由查询回报和 EVENT_ORDER 共同维护；这里只负责把
+        当前统一快照落库，不会建立新的 CTP 连接。
+        """
+        now = self._china_now()
+        if (
+            not force
+            and self.market_time_checker
+            and not self.market_time_checker(now)
+        ):
+            return False
+
+        dataframe = self.get_orders_dataframe()
+        if dataframe.empty:
+            return False
+
+        # UpdateTime 是每条委托最后被监控插件更新的时间。行数与
+        # 最新更新时间都未变时，避免主循环重复追加。
+        update_times = pd.to_datetime(
+            dataframe["UpdateTime"], errors="coerce"
+        ).dropna()
+        latest_update = None if update_times.empty else update_times.max()
+        snapshot_state = (len(dataframe), latest_update)
+        if not force and self._last_order_snapshot_state == snapshot_state:
+            return False
+
+        try:
+            saved = self.storage.save(
+                dataframe, db_name, table_name, method="increment"
+            )
+            if saved:
+                self._last_order_snapshot_state = snapshot_state
+                print(
+                    "[{0}] monitor 写入 {1}.{2} 共 {3} 条".format(
+                        now.strftime("%H:%M:%S"), db_name, table_name,
+                        len(dataframe),
+                    )
+                )
+            return saved
+        except Exception as exc:
+            print("[monitor 委托表入库异常] {0}".format(exc))
+            return False
+
+    def save_monitor_snapshots(
+            self, force=False, interval_minutes=5, stale_timeout=180.0):
+        """统一写入 monitor 管理的监控表。
+
+        各张表独立校验、独立防重和独立返回结果；单表无数据或写入
+        失败不会阻断其他表。后续增加成交、持仓明细时也统一从此入口扩展。
+        """
+        db_name = "nurex_daily"
+        table_names = {
+            "funds": "AccountFundSnapshots",
+            "orders": "DerivativeOrder",
+        }
+        return {
+            table_names["funds"]: self.save_account_fund_snapshots(
+                db_name=db_name,
+                table_name=table_names["funds"],
+                force=force,
+                interval_minutes=interval_minutes,
+                stale_timeout=stale_timeout,
+            ),
+            table_names["orders"]: self.save_order_snapshots(
+                db_name=db_name,
+                table_name=table_names["orders"],
+                force=force,
+            ),
+        }
 
     @staticmethod
     def _format_trading_day(value, fallback):

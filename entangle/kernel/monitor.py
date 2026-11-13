@@ -772,6 +772,12 @@ class Monitor(object):
             force=force,
         )
 
+    def save_monitor_snapshots(self, force: bool = False):
+        """统一写入资金快照和当日委托，返回每张表的写入结果。"""
+        return self.monitor_plugin.save_monitor_snapshots(
+            force=force,
+        )
+
     def close(self):
         """安全关闭所有网关与引擎"""
         print("正在关闭监控中心与底层网关...")
