@@ -67,6 +67,7 @@ class Engine(object):
         self._last_trade_refresh = defaultdict(float)
         self._last_fund_snapshot_time = None
         self._last_order_snapshot_state = None
+        self._last_trade_snapshot_state = None
 
         self.scheduler = QueryScheduler(
             main_engine=main_engine,
@@ -321,17 +322,26 @@ class Engine(object):
         direction = getattr(trade.direction, "value", trade.direction)
         offset = getattr(trade.offset, "value", trade.offset)
         trade_dt = getattr(trade, "datetime", None)
-        raw = {
+        raw = dict(getattr(trade, "extra", {}) or {})
+        raw.update({
             "ExchangeID": exchange,
             "InstrumentID": trade.symbol,
             "TradeID": trade.tradeid,
+            "OrderSysID": (
+                raw.get("OrderSysID")
+                or getattr(trade, "sys_orderid", "")
+            ),
+            "OrderLocalID": (
+                raw.get("OrderLocalID")
+                or getattr(trade, "orderid", "")
+            ),
             "Direction": direction,
             "OffsetFlag": offset,
             "Price": trade.price,
             "Volume": trade.volume,
             "TradeDate": trade_dt.strftime("%Y%m%d") if trade_dt else "",
             "TradeTime": trade_dt.strftime("%H:%M:%S") if trade_dt else "",
-        }
+        })
         row = normalize_trade(raw, gateway_name, self._config_for(gateway_name))
         row["DirectionName"] = str(direction)
         row["OffsetName"] = str(offset)
@@ -514,17 +524,59 @@ class Engine(object):
             print("[monitor 委托表入库异常] {0}".format(exc))
             return False
 
+    def save_trade_snapshots(
+            self, db_name="nurex_daily", table_name="DerivativeTrade",
+            force=False):
+        """将当日成交快照写入 DolphinDB。"""
+        now = self._china_now()
+        if (
+            not force
+            and self.market_time_checker
+            and not self.market_time_checker(now)
+        ):
+            return False
+
+        dataframe = self.get_trades_dataframe()
+        if dataframe.empty:
+            return False
+
+        update_times = pd.to_datetime(
+            dataframe["UpdateTime"], errors="coerce"
+        ).dropna()
+        latest_update = None if update_times.empty else update_times.max()
+        snapshot_state = (len(dataframe), latest_update)
+        if not force and self._last_trade_snapshot_state == snapshot_state:
+            return False
+
+        try:
+            saved = self.storage.save(
+                dataframe, db_name, table_name, method="increment"
+            )
+            if saved:
+                self._last_trade_snapshot_state = snapshot_state
+                print(
+                    "[{0}] monitor 写入 {1}.{2} 共 {3} 条".format(
+                        now.strftime("%H:%M:%S"), db_name, table_name,
+                        len(dataframe),
+                    )
+                )
+            return saved
+        except Exception as exc:
+            print("[monitor 成交表入库异常] {0}".format(exc))
+            return False
+
     def save_monitor_snapshots(
             self, force=False, interval_minutes=5, stale_timeout=180.0):
         """统一写入 monitor 管理的监控表。
 
         各张表独立校验、独立防重和独立返回结果；单表无数据或写入
-        失败不会阻断其他表。后续增加成交、持仓明细时也统一从此入口扩展。
+        失败不会阻断其他表。后续增加持仓明细时也统一从此入口扩展。
         """
         db_name = "nurex_daily"
         table_names = {
             "funds": "AccountFundSnapshots",
             "orders": "DerivativeOrder",
+            "trades": "DerivativeTrade",
         }
         return {
             table_names["funds"]: self.save_account_fund_snapshots(
@@ -537,6 +589,11 @@ class Engine(object):
             table_names["orders"]: self.save_order_snapshots(
                 db_name=db_name,
                 table_name=table_names["orders"],
+                force=force,
+            ),
+            table_names["trades"]: self.save_trade_snapshots(
+                db_name=db_name,
+                table_name=table_names["trades"],
                 force=force,
             ),
         }
