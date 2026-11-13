@@ -52,8 +52,13 @@ class DolphinDBAdapter(object):
                 except:
                     tmp = tmp.astype('float').astype('Int32')
             elif target_type == 'SYMBOL' or target_type == 'STRING':
-                tmp.fillna('', inplace=True)
-                tmp = tmp.astype(str)
+                # 入库前再清理一次 CTP 定长字符中的填充内容，
+                # 避免 TradeID/OrderSysID 等在 DolphinDB 中无法精确匹配。
+                tmp = (
+                    tmp.fillna('').astype(str)
+                    .str.replace('\x00', '', regex=False)
+                    .str.strip()
+                )
             return tmp
 
         for col, type in df.dtypes.items():
