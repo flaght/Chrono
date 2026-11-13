@@ -458,11 +458,12 @@ class Monitor(object):
 
     def print_dashboard(self) -> None:
         """
-        在控制台打印当前格式化的多账号权益与持仓看板
+        在控制台打印当前格式化的多账号权益、持仓、当日委托与成交看板
         """
         summary = self.get_summary()
         sep_thick = "=" * 98
         sep_thin = "-" * 98
+        sep_detail = "-" * 132
 
         trading_status = "【盘中交易中】" if is_trading_time() else "【已收盘/休市中】"
         trading_day_disp = get_china_trading_day()
@@ -517,7 +518,102 @@ class Monitor(object):
         if not has_position:
             print("  (当前所有账户无持仓)")
 
-        # 3. 汇总板块
+        def display_text(value, default="-"):
+            if value is None or pd.isna(value):
+                return default
+            text = str(value).strip()
+            return text or default
+
+        def display_number(value, decimals=2):
+            try:
+                if value is None or pd.isna(value):
+                    return 0.0
+                return round(float(value), decimals)
+            except (TypeError, ValueError):
+                return 0.0
+
+        def display_quantity(value):
+            number = display_number(value)
+            return str(int(number)) if number.is_integer() else f"{number:g}"
+
+        def current_trading_day_rows(frame):
+            """保留当前交易日数据；实时事件没有 TradingDay 时也应显示。"""
+            if frame.empty or "TradingDay" not in frame.columns:
+                return frame
+            target = trading_day_disp.replace("-", "")
+            days = (
+                frame["TradingDay"].fillna("").astype(str)
+                .str.strip().str.replace("-", "", regex=False)
+            )
+            return frame[(days == "") | (days == target)]
+
+        # 3. 当日委托板块
+        orders = current_trading_day_rows(
+            self.monitor_plugin.get_orders_dataframe()
+        )
+        if not orders.empty:
+            orders = orders.sort_values(
+                by=["InsertTime", "AccountID"], na_position="last"
+            )
+
+        print("\n【当日委托】")
+        print(
+            f"{'产品ID':<12} | {'账户':<12} | {'合约':<12} | {'方向':<4} | "
+            f"{'开平':<6} | {'委托价':>10} | {'委托量':>6} | {'已成交':>6} | "
+            f"{'剩余':>6} | {'状态':<18} | {'委托时间':<8}"
+        )
+        print(sep_detail)
+        if orders.empty:
+            print("  (当前交易日无委托)")
+        else:
+            for _, order in orders.iterrows():
+                print(
+                    f"{display_text(order.get('ProductID')):<12} | "
+                    f"{display_text(order.get('AccountID')):<12} | "
+                    f"{display_text(order.get('InstrumentID')):<12} | "
+                    f"{display_text(order.get('DirectionName')):<4} | "
+                    f"{display_text(order.get('OffsetName')):<6} | "
+                    f"{display_number(order.get('LimitPrice')):>10,.2f} | "
+                    f"{display_quantity(order.get('VolumeTotalOriginal')):>6} | "
+                    f"{display_quantity(order.get('VolumeTraded')):>6} | "
+                    f"{display_quantity(order.get('VolumeTotal')):>6} | "
+                    f"{display_text(order.get('OrderStatusName')):<18} | "
+                    f"{display_text(order.get('InsertTime')):<8}"
+                )
+
+        # 4. 当日成交板块
+        trades = current_trading_day_rows(
+            self.monitor_plugin.get_trades_dataframe()
+        )
+        if not trades.empty:
+            trades = trades.sort_values(
+                by=["TradeTime", "AccountID"], na_position="last"
+            )
+
+        print("\n【当日成交】")
+        print(
+            f"{'产品ID':<12} | {'账户':<12} | {'合约':<12} | {'方向':<4} | "
+            f"{'开平':<6} | {'成交价':>10} | {'成交量':>6} | "
+            f"{'成交时间':<8} | {'成交编号':<16}"
+        )
+        print(sep_detail)
+        if trades.empty:
+            print("  (当前交易日无成交)")
+        else:
+            for _, trade in trades.iterrows():
+                print(
+                    f"{display_text(trade.get('ProductID')):<12} | "
+                    f"{display_text(trade.get('AccountID')):<12} | "
+                    f"{display_text(trade.get('InstrumentID')):<12} | "
+                    f"{display_text(trade.get('DirectionName')):<4} | "
+                    f"{display_text(trade.get('OffsetName')):<6} | "
+                    f"{display_number(trade.get('Price')):>10,.2f} | "
+                    f"{display_quantity(trade.get('Volume')):>6} | "
+                    f"{display_text(trade.get('TradeTime')):<8} | "
+                    f"{display_text(trade.get('TradeID')):<16}"
+                )
+
+        # 5. 汇总板块
         print(sep_thin)
         print(f"【全账户汇总看板】")
         print(
