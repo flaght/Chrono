@@ -484,7 +484,7 @@ class Engine(object):
         委托数据由查询回报和 EVENT_ORDER 共同维护；这里只负责把
         当前统一快照落库，不会建立新的 CTP 连接。
         """
-        pdb.set_trace()
+        
         now = self._china_now()
         # if (
         #     not force
@@ -529,13 +529,12 @@ class Engine(object):
             force=False):
         """将当日成交快照写入 DolphinDB。"""
         now = self._china_now()
-        if (
-            not force
-            and self.market_time_checker
-            and not self.market_time_checker(now)
-        ):
-            return False
-
+        # if (
+        #     not force
+        #     and self.market_time_checker
+        #     and not self.market_time_checker(now)
+        # ):
+        #     return False
         dataframe = self.get_trades_dataframe()
         if dataframe.empty:
             return False
@@ -547,7 +546,7 @@ class Engine(object):
         snapshot_state = (len(dataframe), latest_update)
         if not force and self._last_trade_snapshot_state == snapshot_state:
             return False
-
+        pdb.set_trace()
         try:
             saved = self.storage.save(
                 dataframe, db_name, table_name, method="increment"
@@ -586,11 +585,11 @@ class Engine(object):
                 interval_minutes=interval_minutes,
                 stale_timeout=stale_timeout,
             ),
-            table_names["orders"]: self.save_order_snapshots(
-                db_name=db_name,
-                table_name=table_names["orders"],
-                force=force,
-            ),
+            # table_names["orders"]: self.save_order_snapshots(
+            #     db_name=db_name,
+            #     table_name=table_names["orders"],
+            #     force=force,
+            # ),
             table_names["trades"]: self.save_trade_snapshots(
                 db_name=db_name,
                 table_name=table_names["trades"],
