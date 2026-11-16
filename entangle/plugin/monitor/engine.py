@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """统一资金、持仓、委托、成交和持仓明细的监控插件。"""
-import pdb
+
 import threading
 import time
 from collections import defaultdict
@@ -68,6 +68,7 @@ class Engine(object):
         self._last_fund_snapshot_time = None
         self._last_order_snapshot_state = None
         self._last_trade_snapshot_state = None
+        self._last_position_snapshot_state = None
         self._last_position_detail_snapshot_state = None
 
         self.scheduler = QueryScheduler(
@@ -485,14 +486,13 @@ class Engine(object):
         委托数据由查询回报和 EVENT_ORDER 共同维护；这里只负责把
         当前统一快照落库，不会建立新的 CTP 连接。
         """
-        
         now = self._china_now()
-        # if (
-        #     not force
-        #     and self.market_time_checker
-        #     and not self.market_time_checker(now)
-        # ):
-        #     return False
+        if (
+            not force
+            and self.market_time_checker
+            and not self.market_time_checker(now)
+        ):
+            return False
 
         dataframe = self.get_orders_dataframe()
         if dataframe.empty:
@@ -530,12 +530,13 @@ class Engine(object):
             force=False):
         """将当日成交快照写入 DolphinDB。"""
         now = self._china_now()
-        # if (
-        #     not force
-        #     and self.market_time_checker
-        #     and not self.market_time_checker(now)
-        # ):
-        #     return False
+        if (
+            not force
+            and self.market_time_checker
+            and not self.market_time_checker(now)
+        ):
+            return False
+
         dataframe = self.get_trades_dataframe()
         if dataframe.empty:
             return False
@@ -547,7 +548,7 @@ class Engine(object):
         snapshot_state = (len(dataframe), latest_update)
         if not force and self._last_trade_snapshot_state == snapshot_state:
             return False
-        pdb.set_trace()
+
         try:
             saved = self.storage.save(
                 dataframe, db_name, table_name, method="increment"
@@ -563,6 +564,47 @@ class Engine(object):
             return saved
         except Exception as exc:
             print("[monitor 成交表入库异常] {0}".format(exc))
+            return False
+
+    def save_position_snapshots(
+            self, db_name="nurex_daily", table_name="DerivativePosition",
+            force=False):
+        """将按合约和方向汇总的持仓快照写入 DolphinDB。"""
+        now = self._china_now()
+        if (
+            not force
+            and self.market_time_checker
+            and not self.market_time_checker(now)
+        ):
+            return False
+
+        dataframe = self.get_positions_dataframe()
+        if dataframe.empty:
+            return False
+
+        update_times = pd.to_datetime(
+            dataframe["UpdateTime"], errors="coerce"
+        ).dropna()
+        latest_update = None if update_times.empty else update_times.max()
+        snapshot_state = (len(dataframe), latest_update)
+        if not force and self._last_position_snapshot_state == snapshot_state:
+            return False
+
+        try:
+            saved = self.storage.save(
+                dataframe, db_name, table_name, method="increment"
+            )
+            if saved:
+                self._last_position_snapshot_state = snapshot_state
+                print(
+                    "[{0}] monitor 写入 {1}.{2} 共 {3} 条".format(
+                        now.strftime("%H:%M:%S"), db_name, table_name,
+                        len(dataframe),
+                    )
+                )
+            return saved
+        except Exception as exc:
+            print("[monitor 汇总持仓表入库异常] {0}".format(exc))
             return False
 
     def save_position_detail_snapshots(
@@ -621,6 +663,7 @@ class Engine(object):
             "funds": "AccountFundSnapshots",
             "orders": "DerivativeOrder",
             "trades": "DerivativeTrade",
+            "positions": "DerivativePosition",
             "position_details": "PositionDetails",
         }
         return {
@@ -631,14 +674,19 @@ class Engine(object):
                 interval_minutes=interval_minutes,
                 stale_timeout=stale_timeout,
             ),
-            # table_names["orders"]: self.save_order_snapshots(
-            #     db_name=db_name,
-            #     table_name=table_names["orders"],
-            #     force=force,
-            # ),
+            table_names["orders"]: self.save_order_snapshots(
+                db_name=db_name,
+                table_name=table_names["orders"],
+                force=force,
+            ),
             table_names["trades"]: self.save_trade_snapshots(
                 db_name=db_name,
                 table_name=table_names["trades"],
+                force=force,
+            ),
+            table_names["positions"]: self.save_position_snapshots(
+                db_name=db_name,
+                table_name=table_names["positions"],
                 force=force,
             ),
             table_names["position_details"]:

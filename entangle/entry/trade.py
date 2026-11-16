@@ -37,7 +37,7 @@ def main():
     print("\n[运行中] monitor 插件已启动，正在统一维护资金、持仓、委托、成交和持仓明细。按 Ctrl+C 可停止运行。\n")
     try:
         while True:
-            time.sleep(10)
+            time.sleep(60)
             monitor.print_dashboard()
             monitor.monitor_plugin.print_dashboard()
             monitor.monitor_plugin.save_monitor_snapshots()
